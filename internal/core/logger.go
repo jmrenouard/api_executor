@@ -71,7 +71,10 @@ func (l *Logger) log(level LogLevel, levelStr string, message string) {
 		}
 		// Using json.NewEncoder to write structured logs
 		encoder := json.NewEncoder(l.logger.Writer())
-		encoder.Encode(entry)
+		if err := encoder.Encode(entry); err != nil {
+			// Fallback: print error to stderr
+			log.Printf("Logger failed to encode log entry: %v", err)
+		}
 	}
 }
 
