@@ -1,0 +1,155 @@
+basePath: /
+definitions:
+  api.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  api.ExecuteCommandRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  api.ExecuteCommandResponse:
+    properties:
+      error:
+        type: string
+      output:
+        type: string
+    type: object
+  api.FileListResponse:
+    properties:
+      files:
+        items:
+          type: string
+        type: array
+    type: object
+  core.CommandDefinition:
+    properties:
+      args:
+        items:
+          type: string
+        type: array
+      command:
+        type: string
+      name:
+        type: string
+    type: object
+  core.ExecutorConfig:
+    properties:
+      commands:
+        items:
+          $ref: '#/definitions/core.CommandDefinition'
+        type: array
+      enabled:
+        type: boolean
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: This is a lightweight remote administration tool.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Go Admin Tool API
+  version: "1.0"
+paths:
+  /api/v1/commands:
+    get:
+      description: Retrieves a list of commands that are available to be executed.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/core.ExecutorConfig'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: List available commands
+      tags:
+      - commands
+  /api/v1/execute:
+    post:
+      consumes:
+      - application/json
+      description: Executes a command that is predefined in the server's configuration.
+      parameters:
+      - description: Command to execute
+        in: body
+        name: command
+        required: true
+        schema:
+          $ref: '#/definitions/api.ExecuteCommandRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ExecuteCommandResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Execute a predefined command
+      tags:
+      - commands
+  /api/v1/files:
+    get:
+      description: Retrieves a list of files available for download from the configured
+        secure directory.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: List files in the secure directory
+      tags:
+      - files
+  /api/v1/files/{filename}:
+    get:
+      description: Downloads a specific file from the configured secure directory.
+      parameters:
+      - description: Filename to download
+        in: path
+        name: filename
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Download a file from the secure directory
+      tags:
+      - files
+swagger: "2.0"

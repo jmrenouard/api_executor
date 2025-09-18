@@ -1,0 +1,24 @@
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+logging:
+  level: "info" # "debug", "info", "warn", "error"
+  path: "app.log"
+
+database:
+  path: "history.db"
+
+file_server:
+  enabled: true
+  secure_dir: "/var/log/secure_files" # Example secure directory
+
+command_executor:
+  enabled: true
+  commands:
+    - name: "list-processes"
+      command: "ps"
+      args: ["aux"]
+    - name: "disk-usage"
+      command: "df"
+      args: ["-h"]
