@@ -30,3 +30,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Application specific
+go-admin-tool
+app.log
+history.db
+history.db-journal
+*.db
+*.log
+server.log

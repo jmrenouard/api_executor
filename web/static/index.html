@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go Admin Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div class="container mx-auto p-8" x-data="adminApp()" x-init="init()">
+        <h1 class="text-4xl font-bold mb-8 text-center">Go Admin Tool</h1>
+
+        <!-- Command Executor -->
+        <div class="bg-white p-6 rounded-lg shadow-lg mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Command Executor</h2>
+            <div class="flex space-x-4">
+                <select x-model="selectedCommand" class="p-2 border rounded w-full">
+                    <template x-for="command in commands" :key="command.name">
+                        <option :value="command.name" x-text="command.name"></option>
+                    </template>
+                </select>
+                <button @click="executeCommand" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" :disabled="!selectedCommand">Execute</button>
+            </div>
+            <div x-show="commandOutput" class="mt-4 p-4 bg-gray-200 rounded font-mono text-sm">
+                <h3 class="font-semibold mb-2">Output:</h3>
+                <pre class="whitespace-pre-wrap" x-text="commandOutput"></pre>
+            </div>
+             <div x-show="commandError" class="mt-4 p-4 bg-red-100 text-red-700 rounded">
+                <h3 class="font-semibold mb-2">Error:</h3>
+                <pre class="whitespace-pre-wrap" x-text="commandError"></pre>
+            </div>
+        </div>
+
+        <!-- File Server -->
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-semibold mb-4">File Server</h2>
+            <button @click="listFiles" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 mb-4">Refresh File List</button>
+            <ul x-show="files.length > 0" class="list-disc list-inside space-y-2">
+                <template x-for="file in files" :key="file">
+                    <li>
+                        <a :href="'/api/v1/files/' + file" target="_blank" class="text-blue-500 hover:underline" x-text="file"></a>
+                    </li>
+                </template>
+            </ul>
+            <p x-show="files.length === 0 && !filesError" class="text-gray-500">No files found in the secure directory.</p>
+            <p x-show="filesError" class="text-red-500" x-text="filesError"></p>
+        </div>
+    </div>
+
+    <script>
+        function adminApp() {
+            return {
+                commands: [],
+                selectedCommand: null,
+                commandOutput: '',
+                commandError: '',
+                files: [],
+                filesError: '',
+
+                listCommands() {
+                    fetch('/api/v1/commands')
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to load commands');
+                        return response.json();
+                    })
+                    .then(data => {
+                        this.commands = data.commands || [];
+                        if (this.commands.length > 0) {
+                            this.selectedCommand = this.commands[0].name;
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Failed to list commands:', err);
+                        this.commandError = 'Could not fetch available commands.';
+                    });
+                },
+
+                executeCommand() {
+                    this.commandOutput = 'Executing...';
+                    this.commandError = '';
+                    fetch('/api/v1/execute', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: this.selectedCommand })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        this.commandOutput = data.output;
+                        if (data.error) {
+                            this.commandError = data.error;
+                        }
+                    })
+                    .catch(err => {
+                        this.commandError = 'Failed to execute command: ' + err;
+                        this.commandOutput = '';
+                    });
+                },
+
+                listFiles() {
+                    this.filesError = '';
+                    fetch('/api/v1/files')
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to load files');
+                        return response.json();
+                    })
+                    .then(data => {
+                        this.files = data.files || [];
+                    })
+                    .catch(err => {
+                        console.error('Failed to list files:', err);
+                        this.filesError = 'Could not fetch file list.';
+                    });
+                },
+
+                init() {
+                    // To make this work, I need to add an endpoint to list commands.
+                    // I will add this feature now.
+                    this.listCommands();
+                    this.listFiles();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
