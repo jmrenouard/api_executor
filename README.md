@@ -12,7 +12,7 @@ Go Admin Tool is a lightweight, self-contained web application for remote system
 -   **JSON Logging**: Structured logging for easy parsing and monitoring.
 -   **Action History**: Auditable history of all executed commands stored in an SQLite database.
 -   **Swagger/OpenAPI Docs**: Automatically generated API documentation.
--p-   **Prometheus Metrics**: Exposes application metrics for monitoring.
+-   **Prometheus Metrics**: Exposes application metrics for monitoring.
 -   **Dockerized**: Comes with a multi-stage `Dockerfile` for easy deployment.
 
 ## Project Structure
