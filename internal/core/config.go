@@ -27,8 +27,21 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int    `yaml:"port" json:"port"`
-	Host string `yaml:"host" json:"host"`
+	Port int       `yaml:"port" json:"port"`
+	Host string    `yaml:"host" json:"host"`
+	TLS  TLSConfig `yaml:"tls" json:"tls"`
+}
+
+type TLSConfig struct {
+	Enabled      bool     `yaml:"enabled" json:"enabled"`
+	AutoGenerate bool     `yaml:"auto_generate" json:"auto_generate"`
+	CertFile     string   `yaml:"cert_file" json:"cert_file"`
+	KeyFile      string   `yaml:"key_file" json:"key_file"`
+	ClientCAFile string   `yaml:"client_ca_file,omitempty" json:"client_ca_file,omitempty"`
+	Organization string   `yaml:"organization" json:"organization"`
+	ValidityDays int      `yaml:"validity_days" json:"validity_days"`
+	MinVersion   string   `yaml:"min_version" json:"min_version"`
+	Hosts        []string `yaml:"hosts" json:"hosts"`
 }
 
 type LoggingConfig struct {
@@ -61,12 +74,27 @@ type CommandDefinition struct {
 	Timeout        string   `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
+// DefaultTLSConfig returns the default secure HTTPS/TLS settings.
+func DefaultTLSConfig() TLSConfig {
+	return TLSConfig{
+		Enabled:      true,
+		AutoGenerate: true,
+		CertFile:     "certs/server.crt",
+		KeyFile:      "certs/server.key",
+		Organization: "Go Admin Tool",
+		ValidityDays: 365,
+		MinVersion:   "1.2",
+		Hosts:        []string{"localhost", "127.0.0.1"},
+	}
+}
+
 // DefaultConfig returns a Config initialized with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
 			Port: 8080,
 			Host: "0.0.0.0",
+			TLS:  DefaultTLSConfig(),
 		},
 		Logging: LoggingConfig{
 			Level: "info",

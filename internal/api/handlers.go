@@ -18,9 +18,10 @@ import (
 
 // APIEnv holds dependencies for API handlers.
 type APIEnv struct {
-	Config *core.Config
-	Logger *core.Logger
-	DB     *database.DB
+	Config      *core.Config
+	Logger      *core.Logger
+	DB          *database.DB
+	CertManager *core.CertManager
 }
 
 // ExecuteCommandRequest defines the structure for the command execution request body.
@@ -120,6 +121,7 @@ func extractTimeoutOverride(r *http.Request, req ExecuteCommandRequest) (time.Du
 	var bodyDuration time.Duration
 	hasBody := false
 
+	// 1. Validate ALL provided request body timeout fields (timeout_ms, timeout_seconds, timeout)
 	if req.hasRawTimeoutMs || req.TimeoutMs != 0 {
 		if req.hasRawTimeoutMs {
 			ms, err := strconv.ParseInt(strings.TrimSpace(req.rawTimeoutMs), 10, 64)
@@ -169,6 +171,7 @@ func extractTimeoutOverride(r *http.Request, req ExecuteCommandRequest) (time.Du
 		hasBody = true
 	}
 
+	// 2. Validate ALL provided URL query parameters (?timeout_ms=..., ?timeout_seconds=..., ?timeout=...)
 	var queryDuration time.Duration
 	hasQuery := false
 	if r != nil && r.URL != nil {
@@ -399,8 +402,10 @@ func (env *APIEnv) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract filename from URL path, e.g., /api/v1/files/myfile.log -> myfile.log
 	fileName := strings.TrimPrefix(r.URL.Path, "/api/v1/files/")
 
+	// Security: Prevent directory traversal attacks.
 	if strings.Contains(fileName, "..") || strings.Contains(fileName, "/") || strings.Contains(fileName, "\\") {
 		http.Error(w, "Invalid filename", http.StatusBadRequest)
 		return
@@ -408,6 +413,7 @@ func (env *APIEnv) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	filePath := filepath.Join(env.Config.FileServer.SecureDir, fileName)
 
+	// Security: Double-check that the resolved path is still within the secure directory.
 	absSecureDir, err := filepath.Abs(env.Config.FileServer.SecureDir)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -423,6 +429,7 @@ func (env *APIEnv) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if file exists
 	info, err := os.Stat(filePath)
 	if os.IsNotExist(err) || info.IsDir() {
 		http.NotFound(w, r)
@@ -448,6 +455,7 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 
 	defaultTimeout := env.Config.Executor.EffectiveDefaultTimeout()
 
+	// To avoid exposing the full command details, we only return the names and effective timeouts.
 	type commandInfo struct {
 		Name    string `json:"name"`
 		Timeout string `json:"timeout"`
@@ -470,4 +478,51 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+// TLSInfoHandler returns metadata about the server's TLS certificate configuration.
+func (env *APIEnv) TLSInfoHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if env.CertManager == nil || !env.Config.Server.TLS.Enabled {
+		_ = json.NewEncoder(w).Encode(core.CertificateInfo{Enabled: false})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(env.CertManager.Info())
+}
+
+// TLSCertificateHandler downloads the active PEM-encoded public TLS certificate.
+func (env *APIEnv) TLSCertificateHandler(w http.ResponseWriter, r *http.Request) {
+	if env.CertManager == nil || !env.Config.Server.TLS.Enabled {
+		writeJSONError(w, "TLS is disabled", http.StatusNotFound)
+		return
+	}
+	certPEM, err := env.CertManager.CertPEM()
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"server.crt\"")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(certPEM)
+}
+
+// TLSRenewHandler rotates/renews the server's self-signed TLS certificate live.
+func (env *APIEnv) TLSRenewHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if env.CertManager == nil || !env.Config.Server.TLS.Enabled {
+		writeJSONError(w, "TLS is disabled", http.StatusBadRequest)
+		return
+	}
+	info, err := env.CertManager.Rotate()
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("Failed to renew TLS certificate: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(info)
 }

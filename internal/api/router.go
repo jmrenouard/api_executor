@@ -254,10 +254,13 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// prometheusMiddleware wraps an http.Handler to collect HTTP request metrics.
+// prometheusMiddleware wraps an http.Handler to collect metrics and apply HTTPS security headers.
 func prometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		if r.TLS != nil {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 		rw := &responseWriter{ResponseWriter: w}
 		next.ServeHTTP(rw, r)
 
@@ -283,7 +286,12 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/commands", http.HandlerFunc(env.ListCommandsHandler))
 	mux.Handle("/api/v1/execute", http.HandlerFunc(env.ExecuteCommandHandler))
 	mux.Handle("/api/v1/files", http.HandlerFunc(env.ListFilesHandler))
-	mux.Handle("/api/v1/files/", http.HandlerFunc(env.DownloadFileHandler))
+	mux.Handle("/api/v1/files/", http.HandlerFunc(env.DownloadFileHandler)) // Note the trailing slash
+
+	// TLS management routes
+	mux.Handle("/api/v1/tls/info", http.HandlerFunc(env.TLSInfoHandler))
+	mux.Handle("/api/v1/tls/certificate", http.HandlerFunc(env.TLSCertificateHandler))
+	mux.Handle("/api/v1/tls/renew", http.HandlerFunc(env.TLSRenewHandler))
 
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())

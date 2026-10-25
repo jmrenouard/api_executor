@@ -1,6 +1,17 @@
 server:
   port: 8080
   host: "0.0.0.0"
+  tls:
+    enabled: true
+    auto_generate: true
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    organization: "Go Admin Tool"
+    validity_days: 365
+    min_version: "1.2"
+    hosts:
+      - "localhost"
+      - "127.0.0.1"
 
 logging:
   level: "info" # "debug", "info", "warn", "error"

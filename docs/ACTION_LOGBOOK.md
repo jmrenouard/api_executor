@@ -9,7 +9,6 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-003` | `2026-10-25T22:20:00Z` | [#4](https://github.com/jmrenouard/api_executor/issues/4) | `feat/issue-4-default-https-tls-certificate-manager` | Enable HTTPS/TLS by default with automatic X.509 self-signed certificate generation, reuse, renewal, and live rotation. |
 | `ACT-004` | `2026-10-25T22:20:00Z` | [#5](https://github.com/jmrenouard/api_executor/issues/5) | `feat/issue-5-security-analysis-and-os-presets-docker` | Publish security/architecture analysis and add Docker-testable Ubuntu & RedHat predefined OS task catalogs. |
 | `ACT-005` | `2026-10-25T22:20:00Z` | [#6](https://github.com/jmrenouard/api_executor/issues/6) | `feat/issue-6-tamper-evident-audit-and-structured-logging` | Implement tamper-evident SHA-256 hash-chained audit trail and structured ring-buffer logging. |
 | `ACT-006` | `2026-10-25T22:20:00Z` | [#7](https://github.com/jmrenouard/api_executor/issues/7) | `feat/issue-7-rbac-users-tokens-and-service-accounts` | Implement RBAC user management, Personal Access Tokens (PAT), and Third-Party Service Accounts with action scoping. |
@@ -22,18 +21,23 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-003` — Enable HTTPS/TLS by Default with Automatic X.509 Certificate Lifecycle Management
+- **Timestamp (UTC)**: `2026-10-25T22:25:00Z`
+- **GitHub Issue**: [#4](https://github.com/jmrenouard/api_executor/issues/4)
+- **Branch**: `feat/issue-4-default-https-tls-certificate-manager`
+- **Request**:
+  - Enable HTTPS/TLS by default with automatic ECDSA P-256 X.509 self-signed certificate generation, reuse, expiry auto-renewal, live rotation (`POST /api/v1/tls/renew`), PEM download (`GET /api/v1/tls/certificate`), metadata inspection (`GET /api/v1/tls/info`), optional mTLS client CA verification, and HSTS header injection.
+- **Changes**:
+  - Added [`internal/core/tls.go`](../internal/core/tls.go), [`internal/core/tls_test.go`](../internal/core/tls_test.go), and [`internal/api/tls_test.go`](../internal/api/tls_test.go).
+  - Updated [`internal/core/config.go`](../internal/core/config.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/router.go`](../internal/api/router.go), [`cmd/server/main.go`](../cmd/server/main.go), and [`config.yaml`](../config.yaml).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/api` 84.2%, `internal/core` 79.1%).
+
 ### `ACT-002` — Add Per-Action Prometheus Metrics and Hierarchical Call Timeout System
 - **Timestamp (UTC)**: `2026-10-25T22:23:00Z`
-- **GitHub Issue**: [#3](https://github.com/jmrenouard/api_executor/issues/3)
+- **GitHub Issue**: [#3](https://github.com/jmrenouard/api_executor/issues/3) (PR [#13](https://github.com/jmrenouard/api_executor/pull/13), commit `9bd86b6`)
 - **Branch**: `feat/issue-3-prometheus-action-metrics-and-timeouts`
-- **Request**:
-  - Enrich Prometheus `/metrics` with per-action counters (`action_calls_total`, `action_calls_ok_total`, `action_calls_error_total`, `action_calls_failure_total`, `action_calls_timeout_total`, `action_calls_status_total`) and duration histogram (`action_call_duration_seconds`).
-  - Add a default call timeout (`30s`) overridable per command and per API call (`timeout`, `timeout_seconds`, `timeout_ms` via JSON body or URL query).
-- **Changes**:
-  - Modified [`internal/core/config.go`](../internal/core/config.go), [`internal/core/executor.go`](../internal/core/executor.go), [`internal/core/executor_unix.go`](../internal/core/executor_unix.go), [`internal/core/executor_windows.go`](../internal/core/executor_windows.go), [`internal/api/router.go`](../internal/api/router.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/database/db.go`](../internal/database/db.go), [`config.yaml`](../config.yaml), [`Dockerfile`](../Dockerfile), and Swagger specs (`docs/docs.go`, `docs/swagger.json`, `docs/swagger.yaml`).
-  - Added [`internal/core/executor_test.go`](../internal/core/executor_test.go), [`internal/api/metrics_timeout_test.go`](../internal/api/metrics_timeout_test.go), and [`internal/database/db_test.go`](../internal/database/db_test.go).
-- **Result**:
-  - `go test -v -cover ./...` passing (`internal/api` 82.9%, `internal/core` 76.2%, `internal/database` 26.6%).
+- **Changes**: Per-action Prometheus counters/histograms and hierarchical call timeouts with process-group termination.
 
 ### `ACT-001` — Enforce English-Only Governance, Living Registers, and Strict Atomic Issue/PR/Merge Rules
 - **Timestamp (UTC)**: `2026-10-25T22:20:00Z`
