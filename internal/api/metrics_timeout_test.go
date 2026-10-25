@@ -73,6 +73,7 @@ func setupTestEnvForMetricsAndTimeout(t *testing.T) *APIEnv {
 	}
 
 	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
 	cfg.Executor = core.ExecutorConfig{
 		Enabled:               true,
 		DefaultTimeoutSeconds: 30,
