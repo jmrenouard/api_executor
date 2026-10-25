@@ -285,6 +285,8 @@ func NewRouter(env *APIEnv) http.Handler {
 	// API routes
 	mux.Handle("/api/v1/commands", http.HandlerFunc(env.ListCommandsHandler))
 	mux.Handle("/api/v1/execute", http.HandlerFunc(env.ExecuteCommandHandler))
+	mux.Handle("/api/v1/presets", http.HandlerFunc(env.ListPresetsHandler))
+	mux.Handle("/api/v1/presets/activate", http.HandlerFunc(env.ActivatePresetsHandler))
 	mux.Handle("/api/v1/files", http.HandlerFunc(env.ListFilesHandler))
 	mux.Handle("/api/v1/files/", http.HandlerFunc(env.DownloadFileHandler)) // Note the trailing slash
 

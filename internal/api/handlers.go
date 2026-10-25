@@ -455,16 +455,24 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 
 	defaultTimeout := env.Config.Executor.EffectiveDefaultTimeout()
 
-	// To avoid exposing the full command details, we only return the names and effective timeouts.
+	// To avoid exposing the raw binary/arguments, we only return the metadata and effective timeouts.
 	type commandInfo struct {
-		Name    string `json:"name"`
-		Timeout string `json:"timeout"`
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+		OSFamily    string `json:"os_family,omitempty"`
+		Category    string `json:"category,omitempty"`
+		Timeout     string `json:"timeout"`
+		Preset      bool   `json:"preset,omitempty"`
 	}
 	var commands []commandInfo
 	for _, c := range env.Config.Executor.Commands {
 		commands = append(commands, commandInfo{
-			Name:    c.Name,
-			Timeout: c.EffectiveTimeout(defaultTimeout).String(),
+			Name:        c.Name,
+			Description: c.Description,
+			OSFamily:    c.OSFamily,
+			Category:    c.Category,
+			Timeout:     c.EffectiveTimeout(defaultTimeout).String(),
+			Preset:      c.Preset,
 		})
 	}
 

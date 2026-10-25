@@ -1,0 +1,64 @@
+server:
+  port: 8080
+  host: "0.0.0.0"
+  tls:
+    enabled: true
+    auto_generate: true
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    organization: "API Executor RedHat Node"
+    validity_days: 365
+    min_version: "1.2"
+    hosts:
+      - "localhost"
+      - "127.0.0.1"
+      - "redhat-node"
+
+logging:
+  level: "info"
+  path: ""
+
+database:
+  path: "history.db"
+
+file_server:
+  enabled: true
+  secure_dir: "/var/log/secure_files"
+
+command_executor:
+  enabled: true
+  default_timeout: "30s"
+  default_timeout_seconds: 30
+  max_timeout_seconds: 300
+  enable_os_presets: true
+  os_presets:
+    - "redhat"
+  commands:
+    - name: "redhat-os-release"
+      description: "Inspect RedHat / RHEL / UBI release metadata (/etc/os-release)"
+      os_family: "redhat"
+      category: "system"
+      command: "cat"
+      args: ["/etc/os-release"]
+      timeout: "10s"
+    - name: "redhat-system-release"
+      description: "Read RedHat / Enterprise Linux /etc/redhat-release banner"
+      os_family: "redhat"
+      category: "system"
+      command: "cat"
+      args: ["/etc/redhat-release"]
+      timeout: "10s"
+    - name: "redhat-rpm-qa"
+      description: "Query all installed RPM packages with version and architecture"
+      os_family: "redhat"
+      category: "packages"
+      command: "rpm"
+      args: ["-qa", "--qf", "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n"]
+      timeout: "25s"
+    - name: "redhat-disk-space"
+      description: "Report RedHat filesystem disk space usage"
+      os_family: "redhat"
+      category: "storage"
+      command: "df"
+      args: ["-h"]
+      timeout: "10s"

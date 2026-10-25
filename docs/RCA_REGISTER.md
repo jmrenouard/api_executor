@@ -9,34 +9,36 @@ This living governance register records all errors encountered, technical dead-e
 ### `RCA-001` — Bundling Multiple Distinct Features into a Monolithic Issue #2 ("Kitchen-Sink / Papa-Maman" Anti-Pattern)
 - **Date**: `2026-10-25`
 - **Observed Symptom**: Eight distinct requests were initially bundled into Issue #2.
-- **Root Cause Analysis**: Lack of an explicit 1-item-per-Issue/Branch/PR/Merge rule in `AGENTS.md`.
 - **Applied Change / Fix**: Codified the Strict Atomicity Rule in `AGENTS.md` and `.agents/rules/atomic-workflow.md` and decomposed Issue #2 into atomic Issues `#2` through `#11`.
-- **Result**: Enforced across PR #12, PR #13, and all subsequent atomic PRs.
 
 ### `RCA-002` — Grandchild Process Leak on Command Timeout and `CGO_ENABLED=0` SQLite Failure
 - **Date**: `2026-10-25`
-- **Observed Symptom**: Child processes spawning grandchildren hung `CombinedOutput()` on timeout, and `go-sqlite3` failed with `CGO_ENABLED=0`.
 - **Applied Change / Fix**: Process-group kill (`Setpgid` on Unix, `WaitDelay` on Windows/Unix) and pure-Go in-memory fallback in `internal/database/db.go`.
-- **Result & Non-Regression Test**: `TestExecuteCommandGrandchildProcessGroupTimeout` and `TestDatabaseRecordActionAndValidation`.
 
 ### `RCA-003` — Static `tls.LoadX509KeyPair` Prevented Zero-Downtime Certificate Renewal
 - **Date**: `2026-10-25`
-- **Observed Symptom**: Standard `http.ListenAndServeTLS(certFile, keyFile)` loads the certificate only once at startup, requiring a process restart after certificate rotation.
-- **Root Cause Analysis**: Static certificate loading in `tls.Config.Certificates` ignores subsequent calls to `Rotate()`.
-- **Applied Change / Fix**: Implemented `CertManager.GetCertificate` callback protected by `sync.RWMutex` in `internal/core/tls.go` and wired `tls.Config{GetCertificate: cm.GetCertificate}` in `cmd/server/main.go`.
-- **Result & Non-Regression Test**: Verified by `TestCertManagerRotateAndRealHTTPSHandshake` and `TestTLSRenewEndpoint`.
+- **Applied Change / Fix**: Dynamic `CertManager.GetCertificate` callback protected by `sync.RWMutex` in `internal/core/tls.go`.
+
+### `RCA-004` — RedHat UBI9 Minimal Base Missing `ps` and `ss` Utilities by Default
+- **Date**: `2026-10-25`
+- **Observed Symptom**: Standard `redhat/ubi9` container images omit `procps-ng` (`ps`) and `iproute` (`ss`) in minimal layers.
+- **Root Cause Analysis**: RedHat UBI9 strips process and socket inspection utilities to reduce base layer size.
+- **Applied Change / Fix**: Explicitly installed `procps-ng` and `iproute` in `docker/Dockerfile.redhat` (and `procps` + `iproute2` in `docker/Dockerfile.ubuntu`) so all Ubuntu and RedHat preset commands execute cleanly inside Docker.
+- **Result & Non-Regression Test**: Verified by `TestOSPresetCatalogsUbuntuAndRedHat` and `TestPresetsEndpointsListAndActivate`.
 
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
 
 ### `IMP-001` — Monolithic Catch-All Pull Requests
-- **Context**: Delivering multiple unrelated features in a single PR.
 - **Reason for Abandonment**: Violates atomic engineering governance (`1 item = 1 Issue = 1 Branch = 1 PR = 1 Merge`).
 
 ### `IMP-002` — Unbounded Dynamic Action Labels in Prometheus
-- **Context**: Using raw caller-supplied `name` values directly as Prometheus `action` labels.
 - **Reason for Abandonment**: Replaced with `normalizeActionLabel` capped at `MaxDynamicActionLabels = 64`.
+
+### `IMP-003` — Using `systemctl` in Containerized OS Preset Tasks
+- **Context**: Using `systemctl status` for Ubuntu/RedHat preset tasks inside Docker containers.
+- **Reason for Abandonment**: Standard Docker containers do not run `systemd` as PID 1 (`System has not been booted with systemd as init system (PID 1)`). Replaced with container-safe inspection commands (`dpkg-query`, `apt-get -s upgrade`, `rpm -qa`, `dnf repolist`, `ps -ef`, `ss -tuln`, `/etc/os-release`).
 
 ---
 

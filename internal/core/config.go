@@ -63,15 +63,21 @@ type ExecutorConfig struct {
 	DefaultTimeoutSeconds int                 `yaml:"default_timeout_seconds,omitempty" json:"default_timeout_seconds,omitempty"`
 	DefaultTimeout        string              `yaml:"default_timeout,omitempty" json:"default_timeout,omitempty"`
 	MaxTimeoutSeconds     int                 `yaml:"max_timeout_seconds,omitempty" json:"max_timeout_seconds,omitempty"`
+	EnableOSPresets       bool                `yaml:"enable_os_presets,omitempty" json:"enable_os_presets,omitempty"`
+	OSPresets             []string            `yaml:"os_presets,omitempty" json:"os_presets,omitempty"`
 	Commands              []CommandDefinition `yaml:"commands" json:"commands"`
 }
 
 type CommandDefinition struct {
 	Name           string   `yaml:"name" json:"name"`
+	Description    string   `yaml:"description,omitempty" json:"description,omitempty"`
+	OSFamily       string   `yaml:"os_family,omitempty" json:"os_family,omitempty"`
+	Category       string   `yaml:"category,omitempty" json:"category,omitempty"`
 	Command        string   `yaml:"command" json:"command"`
 	Args           []string `yaml:"args" json:"args"`
 	TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
 	Timeout        string   `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Preset         bool     `yaml:"preset,omitempty" json:"preset,omitempty"`
 }
 
 // DefaultTLSConfig returns the default secure HTTPS/TLS settings.
@@ -218,6 +224,14 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if config.Executor.DefaultTimeoutSeconds <= 0 {
 		config.Executor.DefaultTimeoutSeconds = int(effective.Seconds())
+	}
+
+	if config.Executor.EnableOSPresets {
+		families := config.Executor.OSPresets
+		if len(families) == 0 {
+			families = []string{"ubuntu", "redhat", "common"}
+		}
+		config.Executor.Commands = MergeOSPresets(config.Executor.Commands, families...)
 	}
 
 	return config, nil
