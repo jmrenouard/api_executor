@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
 )
@@ -22,6 +23,7 @@ type APIEnv struct {
 	Logger      *core.Logger
 	DB          *database.DB
 	CertManager *core.CertManager
+	AuditLogger *audit.AuditLogger
 }
 
 // ExecuteCommandRequest defines the structure for the command execution request body.
@@ -333,6 +335,23 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 		if _, dbErr := env.DB.RecordAction(req.Name, status, output); dbErr != nil && env.Logger != nil {
 			env.Logger.Error(fmt.Sprintf("Failed to record action to database: %v", dbErr))
 		}
+	}
+
+	if env.AuditLogger != nil {
+		auditStatus := "ok"
+		if err != nil {
+			auditStatus = status
+		}
+		_, _ = env.AuditLogger.Record(audit.AuditEvent{
+			Category:   "command",
+			Action:     req.Name,
+			ActorType:  "user",
+			ActorID:    "api-caller",
+			SourceIP:   r.RemoteAddr,
+			Status:     auditStatus,
+			DurationMs: execDuration.Milliseconds(),
+			Summary:    fmt.Sprintf("Executed command %q (status=%s, timeout=%s)", req.Name, auditStatus, effectiveTimeout),
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
