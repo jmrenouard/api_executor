@@ -9,7 +9,6 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-002` | `2026-10-25T22:20:00Z` | [#3](https://github.com/jmrenouard/api_executor/issues/3) | `feat/issue-3-prometheus-action-metrics-and-timeouts` | Enrich `/metrics` with per-action Prometheus counters/histograms and add default/overridable call timeout system. |
 | `ACT-003` | `2026-10-25T22:20:00Z` | [#4](https://github.com/jmrenouard/api_executor/issues/4) | `feat/issue-4-default-https-tls-certificate-manager` | Enable HTTPS/TLS by default with automatic X.509 self-signed certificate generation, reuse, renewal, and live rotation. |
 | `ACT-004` | `2026-10-25T22:20:00Z` | [#5](https://github.com/jmrenouard/api_executor/issues/5) | `feat/issue-5-security-analysis-and-os-presets-docker` | Publish security/architecture analysis and add Docker-testable Ubuntu & RedHat predefined OS task catalogs. |
 | `ACT-005` | `2026-10-25T22:20:00Z` | [#6](https://github.com/jmrenouard/api_executor/issues/6) | `feat/issue-6-tamper-evident-audit-and-structured-logging` | Implement tamper-evident SHA-256 hash-chained audit trail and structured ring-buffer logging. |
@@ -23,18 +22,21 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-002` — Add Per-Action Prometheus Metrics and Hierarchical Call Timeout System
+- **Timestamp (UTC)**: `2026-10-25T22:23:00Z`
+- **GitHub Issue**: [#3](https://github.com/jmrenouard/api_executor/issues/3)
+- **Branch**: `feat/issue-3-prometheus-action-metrics-and-timeouts`
+- **Request**:
+  - Enrich Prometheus `/metrics` with per-action counters (`action_calls_total`, `action_calls_ok_total`, `action_calls_error_total`, `action_calls_failure_total`, `action_calls_timeout_total`, `action_calls_status_total`) and duration histogram (`action_call_duration_seconds`).
+  - Add a default call timeout (`30s`) overridable per command and per API call (`timeout`, `timeout_seconds`, `timeout_ms` via JSON body or URL query).
+- **Changes**:
+  - Modified [`internal/core/config.go`](../internal/core/config.go), [`internal/core/executor.go`](../internal/core/executor.go), [`internal/core/executor_unix.go`](../internal/core/executor_unix.go), [`internal/core/executor_windows.go`](../internal/core/executor_windows.go), [`internal/api/router.go`](../internal/api/router.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/database/db.go`](../internal/database/db.go), [`config.yaml`](../config.yaml), [`Dockerfile`](../Dockerfile), and Swagger specs (`docs/docs.go`, `docs/swagger.json`, `docs/swagger.yaml`).
+  - Added [`internal/core/executor_test.go`](../internal/core/executor_test.go), [`internal/api/metrics_timeout_test.go`](../internal/api/metrics_timeout_test.go), and [`internal/database/db_test.go`](../internal/database/db_test.go).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/api` 82.9%, `internal/core` 76.2%, `internal/database` 26.6%).
+
 ### `ACT-001` — Enforce English-Only Governance, Living Registers, and Strict Atomic Issue/PR/Merge Rules
 - **Timestamp (UTC)**: `2026-10-25T22:20:00Z`
-- **GitHub Issue**: [#2](https://github.com/jmrenouard/api_executor/issues/2)
+- **GitHub Issue**: [#2](https://github.com/jmrenouard/api_executor/issues/2) (PR [#12](https://github.com/jmrenouard/api_executor/pull/12), commit `64db254`)
 - **Branch**: `docs/issue-2-atomic-governance-rules`
-- **Request**:
-  - Port the agent instructions and governance rules from `MicroLLM` to `api_executor` exclusively in English.
-  - Enforce the strict rule: *"Une issue par élément de corrections à apporter. https://github.com/jmrenouard/api_executor/issues/2 à redécouper par éléments de corrections"* and *"Les PR, merge et issue doivent être atomiques et ne pas faire papa maman"* (1 distinct item = 1 Issue = 1 Branch = 1 Pull Request = 1 Merge).
-- **Changes**:
-  - Created [`AGENTS.md`](../AGENTS.md) with Section 1.1 (*Strict Atomicity Rule: 1 Item = 1 Issue = 1 Branch = 1 PR = 1 Merge*), full GitHub lifecycle, living register rules, and English-only policy.
-  - Created [`.agents/rules/atomic-workflow.md`](../.agents/rules/atomic-workflow.md), [`.agents/rules/english-only.md`](../.agents/rules/english-only.md), [`.agents/rules/git-workflow.md`](../.agents/rules/git-workflow.md), [`.agents/rules/github-workflow.md`](../.agents/rules/github-workflow.md), and [`.agents/rules/project-governance.md`](../.agents/rules/project-governance.md).
-  - Initialized [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
-  - Decomposed the former monolithic Issue #2 into 10 strictly atomic GitHub Issues ([#2](https://github.com/jmrenouard/api_executor/issues/2) through [#11](https://github.com/jmrenouard/api_executor/issues/11)).
-- **Result**:
-  - `go test -v -cover ./...` passing cleanly.
-  - Issue [#2](https://github.com/jmrenouard/api_executor/issues/2) re-scoped to atomic governance & closed via atomic PR merge.
+- **Changes**: Added `AGENTS.md`, `.agents/rules/*.md`, `docs/ACTION_LOGBOOK.md`, and `docs/RCA_REGISTER.md` with strict atomic workflow rules.
