@@ -24,6 +24,7 @@ type Config struct {
 	Database   DatabaseConfig   `yaml:"database" json:"database"`
 	FileServer FileServerConfig `yaml:"file_server" json:"file_server"`
 	Executor   ExecutorConfig   `yaml:"command_executor" json:"command_executor"`
+	Audit      AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 }
 
 type ServerConfig struct {
@@ -80,6 +81,13 @@ type CommandDefinition struct {
 	Preset         bool     `yaml:"preset,omitempty" json:"preset,omitempty"`
 }
 
+// AuditConfig configures the tamper-evident SHA-256 hash-chained audit trail.
+type AuditConfig struct {
+	Enabled      bool   `yaml:"enabled" json:"enabled"`
+	FilePath     string `yaml:"file_path,omitempty" json:"file_path,omitempty"`
+	MaxMemoryLog int    `yaml:"max_memory_log,omitempty" json:"max_memory_log,omitempty"`
+}
+
 // DefaultTLSConfig returns the default secure HTTPS/TLS settings.
 func DefaultTLSConfig() TLSConfig {
 	return TLSConfig{
@@ -116,6 +124,10 @@ func DefaultConfig() *Config {
 			Enabled:               true,
 			DefaultTimeoutSeconds: DefaultTimeoutSeconds,
 			DefaultTimeout:        DefaultCommandTimeout.String(),
+		},
+		Audit: AuditConfig{
+			Enabled:      true,
+			MaxMemoryLog: 1000,
 		},
 	}
 }

@@ -295,6 +295,12 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/tls/certificate", http.HandlerFunc(env.TLSCertificateHandler))
 	mux.Handle("/api/v1/tls/renew", http.HandlerFunc(env.TLSRenewHandler))
 
+	// Audit, Structured Logs & Action History routes
+	mux.Handle("/api/v1/audit/logs", http.HandlerFunc(env.AuditLogsHandler))
+	mux.Handle("/api/v1/audit/verify", http.HandlerFunc(env.AuditVerifyHandler))
+	mux.Handle("/api/v1/logs", http.HandlerFunc(env.SystemLogsHandler))
+	mux.Handle("/api/v1/history", http.HandlerFunc(env.ActionHistoryHandler))
+
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
 

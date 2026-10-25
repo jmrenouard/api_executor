@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"go-admin-tool/internal/api"
+	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
 
@@ -81,12 +82,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize Tamper-Evident Audit Logger
+	auditLogger, err := audit.NewAuditLogger(config.Audit, db, logger)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to initialize audit logger: %v", err))
+		os.Exit(1)
+	}
+
 	// Create API environment
 	apiEnv := &api.APIEnv{
 		Config:      config,
 		Logger:      logger,
 		DB:          db,
 		CertManager: certManager,
+		AuditLogger: auditLogger,
 	}
 
 	// Create router
