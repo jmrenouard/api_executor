@@ -15,10 +15,15 @@ file_server:
 
 command_executor:
   enabled: true
+  default_timeout: "30s" # Default call timeout when not overridden per command or per API call
+  default_timeout_seconds: 30
+  max_timeout_seconds: 300
   commands:
     - name: "list-processes"
       command: "ps"
       args: ["aux"]
+      timeout: "30s"
     - name: "disk-usage"
       command: "df"
       args: ["-h"]
+      timeout: "15s"

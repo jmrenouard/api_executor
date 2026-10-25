@@ -26,7 +26,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/commands": {
             "get": {
-                "description": "Retrieves a list of commands that are available to be executed.",
+                "description": "Retrieves a list of commands that are available to be executed, along with their effective timeouts.",
                 "produces": [
                     "application/json"
                 ],
@@ -52,7 +52,7 @@ const docTemplate = `{
         },
         "/api/v1/execute": {
             "post": {
-                "description": "Executes a command that is predefined in the server's configuration.",
+                "description": "Executes a command predefined in the server's configuration, with optional per-call timeout override.",
                 "consumes": [
                     "application/json"
                 ],
@@ -65,13 +65,31 @@ const docTemplate = `{
                 "summary": "Execute a predefined command",
                 "parameters": [
                     {
-                        "description": "Command to execute",
+                        "description": "Command to execute (with optional timeout override)",
                         "name": "command",
                         "in": "body",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/api.ExecuteCommandRequest"
                         }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Optional timeout override (e.g., 10s, 500ms, or seconds)",
+                        "name": "timeout",
+                        "in": "query"
+                    },
+                    {
+                        "type": "number",
+                        "description": "Optional timeout override in seconds",
+                        "name": "timeout_seconds",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Optional timeout override in milliseconds",
+                        "name": "timeout_ms",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -181,6 +199,18 @@ const docTemplate = `{
             "properties": {
                 "name": {
                     "type": "string"
+                },
+                "timeout": {
+                    "type": "string",
+                    "description": "Optional per-call timeout override (e.g., 10s, 500ms, or seconds)"
+                },
+                "timeout_seconds": {
+                    "type": "number",
+                    "description": "Optional per-call timeout override in seconds"
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Optional per-call timeout override in milliseconds"
                 }
             }
         },
@@ -191,6 +221,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "output": {
+                    "type": "string"
+                },
+                "timed_out": {
+                    "type": "boolean"
+                },
+                "timeout": {
                     "type": "string"
                 }
             }
@@ -220,6 +256,12 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "timeout": {
+                    "type": "string"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
                 }
             }
         },
@@ -232,8 +274,17 @@ const docTemplate = `{
                         "$ref": "#/definitions/core.CommandDefinition"
                     }
                 },
+                "default_timeout": {
+                    "type": "string"
+                },
+                "default_timeout_seconds": {
+                    "type": "integer"
+                },
                 "enabled": {
                     "type": "boolean"
+                },
+                "max_timeout_seconds": {
+                    "type": "integer"
                 }
             }
         }

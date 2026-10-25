@@ -9,12 +9,25 @@ definitions:
     properties:
       name:
         type: string
+      timeout:
+        description: Optional per-call timeout override (e.g., 10s, 500ms, or seconds)
+        type: string
+      timeout_ms:
+        description: Optional per-call timeout override in milliseconds
+        type: integer
+      timeout_seconds:
+        description: Optional per-call timeout override in seconds
+        type: number
     type: object
   api.ExecuteCommandResponse:
     properties:
       error:
         type: string
       output:
+        type: string
+      timed_out:
+        type: boolean
+      timeout:
         type: string
     type: object
   api.FileListResponse:
@@ -34,6 +47,10 @@ definitions:
         type: string
       name:
         type: string
+      timeout:
+        type: string
+      timeout_seconds:
+        type: integer
     type: object
   core.ExecutorConfig:
     properties:
@@ -41,8 +58,14 @@ definitions:
         items:
           $ref: '#/definitions/core.CommandDefinition'
         type: array
+      default_timeout:
+        type: string
+      default_timeout_seconds:
+        type: integer
       enabled:
         type: boolean
+      max_timeout_seconds:
+        type: integer
     type: object
 host: localhost:8080
 info:
@@ -60,7 +83,7 @@ info:
 paths:
   /api/v1/commands:
     get:
-      description: Retrieves a list of commands that are available to be executed.
+      description: Retrieves a list of commands that are available to be executed, along with their effective timeouts.
       produces:
       - application/json
       responses:
@@ -79,14 +102,26 @@ paths:
     post:
       consumes:
       - application/json
-      description: Executes a command that is predefined in the server's configuration.
+      description: Executes a command predefined in the server's configuration, with optional per-call timeout override.
       parameters:
-      - description: Command to execute
+      - description: Command to execute (with optional timeout override)
         in: body
         name: command
         required: true
         schema:
           $ref: '#/definitions/api.ExecuteCommandRequest'
+      - description: Optional timeout override (e.g., 10s, 500ms, or seconds)
+        in: query
+        name: timeout
+        type: string
+      - description: Optional timeout override in seconds
+        in: query
+        name: timeout_seconds
+        type: number
+      - description: Optional timeout override in milliseconds
+        in: query
+        name: timeout_ms
+        type: integer
       produces:
       - application/json
       responses:
