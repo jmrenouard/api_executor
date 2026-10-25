@@ -1,0 +1,26 @@
+services:
+  api-executor-ubuntu:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ubuntu
+    container_name: api-executor-ubuntu
+    ports:
+      - "8443:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:8080/api/v1/commands"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  api-executor-redhat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.redhat
+    container_name: api-executor-redhat
+    ports:
+      - "8444:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:8080/api/v1/commands"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

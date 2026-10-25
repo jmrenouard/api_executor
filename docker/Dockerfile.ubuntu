@@ -1,0 +1,26 @@
+# Multi-stage Dockerfile for testing Ubuntu predefined OS tasks
+FROM golang:1.24-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-w -s" -o /go-admin-tool ./cmd/server
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    procps \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+COPY --from=builder /go-admin-tool /app/go-admin-tool
+COPY configs/ubuntu-tasks.yaml /app/config.yaml
+COPY --chown=appuser:appgroup web /app/web
+RUN mkdir -p /var/log/secure_files /app/certs && chown -R appuser:appgroup /var/log/secure_files /app
+
+USER appuser
+EXPOSE 8080
+ENTRYPOINT ["/app/go-admin-tool"]

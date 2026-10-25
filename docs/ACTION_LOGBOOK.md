@@ -9,7 +9,6 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-004` | `2026-10-25T22:20:00Z` | [#5](https://github.com/jmrenouard/api_executor/issues/5) | `feat/issue-5-security-analysis-and-os-presets-docker` | Publish security/architecture analysis and add Docker-testable Ubuntu & RedHat predefined OS task catalogs. |
 | `ACT-005` | `2026-10-25T22:20:00Z` | [#6](https://github.com/jmrenouard/api_executor/issues/6) | `feat/issue-6-tamper-evident-audit-and-structured-logging` | Implement tamper-evident SHA-256 hash-chained audit trail and structured ring-buffer logging. |
 | `ACT-006` | `2026-10-25T22:20:00Z` | [#7](https://github.com/jmrenouard/api_executor/issues/7) | `feat/issue-7-rbac-users-tokens-and-service-accounts` | Implement RBAC user management, Personal Access Tokens (PAT), and Third-Party Service Accounts with action scoping. |
 | `ACT-007` | `2026-10-25T22:20:00Z` | [#8](https://github.com/jmrenouard/api_executor/issues/8) | `feat/issue-8-extensible-plugins-and-db-exposure` | Add extensible plugin system supporting declarative YAML command modules and read-only SQLite database exposure. |
@@ -21,26 +20,30 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-004` — Add Security Architecture Analysis and Docker-Testable Ubuntu & RedHat OS Task Presets
+- **Timestamp (UTC)**: `2026-10-25T22:27:00Z`
+- **GitHub Issue**: [#5](https://github.com/jmrenouard/api_executor/issues/5)
+- **Branch**: `feat/issue-5-security-analysis-and-os-presets-docker`
+- **Request**:
+  - Publish a security, code update, and missing capabilities analysis (`docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md`).
+  - Add predefined OS task catalogs for **Ubuntu** and **RedHat** testable in Docker containers (`docker/Dockerfile.ubuntu`, `docker/Dockerfile.redhat`, `docker-compose.os-test.yml`).
+- **Changes**:
+  - Added [`docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md`](SECURITY_AND_ARCHITECTURE_ANALYSIS.md), [`internal/core/os_presets.go`](../internal/core/os_presets.go), [`internal/core/os_presets_test.go`](../internal/core/os_presets_test.go), [`internal/api/presets_handlers.go`](../internal/api/presets_handlers.go), [`internal/api/presets_test.go`](../internal/api/presets_test.go), [`configs/ubuntu-tasks.yaml`](../configs/ubuntu-tasks.yaml), [`configs/redhat-tasks.yaml`](../configs/redhat-tasks.yaml), [`docker/Dockerfile.ubuntu`](../docker/Dockerfile.ubuntu), [`docker/Dockerfile.redhat`](../docker/Dockerfile.redhat), and [`docker-compose.os-test.yml`](../docker-compose.os-test.yml).
+  - Updated [`internal/core/config.go`](../internal/core/config.go), [`internal/api/handlers.go`](../internal/api/handlers.go), and [`internal/api/router.go`](../internal/api/router.go).
+- **Result**:
+  - `go test -v -cover ./...` passing across all packages.
+
 ### `ACT-003` — Enable HTTPS/TLS by Default with Automatic X.509 Certificate Lifecycle Management
 - **Timestamp (UTC)**: `2026-10-25T22:25:00Z`
-- **GitHub Issue**: [#4](https://github.com/jmrenouard/api_executor/issues/4)
+- **GitHub Issue**: [#4](https://github.com/jmrenouard/api_executor/issues/4) (PR [#14](https://github.com/jmrenouard/api_executor/pull/14), commit `cfc9ef5`)
 - **Branch**: `feat/issue-4-default-https-tls-certificate-manager`
-- **Request**:
-  - Enable HTTPS/TLS by default with automatic ECDSA P-256 X.509 self-signed certificate generation, reuse, expiry auto-renewal, live rotation (`POST /api/v1/tls/renew`), PEM download (`GET /api/v1/tls/certificate`), metadata inspection (`GET /api/v1/tls/info`), optional mTLS client CA verification, and HSTS header injection.
-- **Changes**:
-  - Added [`internal/core/tls.go`](../internal/core/tls.go), [`internal/core/tls_test.go`](../internal/core/tls_test.go), and [`internal/api/tls_test.go`](../internal/api/tls_test.go).
-  - Updated [`internal/core/config.go`](../internal/core/config.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/router.go`](../internal/api/router.go), [`cmd/server/main.go`](../cmd/server/main.go), and [`config.yaml`](../config.yaml).
-- **Result**:
-  - `go test -v -cover ./...` passing (`internal/api` 84.2%, `internal/core` 79.1%).
 
 ### `ACT-002` — Add Per-Action Prometheus Metrics and Hierarchical Call Timeout System
 - **Timestamp (UTC)**: `2026-10-25T22:23:00Z`
 - **GitHub Issue**: [#3](https://github.com/jmrenouard/api_executor/issues/3) (PR [#13](https://github.com/jmrenouard/api_executor/pull/13), commit `9bd86b6`)
 - **Branch**: `feat/issue-3-prometheus-action-metrics-and-timeouts`
-- **Changes**: Per-action Prometheus counters/histograms and hierarchical call timeouts with process-group termination.
 
 ### `ACT-001` — Enforce English-Only Governance, Living Registers, and Strict Atomic Issue/PR/Merge Rules
 - **Timestamp (UTC)**: `2026-10-25T22:20:00Z`
 - **GitHub Issue**: [#2](https://github.com/jmrenouard/api_executor/issues/2) (PR [#12](https://github.com/jmrenouard/api_executor/pull/12), commit `64db254`)
 - **Branch**: `docs/issue-2-atomic-governance-rules`
-- **Changes**: Added `AGENTS.md`, `.agents/rules/*.md`, `docs/ACTION_LOGBOOK.md`, and `docs/RCA_REGISTER.md` with strict atomic workflow rules.
