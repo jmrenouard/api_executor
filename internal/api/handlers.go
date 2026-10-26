@@ -16,16 +16,18 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/plugins"
 )
 
 // APIEnv holds dependencies for API handlers.
 type APIEnv struct {
-	Config      *core.Config
-	Logger      *core.Logger
-	DB          *database.DB
-	CertManager *core.CertManager
-	AuditLogger *audit.AuditLogger
-	AuthManager *auth.Manager
+	Config         *core.Config
+	Logger         *core.Logger
+	DB             *database.DB
+	CertManager    *core.CertManager
+	AuditLogger    *audit.AuditLogger
+	AuthManager    *auth.Manager
+	PluginRegistry *plugins.Registry
 }
 
 // ExecuteCommandRequest defines the structure for the command execution request body.

@@ -25,6 +25,7 @@ type Config struct {
 	FileServer FileServerConfig `yaml:"file_server" json:"file_server"`
 	Executor   ExecutorConfig   `yaml:"command_executor" json:"command_executor"`
 	Auth       AuthConfig       `yaml:"auth,omitempty" json:"auth"`
+	Plugins    PluginsConfig    `yaml:"plugins,omitempty" json:"plugins"`
 	Audit      AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 }
 
@@ -92,6 +93,16 @@ type AuthConfig struct {
 	StorePath         string `yaml:"store_path,omitempty" json:"store_path,omitempty"`
 }
 
+// PluginsConfig configures declarative and native advanced plugin modules.
+type PluginsConfig struct {
+	Enabled          bool     `yaml:"enabled" json:"enabled"`
+	EnableDBExposure bool     `yaml:"enable_db_exposure" json:"enable_db_exposure"`
+	EnableSysDiag    bool     `yaml:"enable_sys_diagnostics" json:"enable_sys_diagnostics"`
+	DeclarativeDir   string   `yaml:"declarative_dir,omitempty" json:"declarative_dir,omitempty"`
+	AllowedDBPaths   []string `yaml:"allowed_db_paths,omitempty" json:"allowed_db_paths,omitempty"`
+	MaxQueryRows     int      `yaml:"max_query_rows,omitempty" json:"max_query_rows,omitempty"`
+}
+
 // AuditConfig configures the tamper-evident SHA-256 hash-chained audit trail.
 type AuditConfig struct {
 	Enabled      bool   `yaml:"enabled" json:"enabled"`
@@ -141,6 +152,13 @@ func DefaultConfig() *Config {
 			RequireAuth:       false,
 			BootstrapUsername: "admin",
 			BootstrapPassword: "admin-change-me",
+		},
+		Plugins: PluginsConfig{
+			Enabled:          true,
+			EnableDBExposure: true,
+			EnableSysDiag:    true,
+			DeclarativeDir:   "plugins",
+			MaxQueryRows:     200,
 		},
 		Audit: AuditConfig{
 			Enabled:      true,

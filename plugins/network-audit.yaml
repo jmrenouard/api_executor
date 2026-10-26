@@ -1,0 +1,24 @@
+id: "network-security-audit"
+name: "Declarative Network & Host Security Audit"
+version: "1.0.0"
+description: "Declarative command plugin module for rapid network reachability and hostname inspection."
+os_family: "any"
+actions:
+  - name: "hostname-check"
+    description: "Retrieve the local system hostname"
+    command: "hostname"
+    args: []
+    timeout: "5s"
+  - name: "echo-audit-tag"
+    description: "Echo a validated audit correlation tag without shell interpolation"
+    command: "echo"
+    args:
+      - "AUDIT_TAG={{tag}}"
+    timeout: "5s"
+    parameters:
+      - name: "tag"
+        type: "string"
+        required: false
+        default: "baseline-2026"
+        pattern: "^[a-zA-Z0-9._-]+$"
+        description: "Alphanumeric audit tag identifier"
