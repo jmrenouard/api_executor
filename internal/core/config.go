@@ -24,6 +24,7 @@ type Config struct {
 	Database   DatabaseConfig   `yaml:"database" json:"database"`
 	FileServer FileServerConfig `yaml:"file_server" json:"file_server"`
 	Executor   ExecutorConfig   `yaml:"command_executor" json:"command_executor"`
+	Auth       AuthConfig       `yaml:"auth,omitempty" json:"auth"`
 	Audit      AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 }
 
@@ -81,6 +82,16 @@ type CommandDefinition struct {
 	Preset         bool     `yaml:"preset,omitempty" json:"preset,omitempty"`
 }
 
+// AuthConfig configures user authentication, personal access tokens, and third-party service accounts.
+type AuthConfig struct {
+	Enabled           bool   `yaml:"enabled" json:"enabled"`
+	RequireAuth       bool   `yaml:"require_auth" json:"require_auth"`
+	BootstrapUsername string `yaml:"bootstrap_username,omitempty" json:"bootstrap_username,omitempty"`
+	BootstrapPassword string `yaml:"bootstrap_password,omitempty" json:"bootstrap_password,omitempty"`
+	BootstrapToken    string `yaml:"bootstrap_token,omitempty" json:"bootstrap_token,omitempty"`
+	StorePath         string `yaml:"store_path,omitempty" json:"store_path,omitempty"`
+}
+
 // AuditConfig configures the tamper-evident SHA-256 hash-chained audit trail.
 type AuditConfig struct {
 	Enabled      bool   `yaml:"enabled" json:"enabled"`
@@ -124,6 +135,12 @@ func DefaultConfig() *Config {
 			Enabled:               true,
 			DefaultTimeoutSeconds: DefaultTimeoutSeconds,
 			DefaultTimeout:        DefaultCommandTimeout.String(),
+		},
+		Auth: AuthConfig{
+			Enabled:           true,
+			RequireAuth:       false,
+			BootstrapUsername: "admin",
+			BootstrapPassword: "admin-change-me",
 		},
 		Audit: AuditConfig{
 			Enabled:      true,

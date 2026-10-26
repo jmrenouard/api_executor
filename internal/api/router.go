@@ -301,6 +301,14 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/logs", http.HandlerFunc(env.SystemLogsHandler))
 	mux.Handle("/api/v1/history", http.HandlerFunc(env.ActionHistoryHandler))
 
+	// Authentication, RBAC Users, Personal Access Tokens & Third-Party Service Accounts routes
+	mux.Handle("/api/v1/auth/login", http.HandlerFunc(env.AuthLoginHandler))
+	mux.Handle("/api/v1/auth/me", http.HandlerFunc(env.AuthMeHandler))
+	mux.Handle("/api/v1/auth/users", http.HandlerFunc(env.AuthUsersHandler))
+	mux.Handle("/api/v1/auth/tokens", http.HandlerFunc(env.AuthTokensHandler))
+	mux.Handle("/api/v1/auth/service-accounts", http.HandlerFunc(env.AuthServiceAccountsHandler))
+	mux.Handle("/api/v1/auth/service-accounts/rotate", http.HandlerFunc(env.AuthServiceAccountRotateHandler))
+
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
 
