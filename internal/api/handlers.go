@@ -16,6 +16,7 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
 )
 
@@ -28,6 +29,7 @@ type APIEnv struct {
 	AuditLogger    *audit.AuditLogger
 	AuthManager    *auth.Manager
 	PluginRegistry *plugins.Registry
+	MCPServer      *mcp.Server
 }
 
 // ExecuteCommandRequest defines the structure for the command execution request body.

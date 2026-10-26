@@ -9,7 +9,6 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-008` | `2026-10-25T22:20:00Z` | [#9](https://github.com/jmrenouard/api_executor/issues/9) | `feat/issue-9-mcp-server-and-trace-retention` | Implement complete JSON-RPC 2.0 Model Context Protocol (MCP) server with persistent trace retention. |
 | `ACT-009` | `2026-10-25T22:20:00Z` | [#10](https://github.com/jmrenouard/api_executor/issues/10) | `feat/issue-10-web-administration-console` | Build pure Web Administration Console managing commands, OS presets, users, tokens, service accounts, plugins, DB, MCP, audit, and TLS. |
 | `ACT-010` | `2026-10-25T22:20:00Z` | [#11](https://github.com/jmrenouard/api_executor/issues/11) | `docs/issue-11-svg-branding-and-english-readme` | Add custom vector SVG logo, panoramic header banner, and comprehensive English `README.md`. |
 
@@ -17,9 +16,21 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-008` — Implement Model Context Protocol (MCP) Server with Persistent Trace Retention
+- **Timestamp (UTC)**: `2026-10-26T06:34:00Z`
+- **GitHub Issue**: [#9](https://github.com/jmrenouard/api_executor/issues/9)
+- **Branch**: `feat/issue-9-mcp-server-and-trace-retention`
+- **Request**:
+  - Implement a complete JSON-RPC 2.0 Model Context Protocol (`2024-11-05`) server (`internal/mcp`) exposing tools, resources, and prompts with full request/response trace retention (`mcp_tr_<hex>`) linked to the SHA-256 hash-chained audit trail.
+- **Changes**:
+  - Added [`internal/mcp/server.go`](../internal/mcp/server.go), [`internal/mcp/server_test.go`](../internal/mcp/server_test.go), [`internal/api/mcp_handlers.go`](../internal/api/mcp_handlers.go), and [`internal/api/mcp_test.go`](../internal/api/mcp_test.go).
+  - Updated [`internal/core/config.go`](../internal/core/config.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/router.go`](../internal/api/router.go), and [`cmd/server/main.go`](../cmd/server/main.go).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/mcp` 68.3%, `internal/api` 76.8%).
+
 ### `ACT-007` — Add Extensible Plugin System with Declarative Modules and Read-Only Database Exposure
 - **Timestamp (UTC)**: `2026-10-26T06:23:00Z`
-- **GitHub Issue**: [#8](https://github.com/jmrenouard/api_executor/issues/8)
+- **GitHub Issue**: [#8](https://github.com/jmrenouard/api_executor/issues/8) (PR [#18](https://github.com/jmrenouard/api_executor/pull/18), commit `641bd54`)
 - **Branch**: `feat/issue-8-extensible-plugins-and-db-exposure`
 - **Request**:
   - Implement an extensible plugin system (`internal/plugins`) supporting both declarative YAML/JSON command modules with strict regex parameter sanitization and advanced native plugins (`db-exposure` for read-only database inspection/SELECT querying and `sys-diagnostics`).

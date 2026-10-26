@@ -26,6 +26,7 @@ type Config struct {
 	Executor   ExecutorConfig   `yaml:"command_executor" json:"command_executor"`
 	Auth       AuthConfig       `yaml:"auth,omitempty" json:"auth"`
 	Plugins    PluginsConfig    `yaml:"plugins,omitempty" json:"plugins"`
+	MCP        MCPConfig        `yaml:"mcp,omitempty" json:"mcp"`
 	Audit      AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 }
 
@@ -103,6 +104,16 @@ type PluginsConfig struct {
 	MaxQueryRows     int      `yaml:"max_query_rows,omitempty" json:"max_query_rows,omitempty"`
 }
 
+// MCPConfig configures the Model Context Protocol (MCP) server and trace retention.
+type MCPConfig struct {
+	Enabled       bool   `yaml:"enabled" json:"enabled"`
+	ServerName    string `yaml:"server_name,omitempty" json:"server_name,omitempty"`
+	ServerVersion string `yaml:"server_version,omitempty" json:"server_version,omitempty"`
+	RetainTraces  bool   `yaml:"retain_traces" json:"retain_traces"`
+	MaxTraces     int    `yaml:"max_traces,omitempty" json:"max_traces,omitempty"`
+	TraceFilePath string `yaml:"trace_file_path,omitempty" json:"trace_file_path,omitempty"`
+}
+
 // AuditConfig configures the tamper-evident SHA-256 hash-chained audit trail.
 type AuditConfig struct {
 	Enabled      bool   `yaml:"enabled" json:"enabled"`
@@ -159,6 +170,13 @@ func DefaultConfig() *Config {
 			EnableSysDiag:    true,
 			DeclarativeDir:   "plugins",
 			MaxQueryRows:     200,
+		},
+		MCP: MCPConfig{
+			Enabled:       true,
+			ServerName:    "api-executor-mcp",
+			ServerVersion: "2.0.0",
+			RetainTraces:  true,
+			MaxTraces:     500,
 		},
 		Audit: AuditConfig{
 			Enabled:      true,

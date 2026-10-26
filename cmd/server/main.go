@@ -11,6 +11,7 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
 
 	_ "go-admin-tool/docs"
@@ -117,6 +118,22 @@ func main() {
 		}
 	}
 
+	// Initialize Model Context Protocol (MCP) Server with Trace Retention
+	mcpServer, err := mcp.NewServer(
+		config.MCP,
+		config,
+		db,
+		certManager,
+		pluginRegistry,
+		auditLogger,
+		logger,
+		api.RecordActionCall,
+	)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to initialize MCP server: %v", err))
+		os.Exit(1)
+	}
+
 	// Create API environment
 	apiEnv := &api.APIEnv{
 		Config:         config,
@@ -126,6 +143,7 @@ func main() {
 		AuditLogger:    auditLogger,
 		AuthManager:    authManager,
 		PluginRegistry: pluginRegistry,
+		MCPServer:      mcpServer,
 	}
 
 	// Create router
