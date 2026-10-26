@@ -9,11 +9,23 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| *(None — all atomic issues `#2` through `#11` and `#22`, `#24`, `#26` completed)* | — | — | — | — |
+| *(None — all atomic issues `#2` through `#11` and `#22`, `#24`, `#26`, `#28` completed)* | — | — | — | — |
 
 ---
 
 ## 2. Completed Actions (`COMPLETED`)
+
+### `ACT-014` — Expand Unit and Integration Test Coverage Across Core Packages and REST API Endpoints
+- **Timestamp (UTC)**: `2026-10-26T22:04:00Z`
+- **GitHub Issue**: [#28](https://github.com/jmrenouard/api_executor/issues/28)
+- **Branch**: `test/issue-28-unit-and-api-test-coverage`
+- **Request**:
+  - Expand unit and integration tests across `internal/core`, `internal/database`, `internal/audit`, `internal/auth`, `internal/plugins`, `internal/mcp`, `internal/api`, and `cmd/server` to achieve >= 85% statement coverage across all internal packages and cover all error/boundary paths.
+- **Changes**:
+  - Added [`internal/core/logger_test.go`](../internal/core/logger_test.go), [`internal/api/files_test.go`](../internal/api/files_test.go), and [`cmd/server/main_test.go`](../cmd/server/main_test.go).
+  - Updated [`internal/core/logger.go`](../internal/core/logger.go), [`cmd/server/main.go`](../cmd/server/main.go), [`internal/database/db_test.go`](../internal/database/db_test.go), [`internal/audit/audit_test.go`](../internal/audit/audit_test.go), [`internal/auth/manager_test.go`](../internal/auth/manager_test.go), [`internal/plugins/plugins_test.go`](../internal/plugins/plugins_test.go), [`internal/mcp/server_test.go`](../internal/mcp/server_test.go), [`internal/api/audit_test.go`](../internal/api/audit_test.go), [`internal/api/auth_test.go`](../internal/api/auth_test.go), [`internal/api/mcp_test.go`](../internal/api/mcp_test.go), [`internal/api/plugin_test.go`](../internal/api/plugin_test.go), [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md), and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - `go test -v -cover ./...` passing (`docs` 100.0%, `internal/database` 96.2%, `internal/audit` 95.5%, `internal/auth` 94.3%, `internal/mcp` 94.2%, `internal/plugins` 93.0%, `internal/api` 88.4%, `internal/core` 88.2%, `cmd/server` 66.0%).
 
 ### `ACT-013` — Align README cURL Examples, `sys-diagnostics` Action Aliases, Dockerfiles, and Governance Registers
 - **Timestamp (UTC)**: `2026-10-26T20:09:00Z`

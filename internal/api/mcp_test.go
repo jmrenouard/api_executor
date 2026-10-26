@@ -157,5 +157,70 @@ func TestMCPEndpointsAndTraceInspection(t *testing.T) {
 	if !strings.Contains(recForbidMCP.Body.String(), `"isError":true`) {
 		t.Fatalf("expected MCP tools/call on forbidden command to return isError=true for scoped service account, got: %s", recForbidMCP.Body.String())
 	}
+
+	// 7. GET /api/v1/mcp returns protocol metadata, non-admin DELETE /api/v1/mcp/traces returns 403
+	reqMeta := httptest.NewRequest(http.MethodGet, "/api/v1/mcp", nil)
+	reqMeta.Header.Set("X-Service-Key", saKey)
+	recMeta := httptest.NewRecorder()
+	router.ServeHTTP(recMeta, reqMeta)
+	if recMeta.Code != http.StatusOK {
+		t.Errorf("expected 200 from GET /api/v1/mcp, got %d", recMeta.Code)
+	}
+
+	reqDelForbid := httptest.NewRequest(http.MethodDelete, "/api/v1/mcp/traces", nil)
+	reqDelForbid.Header.Set("X-Service-Key", saKey)
+	recDelForbid := httptest.NewRecorder()
+	router.ServeHTTP(recDelForbid, reqDelForbid)
+	if recDelForbid.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when service account tries to DELETE /api/v1/mcp/traces, got %d", recDelForbid.Code)
+	}
+
+	// Unknown trace ID -> 404, empty trace suffix delegates to list
+	reqUnkTrace := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/traces/mcp_tr_missing", nil)
+	reqUnkTrace.Header.Set("X-Service-Key", saKey)
+	recUnkTrace := httptest.NewRecorder()
+	router.ServeHTTP(recUnkTrace, reqUnkTrace)
+	if recUnkTrace.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown trace ID, got %d", recUnkTrace.Code)
+	}
+
+	reqEmptyTrace := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/traces/?limit=5", nil)
+	reqEmptyTrace.Header.Set("X-Service-Key", saKey)
+	recEmptyTrace := httptest.NewRecorder()
+	router.ServeHTTP(recEmptyTrace, reqEmptyTrace)
+	if recEmptyTrace.Code != http.StatusOK {
+		t.Errorf("expected 200 for /api/v1/mcp/traces/?limit=5, got %d", recEmptyTrace.Code)
+	}
+
+	// 8. MethodNotAllowed (405) and nil MCPServer (503)
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodDelete, "/api/v1/mcp"},
+		{http.MethodPost, "/api/v1/mcp/tools"},
+		{http.MethodPut, "/api/v1/mcp/traces"},
+		{http.MethodPost, "/api/v1/mcp/traces/mcp_tr_1"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set("X-Service-Key", saKey)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected 405 for %s %s, got %d", tc.method, tc.path, rec.Code)
+		}
+	}
+
+	nilMCPRouter := NewRouter(&APIEnv{Config: cfg, AuthManager: authMgr})
+	for _, path := range []string{"/api/v1/mcp", "/api/v1/mcp/tools", "/api/v1/mcp/traces", "/api/v1/mcp/traces/id1"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-Service-Key", saKey)
+		rec := httptest.NewRecorder()
+		nilMCPRouter.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("expected 503 for %s when MCPServer is nil, got %d", path, rec.Code)
+		}
+	}
 }
+
 

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -208,8 +209,84 @@ func TestEdgeCasesEmptyInputsDisabledUserAndPersistence(t *testing.T) {
 	if len(mgrReloaded.ListUsers()) < 2 {
 		t.Errorf("expected persisted users to reload from %s", storePath)
 	}
+	if len(mgrReloaded.ListTokens()) == 0 {
+		t.Errorf("expected ListTokens() to return persisted tokens")
+	}
 	if err := mgrReloaded.DeleteUser(bob.ID); err != nil {
 		t.Errorf("DeleteUser failed: %v", err)
 	}
+	if err := mgrReloaded.DeleteUser("non-existent"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound deleting unknown user, got %v", err)
+	}
+	if _, err := mgrReloaded.UpdateUser("non-existent", nil, RoleViewer); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound updating unknown user, got %v", err)
+	}
+	if err := mgrReloaded.RevokeToken("non-existent"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound revoking unknown token, got %v", err)
+	}
+	if err := mgrReloaded.DeleteServiceAccount("non-existent"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound deleting unknown service account, got %v", err)
+	}
+	if _, _, err := mgrReloaded.RotateServiceAccountKey("non-existent"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound rotating unknown service account, got %v", err)
+	}
+	if _, _, err := mgrReloaded.CreateServiceAccount("   ", "", "", nil, nil, 0); err == nil {
+		t.Errorf("expected error creating service account with empty name")
+	}
+
+	// Test default scopes/actions on CreateServiceAccount and expired service account key
+	_, expSAKey, err := mgrReloaded.CreateServiceAccount("exp-sa", "", "desc", nil, nil, 5*time.Millisecond)
+	if err != nil {
+		t.Fatalf("CreateServiceAccount exp-sa failed: %v", err)
+	}
+	time.Sleep(15 * time.Millisecond)
+	if _, err := mgrReloaded.AuthenticateCredential(expSAKey); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("expected ErrInvalidToken for expired service account key, got %v", err)
+	}
+
+	// Test Authorize with nil principal and prefix wildcard scopes (e.g. commands:*)
+	if err := Authorize(nil, "commands:read", ""); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("expected ErrInvalidToken on nil Principal, got %v", err)
+	}
+	wildcardPrincipal := &Principal{
+		Type:   "user_token",
+		Role:   RoleOperator,
+		Scopes: []string{"commands:*"},
+	}
+	if err := Authorize(wildcardPrincipal, "commands:execute", ""); err != nil {
+		t.Errorf("expected commands:* scope to authorize commands:execute: %v", err)
+	}
 }
+
+func TestExtractTokenFromRequestHeaders(t *testing.T) {
+	if tok, ok := ExtractTokenFromRequest(nil); ok || tok != "" {
+		t.Errorf("expected false on nil request")
+	}
+
+	reqEmpty := httptest.NewRequest("GET", "/api/v1/commands", nil)
+	if tok, ok := ExtractTokenFromRequest(reqEmpty); ok || tok != "" {
+		t.Errorf("expected false on request without auth headers")
+	}
+
+	reqBearer := httptest.NewRequest("GET", "/api/v1/commands", nil)
+	reqBearer.Header.Set("Authorization", "Bearer gat_pat_abc")
+	if tok, ok := ExtractTokenFromRequest(reqBearer); !ok || tok != "gat_pat_abc" {
+		t.Errorf("expected gat_pat_abc from Bearer header, got %q (ok=%v)", tok, ok)
+	}
+
+	reqRawAuth := httptest.NewRequest("GET", "/api/v1/commands", nil)
+	reqRawAuth.Header.Set("Authorization", "gat_pat_raw")
+	if tok, ok := ExtractTokenFromRequest(reqRawAuth); !ok || tok != "gat_pat_raw" {
+		t.Errorf("expected gat_pat_raw from raw Authorization header, got %q (ok=%v)", tok, ok)
+	}
+
+	for _, hdr := range []string{"X-API-Token", "X-API-Key", "X-Service-Key"} {
+		r := httptest.NewRequest("GET", "/api/v1/commands", nil)
+		r.Header.Set(hdr, "cred_"+hdr)
+		if tok, ok := ExtractTokenFromRequest(r); !ok || tok != "cred_"+hdr {
+			t.Errorf("expected cred_%s from header %s, got %q (ok=%v)", hdr, hdr, tok, ok)
+		}
+	}
+}
+
 

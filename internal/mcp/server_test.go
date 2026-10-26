@@ -223,3 +223,199 @@ func TestMCPServerFullLifecycleAndTraceRetention(t *testing.T) {
 	}
 }
 
+func TestMCPServerToolsResourcesPromptsAndErrorBranches(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, _ := database.NewDB(filepath.Join(tmpDir, "mcp_err.db"))
+	defer db.Close()
+	_ = db.Init()
+
+	certMgr, err := core.NewCertManager(core.TLSConfig{
+		Enabled:      true,
+		AutoGenerate: true,
+		CertFile:     filepath.Join(tmpDir, "server.crt"),
+		KeyFile:      filepath.Join(tmpDir, "server.key"),
+	}, "localhost")
+	if err != nil {
+		t.Fatalf("NewCertManager failed: %v", err)
+	}
+
+	auditLogger, _ := audit.NewAuditLogger(core.AuditConfig{Enabled: true}, db, nil)
+	reg := plugins.NewRegistry()
+	_ = reg.Register(plugins.NewDatabaseExposurePlugin(db, 50))
+	_ = reg.Register(plugins.NewSystemDiagnosticsPlugin())
+
+	appCfg := core.DefaultConfig()
+	appCfg.Executor.Commands = []core.CommandDefinition{
+		{
+			Name:    "fail-bin",
+			Command: "nonexistent_mcp_binary_xyz",
+		},
+	}
+
+	var metricsCount int
+	srv, err := NewServer(
+		core.MCPConfig{
+			Enabled:      true,
+			RetainTraces: true,
+			MaxTraces:    3, // small cap to test ring buffer eviction
+		},
+		appCfg,
+		db,
+		certMgr,
+		reg,
+		auditLogger,
+		nil,
+		func(_ string, _ string, _ bool, _ time.Duration) {
+			metricsCount++
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	callTool := func(name string, args map[string]any, authFn ToolAuthorizer) JSONRPCResponse {
+		p, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+		return srv.HandleJSONRPCWithAuthorizer(context.Background(), JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      1,
+			Method:  "tools/call",
+			Params:  p,
+		}, "sess-edge", "", authFn)
+	}
+
+	// 1. Invalid JSON-RPC params and empty tool name on tools/call
+	badParamResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`"not-an-object"`),
+	}, "s", "")
+	if badParamResp.Error == nil || badParamResp.Error.Code != -32602 {
+		t.Errorf("expected -32602 for invalid tools/call params, got %+v", badParamResp.Error)
+	}
+	emptyNameResp := callTool("   ", nil, nil)
+	if emptyNameResp.Error == nil || emptyNameResp.Error.Code != -32602 {
+		t.Errorf("expected -32602 for empty tool name, got %+v", emptyNameResp.Error)
+	}
+
+	// 2. execute_command edge cases: missing name, denied by authorizer, bad timeout, not found, failing binary
+	for _, tc := range []struct {
+		args   map[string]any
+		authFn ToolAuthorizer
+	}{
+		{args: map[string]any{}, authFn: nil},
+		{args: map[string]any{"name": "fail-bin"}, authFn: func(_, _ string) error { return plugins.ErrForbiddenSQL }},
+		{args: map[string]any{"name": "fail-bin", "timeout": "invalid-dur"}, authFn: nil},
+		{args: map[string]any{"name": "unknown-cmd"}, authFn: nil},
+		{args: map[string]any{"name": "fail-bin"}, authFn: nil},
+	} {
+		resp := callTool("execute_command", tc.args, tc.authFn)
+		res, ok := resp.Result.(MCPCallToolResult)
+		if !ok || !res.IsError {
+			t.Errorf("expected IsError=true for execute_command(%v), got %+v", tc.args, resp)
+		}
+	}
+
+	// 3. list_commands with os_family filter
+	listResp := callTool("list_commands", map[string]any{"os_family": "ubuntu"}, nil)
+	if res, ok := listResp.Result.(MCPCallToolResult); !ok || res.IsError {
+		t.Errorf("expected list_commands(ubuntu) to succeed, got %+v", listResp)
+	}
+
+	// 4. execute_plugin: missing args, denied by authorizer, valid execution, failing execution
+	if res := callTool("execute_plugin", map[string]any{"plugin_id": "sys-diagnostics"}, nil).Result.(MCPCallToolResult); !res.IsError {
+		t.Errorf("expected IsError when action is missing in execute_plugin")
+	}
+	if res := callTool("execute_plugin", map[string]any{"plugin_id": "sys-diagnostics", "action": "runtime_stats"}, func(_, _ string) error {
+		return plugins.ErrForbiddenSQL
+	}).Result.(MCPCallToolResult); !res.IsError {
+		t.Errorf("expected IsError when authorizer denies execute_plugin")
+	}
+	if res := callTool("execute_plugin", map[string]any{
+		"plugin_id": "sys-diagnostics",
+		"action":    "runtime_stats",
+		"params":    map[string]any{"detail": true},
+	}, nil).Result.(MCPCallToolResult); res.IsError {
+		t.Errorf("expected execute_plugin(sys-diagnostics:runtime_stats) to succeed, got %+v", res)
+	}
+	if res := callTool("execute_plugin", map[string]any{
+		"plugin_id": "sys-diagnostics",
+		"action":    "non-existent-action",
+	}, nil).Result.(MCPCallToolResult); !res.IsError {
+		t.Errorf("expected IsError for unknown plugin action")
+	}
+
+	// 5. db_query & db_list_tables: denied by authorizer and forbidden SQL
+	denyFn := func(_, _ string) error { return plugins.ErrForbiddenSQL }
+	if res := callTool("db_query", map[string]any{"sql": "SELECT 1"}, denyFn).Result.(MCPCallToolResult); !res.IsError {
+		t.Errorf("expected db_query denial to return IsError")
+	}
+	if res := callTool("db_query", map[string]any{"sql": "DROP TABLE action_history"}, nil).Result.(MCPCallToolResult); !res.IsError {
+		t.Errorf("expected forbidden SQL in db_query to return IsError")
+	}
+	if res := callTool("db_list_tables", nil, denyFn).Result.(MCPCallToolResult); !res.IsError {
+		t.Errorf("expected db_list_tables denial to return IsError")
+	}
+
+	// 6. audit_query with filters and unknown tool
+	if res := callTool("audit_query", map[string]any{"category": "mcp", "status": "ok"}, nil).Result.(MCPCallToolResult); res.IsError {
+		t.Errorf("expected audit_query with filters to succeed")
+	}
+	if res := callTool("unknown_tool_xyz", nil, nil).Result.(MCPCallToolResult); !res.IsError {
+		t.Errorf("expected unknown tool to return IsError")
+	}
+
+	// 7. resources/read for all URIs + invalid/unknown URI
+	for _, uri := range []string{
+		"executor://commands/catalog",
+		"executor://os-presets/catalog",
+		"executor://plugins/catalog",
+		"executor://tls/info",
+		"executor://audit/verify",
+	} {
+		raw, _ := json.Marshal(map[string]any{"uri": uri})
+		r := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 20, Method: "resources/read", Params: raw}, "s", "a")
+		if r.Error != nil {
+			t.Errorf("expected resources/read(%s) to succeed, got %+v", uri, r.Error)
+		}
+	}
+	emptyURI, _ := json.Marshal(map[string]any{"uri": ""})
+	if r := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 21, Method: "resources/read", Params: emptyURI}, "s", "a"); r.Error == nil {
+		t.Errorf("expected error for empty resource URI")
+	}
+	unknownURI, _ := json.Marshal(map[string]any{"uri": "executor://unknown/uri"})
+	if r := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 22, Method: "resources/read", Params: unknownURI}, "s", "a"); r.Error == nil || r.Error.Code != -32002 {
+		t.Errorf("expected -32002 for unknown resource URI, got %+v", r.Error)
+	}
+
+	// 8. prompts/get with explicit arguments, empty name, and unknown prompt
+	diagArgs, _ := json.Marshal(map[string]any{"name": "diagnose-host", "arguments": map[string]string{"os_family": "redhat"}})
+	if r := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 30, Method: "prompts/get", Params: diagArgs}, "s", "a"); r.Error != nil {
+		t.Errorf("expected diagnose-host(redhat) to succeed, got %+v", r.Error)
+	}
+	if r := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 31, Method: "prompts/get", Params: json.RawMessage(`{}`)}, "s", "a"); r.Error == nil {
+		t.Errorf("expected error for empty prompt name")
+	}
+	unkPrompt, _ := json.Marshal(map[string]any{"name": "unknown-prompt"})
+	if r := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 32, Method: "prompts/get", Params: unkPrompt}, "s", "a"); r.Error == nil {
+		t.Errorf("expected error for unknown prompt")
+	}
+
+	// 9. ListTraces filtering and GetTrace not-found
+	_ = srv.ListTraces(TraceFilter{Method: "tools/call", ToolName: "unknown_tool_xyz", Status: "error", Limit: 0})
+	if _, err := srv.GetTrace("mcp_tr_nonexistent"); err == nil {
+		t.Errorf("expected error for non-existent trace ID")
+	}
+
+	// 10. Server with nil dependencies (nil pluginRegistry, nil auditLogger, nil appConfig)
+	bareSrv, _ := NewServer(core.MCPConfig{}, nil, nil, nil, nil, nil, nil, nil)
+	for _, tool := range []string{"execute_plugin", "db_query", "db_list_tables", "audit_query", "audit_verify"} {
+		p, _ := json.Marshal(map[string]any{"name": tool})
+		r := bareSrv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 40, Method: "tools/call", Params: p}, "s", "a")
+		if res, ok := r.Result.(MCPCallToolResult); !ok || !res.IsError {
+			t.Errorf("expected IsError=true on bare server for tool %s, got %+v", tool, r)
+		}
+	}
+}
+
+
