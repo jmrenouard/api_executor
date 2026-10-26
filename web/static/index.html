@@ -1,125 +1,1071 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Go Admin Tool</title>
+    <title>API Executor — Enterprise Remote Administration Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            background-color: #0b0f17;
+            color: #e2e8f0;
+            font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+        }
+        .surface-card {
+            background-color: #111827;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 12px 28px rgba(0, 0, 0, 0.28);
+        }
+        .surface-inset {
+            background-color: #080b11;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+        .tabular-nums {
+            font-variant-numeric: tabular-nums;
+        }
+        .heading-tight {
+            letter-spacing: -0.025em;
+            line-height: 1.15;
+        }
+        .kicker-caps {
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+        }
+        .tactile-btn {
+            transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1), background-color 150ms ease, border-color 150ms ease;
+        }
+        .tactile-btn:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+    </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
-    <div class="container mx-auto p-8" x-data="adminApp()" x-init="init()">
-        <h1 class="text-4xl font-bold mb-8 text-center">Go Admin Tool</h1>
+<body class="min-h-screen antialiased selection:bg-emerald-500/20 selection:text-emerald-300" x-data="adminConsole()" x-init="init()">
 
-        <!-- Command Executor -->
-        <div class="bg-white p-6 rounded-lg shadow-lg mb-8">
-            <h2 class="text-2xl font-semibold mb-4">Command Executor</h2>
-            <div class="flex space-x-4">
-                <select x-model="selectedCommand" class="p-2 border rounded w-full">
-                    <template x-for="command in commands" :key="command.name">
-                        <option :value="command.name" x-text="command.name"></option>
+    <!-- Top Telemetry & Identity Bar -->
+    <header class="border-b border-white/10 bg-[#0d131f]/90 backdrop-blur sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="h-9 w-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-mono font-bold text-sm">
+                    AE
+                </div>
+                <div>
+                    <div class="flex items-center gap-2.5">
+                        <h1 class="text-lg font-semibold text-white heading-tight">API Executor</h1>
+                        <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 kicker-caps">v2.0 Enterprise</span>
+                    </div>
+                    <p class="text-xs text-slate-400">Zero-Trust Remote Command Execution, OS Presets, RBAC, Plugins, Read-Only SQL, MCP &amp; SHA-256 Audit</p>
+                </div>
+            </div>
+
+            <!-- Active Credential & Quick Status Bar -->
+            <div class="flex flex-wrap items-center gap-3 text-xs tabular-nums">
+                <div class="surface-inset px-3 py-1.5 rounded-md flex items-center gap-2">
+                    <span class="h-2 w-2 rounded-full" :class="tlsInfo.enabled ? 'bg-emerald-400' : 'bg-amber-400'"></span>
+                    <span class="text-slate-400">TLS:</span>
+                    <span class="font-mono text-slate-200" x-text="tlsInfo.enabled ? 'HTTPS Active' : 'HTTP Mode'"></span>
+                </div>
+                <div class="surface-inset px-3 py-1.5 rounded-md flex items-center gap-2">
+                    <span class="h-2 w-2 rounded-full" :class="auditVerify.valid ? 'bg-emerald-400' : 'bg-rose-500'"></span>
+                    <span class="text-slate-400">Audit Chain:</span>
+                    <span class="font-mono text-slate-200" x-text="auditVerify.valid ? ('VALID (' + (auditVerify.total_events || 0) + ')') : 'UNVERIFIED'"></span>
+                </div>
+                <div class="surface-inset px-3 py-1.5 rounded-md flex items-center gap-2">
+                    <span class="text-slate-400">Principal:</span>
+                    <span class="font-mono text-emerald-300" x-text="principal ? (principal.type + ':' + principal.name + ' [' + principal.role + ']') : 'anonymous'"></span>
+                </div>
+                <a href="/metrics" target="_blank" class="tactile-btn surface-inset hover:border-white/20 px-3 py-1.5 rounded-md font-mono text-slate-300">
+                    /metrics
+                </a>
+                <a href="/swagger/index.html" target="_blank" class="tactile-btn surface-inset hover:border-white/20 px-3 py-1.5 rounded-md font-mono text-slate-300">
+                    /swagger
+                </a>
+            </div>
+        </div>
+
+        <!-- Credential Bar for Remote Token / Service Account Testing -->
+        <div class="border-t border-white/5 bg-[#090d15] px-6 py-2">
+            <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2 flex-1 min-w-[280px]">
+                    <span class="font-mono text-slate-400 kicker-caps text-[10px]">Active API Token / Service Key:</span>
+                    <input type="password" x-model="authToken" placeholder="Paste gat_pat_... (User PAT) or gat_svc_... (Service Account Key)"
+                           class="surface-inset px-3 py-1 rounded text-xs font-mono text-slate-200 flex-1 focus:outline-none focus:border-emerald-500/50">
+                    <button @click="refreshAll()" class="tactile-btn px-3 py-1 rounded bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 font-medium">
+                        Apply &amp; Sync
+                    </button>
+                    <button x-show="authToken" @click="clearToken()" class="tactile-btn px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700">
+                        Clear
+                    </button>
+                </div>
+                <div class="text-slate-400 font-mono text-[11px]" x-show="statusBanner">
+                    <span class="text-emerald-400" x-text="statusBanner"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="max-w-7xl mx-auto px-6 flex overflow-x-auto gap-1 pt-2">
+            <template x-for="tab in tabs" :key="tab.id">
+                <button @click="switchTab(tab.id)"
+                        class="tactile-btn px-3.5 py-2 text-xs font-medium rounded-t-md border-b-2 whitespace-nowrap flex items-center gap-2"
+                        :class="activeTab === tab.id
+                            ? 'border-emerald-400 text-white bg-white/[0.04]'
+                            : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'">
+                    <span x-text="tab.label"></span>
+                    <span x-show="tab.badge !== null" class="font-mono text-[10px] px-1.5 py-0.2 rounded bg-white/10 text-slate-300 tabular-nums" x-text="tab.badge"></span>
+                </button>
+            </template>
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+
+        <!-- TAB 1: COMMAND EXECUTOR & REMOTE CALLS -->
+        <section x-show="activeTab === 'commands'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 surface-card rounded-xl p-6 space-y-5">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Remote Execution Engine</span>
+                        <h2 class="text-xl font-semibold text-white heading-tight">Predefined Command Executor</h2>
+                    </div>
+                    <button @click="loadCommands()" class="tactile-btn px-3 py-1.5 rounded-md surface-inset text-xs text-slate-300 hover:border-white/20">
+                        Refresh Catalog
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs text-slate-400 mb-1.5">Action / Command Name</label>
+                        <select x-model="selectedCommand" class="w-full surface-inset rounded-lg px-3.5 py-2 text-sm font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                            <template x-for="cmd in commands" :key="cmd.name">
+                                <option :value="cmd.name" x-text="cmd.name + ' (' + (cmd.os_family || 'any') + ' — default ' + cmd.timeout + ')'"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1.5">Per-Call Timeout Override</label>
+                        <input type="text" x-model="commandTimeoutOverride" placeholder="e.g. 10s, 500ms, 30"
+                               class="w-full surface-inset rounded-lg px-3.5 py-2 text-sm font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-1">
+                    <div class="text-xs text-slate-400 font-mono tabular-nums">
+                        Endpoint: <code class="text-slate-200">POST /api/v1/execute</code>
+                    </div>
+                    <button @click="executeCommand()" :disabled="!selectedCommand || commandRunning"
+                            class="tactile-btn px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold">
+                        <span x-text="commandRunning ? 'Executing...' : 'Execute Command'"></span>
+                    </button>
+                </div>
+
+                <!-- Execution Output Console -->
+                <div class="surface-inset rounded-lg p-4 space-y-2 font-mono text-xs">
+                    <div class="flex items-center justify-between text-[11px] text-slate-400 border-b border-white/5 pb-2 tabular-nums">
+                        <span>EXECUTION TELEMETRY</span>
+                        <span x-show="lastExecMeta" x-text="lastExecMeta"></span>
+                    </div>
+                    <pre x-show="commandOutput" class="whitespace-pre-wrap text-emerald-300 max-h-72 overflow-y-auto" x-text="commandOutput"></pre>
+                    <pre x-show="commandError" class="whitespace-pre-wrap text-rose-400 max-h-48 overflow-y-auto" x-text="commandError"></pre>
+                    <p x-show="!commandOutput && !commandError" class="text-slate-500">Select a command and click Execute to inspect live output.</p>
+                </div>
+            </div>
+
+            <!-- Remote API Call Generator Card -->
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <div>
+                    <span class="text-[11px] font-mono text-sky-400 kicker-caps">Remote Automation</span>
+                    <h3 class="text-base font-semibold text-white heading-tight">cURL Remote Call Snippet</h3>
+                    <p class="text-xs text-slate-400 mt-1">Use a Personal Access Token (<code class="text-slate-300">X-API-Token</code>) or Third-Party Service Account key (<code class="text-slate-300">X-Service-Key</code>).</p>
+                </div>
+                <pre class="surface-inset rounded-lg p-3.5 text-[11px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap" x-text="curlSnippet()"></pre>
+                <div class="border-t border-white/10 pt-4 space-y-2">
+                    <h4 class="text-xs font-semibold text-slate-200">Catalog Summary</h4>
+                    <div class="grid grid-cols-2 gap-2 text-xs tabular-nums">
+                        <div class="surface-inset p-2.5 rounded">
+                            <div class="text-slate-400">Active Commands</div>
+                            <div class="text-lg font-mono font-semibold text-white" x-text="commands.length"></div>
+                        </div>
+                        <div class="surface-inset p-2.5 rounded">
+                            <div class="text-slate-400">Loaded Plugins</div>
+                            <div class="text-lg font-mono font-semibold text-white" x-text="plugins.length"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: UBUNTU & REDHAT OS TASK PRESETS -->
+        <section x-show="activeTab === 'presets'" class="space-y-6">
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Container-Testable OS Catalogs</span>
+                        <h2 class="text-xl font-semibold text-white heading-tight">Ubuntu &amp; RedHat / RHEL Predefined Administration Tasks</h2>
+                        <p class="text-xs text-slate-400 mt-1">Activate OS preset families into the live executor without restarting the server, or test them against <code class="text-slate-300">docker-compose.os-test.yml</code>.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button @click="activatePresets(['ubuntu'])" class="tactile-btn px-3.5 py-2 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold hover:bg-amber-500/30">
+                            Activate Ubuntu Presets
+                        </button>
+                        <button @click="activatePresets(['redhat'])" class="tactile-btn px-3.5 py-2 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold hover:bg-rose-500/30">
+                            Activate RedHat Presets
+                        </button>
+                        <button @click="activatePresets(['ubuntu', 'redhat'])" class="tactile-btn px-3.5 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-500">
+                            Activate All OS Presets
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                    <template x-for="cat in presetCatalogs" :key="cat.os_family">
+                        <div class="surface-inset rounded-xl p-5 space-y-3">
+                            <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                                <div>
+                                    <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-slate-200 uppercase" x-text="cat.os_family"></span>
+                                    <h3 class="text-base font-semibold text-white mt-1" x-text="cat.display_name"></h3>
+                                </div>
+                                <span class="text-xs font-mono text-slate-400 tabular-nums" x-text="(cat.tasks ? cat.tasks.length : 0) + ' tasks'"></span>
+                            </div>
+                            <div class="space-y-2 max-h-80 overflow-y-auto pr-1">
+                                <template x-for="task in (cat.tasks || [])" :key="task.name">
+                                    <div class="p-3 rounded-lg bg-[#0d131f] border border-white/5 flex items-center justify-between gap-3">
+                                        <div>
+                                            <div class="font-mono text-xs font-semibold text-emerald-300" x-text="task.name"></div>
+                                            <div class="text-xs text-slate-400" x-text="task.description"></div>
+                                            <div class="text-[11px] font-mono text-slate-500 mt-0.5" x-text="task.command + ' ' + (task.args || []).join(' ') + ' [' + (task.timeout || '15s') + ']'"></div>
+                                        </div>
+                                        <button @click="runPresetTask(task.name)" class="tactile-btn px-2.5 py-1 rounded bg-white/10 hover:bg-white/15 text-xs font-mono text-white">
+                                            Run
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
                     </template>
-                </select>
-                <button @click="executeCommand" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" :disabled="!selectedCommand">Execute</button>
+                </div>
             </div>
-            <div x-show="commandOutput" class="mt-4 p-4 bg-gray-200 rounded font-mono text-sm">
-                <h3 class="font-semibold mb-2">Output:</h3>
-                <pre class="whitespace-pre-wrap" x-text="commandOutput"></pre>
-            </div>
-             <div x-show="commandError" class="mt-4 p-4 bg-red-100 text-red-700 rounded">
-                <h3 class="font-semibold mb-2">Error:</h3>
-                <pre class="whitespace-pre-wrap" x-text="commandError"></pre>
-            </div>
-        </div>
+        </section>
 
-        <!-- File Server -->
-        <div class="bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-2xl font-semibold mb-4">File Server</h2>
-            <button @click="listFiles" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 mb-4">Refresh File List</button>
-            <ul x-show="files.length > 0" class="list-disc list-inside space-y-2">
-                <template x-for="file in files" :key="file">
-                    <li>
-                        <a :href="'/api/v1/files/' + file" target="_blank" class="text-blue-500 hover:underline" x-text="file"></a>
-                    </li>
-                </template>
-            </ul>
-            <p x-show="files.length === 0 && !filesError" class="text-gray-500">No files found in the secure directory.</p>
-            <p x-show="filesError" class="text-red-500" x-text="filesError"></p>
-        </div>
-    </div>
+        <!-- TAB 3: RBAC USERS & PERSONAL ACCESS TOKENS -->
+        <section x-show="activeTab === 'auth'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- User Login & Create User -->
+            <div class="surface-card rounded-xl p-6 space-y-6">
+                <div class="space-y-3">
+                    <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Session Authentication</span>
+                    <h3 class="text-base font-semibold text-white heading-tight">Sign In with User Credentials</h3>
+                    <input type="text" x-model="loginForm.username" placeholder="Username (e.g. admin)"
+                           class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                    <input type="password" x-model="loginForm.password" placeholder="Password"
+                           class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                    <button @click="loginUser()" class="w-full tactile-btn px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+                        Authenticate &amp; Issue Session Token
+                    </button>
+                </div>
+
+                <div class="border-t border-white/10 pt-5 space-y-3">
+                    <span class="text-[11px] font-mono text-sky-400 kicker-caps">RBAC User Provisioning</span>
+                    <h3 class="text-base font-semibold text-white heading-tight">Create User Account</h3>
+                    <input type="text" x-model="newUser.username" placeholder="Username" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                    <input type="password" x-model="newUser.password" placeholder="Password (min 6 chars)" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                    <input type="text" x-model="newUser.display_name" placeholder="Display Name" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs text-white">
+                    <select x-model="newUser.role" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                        <option value="operator">operator (execute commands, plugins, MCP)</option>
+                        <option value="viewer">viewer (read-only inspection)</option>
+                        <option value="admin">admin (full RBAC &amp; security administration)</option>
+                    </select>
+                    <button @click="createUser()" class="w-full tactile-btn px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold">
+                        Create User Account
+                    </button>
+                </div>
+            </div>
+
+            <!-- Users & Personal Access Tokens List -->
+            <div class="lg:col-span-2 space-y-6">
+                <div class="surface-card rounded-xl p-6 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-base font-semibold text-white heading-tight">Registered RBAC Users</h3>
+                        <button @click="loadAuthData()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Refresh</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs tabular-nums">
+                            <thead class="text-slate-400 border-b border-white/10 font-mono text-[11px]">
+                                <tr>
+                                    <th class="py-2">Username</th>
+                                    <th class="py-2">Role</th>
+                                    <th class="py-2">Status</th>
+                                    <th class="py-2 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono">
+                                <template x-for="u in users" :key="u.id">
+                                    <tr>
+                                        <td class="py-2.5 text-white" x-text="u.username + ' (' + u.id + ')'"></td>
+                                        <td class="py-2.5"><span class="px-2 py-0.5 rounded bg-white/10 text-emerald-300" x-text="u.role"></span></td>
+                                        <td class="py-2.5" x-text="u.active ? 'active' : 'disabled'"></td>
+                                        <td class="py-2.5 text-right">
+                                            <button @click="deleteUser(u.id)" class="text-rose-400 hover:underline">Delete</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Personal Access Tokens (PAT) -->
+                <div class="surface-card rounded-xl p-6 space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h3 class="text-base font-semibold text-white heading-tight">Personal Access Tokens (Remote API Calls)</h3>
+                            <p class="text-xs text-slate-400">Issue scoped <code class="text-slate-300">gat_pat_...</code> tokens for remote CLI, Ansible, or CI/CD runners.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="text" x-model="newToken.user_id" placeholder="Username or ID (default: admin)" class="surface-inset rounded px-2.5 py-1.5 text-xs font-mono text-white">
+                            <input type="text" x-model="newToken.name" placeholder="Token label (e.g. remote-cli)" class="surface-inset rounded px-2.5 py-1.5 text-xs font-mono text-white">
+                            <input type="text" x-model="newToken.ttl" placeholder="TTL (e.g. 24h)" class="surface-inset rounded px-2.5 py-1.5 text-xs font-mono text-white w-24">
+                            <button @click="createPAT()" class="tactile-btn px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-semibold">Issue Token</button>
+                        </div>
+                    </div>
+
+                    <div x-show="newlyIssuedSecret" class="p-3 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-xs font-mono space-y-1">
+                        <div class="text-emerald-300 font-semibold">One-Time Secret Generated (Copy now — stored as SHA-256 hash):</div>
+                        <div class="flex items-center justify-between gap-2">
+                            <code class="text-white break-all" x-text="newlyIssuedSecret"></code>
+                            <button @click="useIssuedSecret()" class="tactile-btn px-2.5 py-1 rounded bg-emerald-600 text-white">Use in Console</button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs tabular-nums font-mono">
+                            <thead class="text-slate-400 border-b border-white/10 text-[11px]">
+                                <tr>
+                                    <th class="py-2">Name</th>
+                                    <th class="py-2">User</th>
+                                    <th class="py-2">Prefix</th>
+                                    <th class="py-2">Scopes</th>
+                                    <th class="py-2 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5">
+                                <template x-for="t in tokens" :key="t.id">
+                                    <tr>
+                                        <td class="py-2 text-white" x-text="t.name"></td>
+                                        <td class="py-2 text-slate-300" x-text="t.username"></td>
+                                        <td class="py-2 text-emerald-300" x-text="t.token_prefix + '...'"></td>
+                                        <td class="py-2 text-slate-400" x-text="(t.scopes || []).join(', ')"></td>
+                                        <td class="py-2 text-right">
+                                            <button @click="revokeToken(t.id)" class="text-rose-400 hover:underline">Revoke</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: THIRD-PARTY SERVICE ACCOUNTS -->
+        <section x-show="activeTab === 'service-accounts'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Third-Party Integration</span>
+                <h2 class="text-lg font-semibold text-white heading-tight">Register Service Account</h2>
+                <p class="text-xs text-slate-400">Provision machine-to-machine <code class="text-slate-300">gat_svc_...</code> credentials restricted to explicit command or plugin action patterns.</p>
+
+                <input type="text" x-model="newSA.name" placeholder="Account Handle (e.g. prometheus-probe)" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                <input type="text" x-model="newSA.service_name" placeholder="Third-Party Service Name (e.g. Datadog / Ansible)" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs text-white">
+                <input type="text" x-model="newSA.description" placeholder="Purpose / Justification" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs text-white">
+                <input type="text" x-model="newSA.allowed_actions" placeholder="Allowed Actions CSV (e.g. disk-usage, ubuntu-*, db-exposure)" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                <input type="text" x-model="newSA.ttl" placeholder="Optional TTL (e.g. 720h)" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+
+                <button @click="createServiceAccount()" class="w-full tactile-btn px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+                    Create Third-Party Service Account
+                </button>
+            </div>
+
+            <div class="lg:col-span-2 surface-card rounded-xl p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-base font-semibold text-white heading-tight">Provisioned Third-Party Service Accounts</h3>
+                    <button @click="loadAuthData()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Refresh</button>
+                </div>
+
+                <div x-show="newlyIssuedSAKey" class="p-3 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-xs font-mono space-y-1">
+                    <div class="text-emerald-300 font-semibold">Service Account API Key (<code class="text-white">X-Service-Key</code>):</div>
+                    <div class="flex items-center justify-between gap-2">
+                        <code class="text-white break-all" x-text="newlyIssuedSAKey"></code>
+                        <button @click="authToken = newlyIssuedSAKey; refreshAll()" class="tactile-btn px-2.5 py-1 rounded bg-emerald-600 text-white">Test Key Now</button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs tabular-nums font-mono">
+                        <thead class="text-slate-400 border-b border-white/10 text-[11px]">
+                            <tr>
+                                <th class="py-2">Name / Service</th>
+                                <th class="py-2">Key Prefix</th>
+                                <th class="py-2">Allowed Actions</th>
+                                <th class="py-2 text-right">Operations</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/5">
+                            <template x-for="sa in serviceAccounts" :key="sa.id">
+                                <tr>
+                                    <td class="py-2.5">
+                                        <div class="text-white font-semibold" x-text="sa.name"></div>
+                                        <div class="text-slate-400 text-[11px]" x-text="sa.service_name"></div>
+                                    </td>
+                                    <td class="py-2.5 text-emerald-300" x-text="sa.key_prefix + '...'"></td>
+                                    <td class="py-2.5 text-slate-300" x-text="(sa.allowed_actions || []).join(', ')"></td>
+                                    <td class="py-2.5 text-right space-x-2">
+                                        <button @click="rotateServiceAccount(sa.id)" class="text-sky-400 hover:underline">Rotate Key</button>
+                                        <button @click="deleteServiceAccount(sa.id)" class="text-rose-400 hover:underline">Delete</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: EXTENSIBLE PLUGINS & READ-ONLY DATABASE EXPOSURE -->
+        <section x-show="activeTab === 'plugins'" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Plugin Runner & Declarative Registration -->
+            <div class="surface-card rounded-xl p-6 space-y-5">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Modular Architecture</span>
+                        <h2 class="text-lg font-semibold text-white heading-tight">Declarative &amp; Native Plugin Runner</h2>
+                    </div>
+                    <button @click="loadPlugins()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Refresh</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Plugin Module</label>
+                        <select x-model="selectedPluginID" @change="syncPluginActions()" class="w-full surface-inset rounded-lg px-3 py-2 text-xs font-mono text-white">
+                            <template x-for="p in plugins" :key="p.id">
+                                <option :value="p.id" x-text="p.id + ' [' + p.kind + ']'"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Plugin Action</label>
+                        <select x-model="selectedPluginAction" class="w-full surface-inset rounded-lg px-3 py-2 text-xs font-mono text-white">
+                            <template x-for="act in currentPluginActions()" :key="act.name">
+                                <option :value="act.name" x-text="act.name"></option>
+                            </template>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Action Parameters (JSON Object)</label>
+                    <input type="text" x-model="pluginParamsJSON" placeholder='{"target": "localhost"}' class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                </div>
+
+                <button @click="executePlugin()" class="tactile-btn px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+                    Execute Plugin Action
+                </button>
+
+                <pre x-show="pluginOutput" class="surface-inset rounded-lg p-3.5 text-xs font-mono text-emerald-300 max-h-60 overflow-y-auto whitespace-pre-wrap" x-text="pluginOutput"></pre>
+            </div>
+
+            <!-- Read-Only SQLite Database Explorer (db-exposure) -->
+            <div class="surface-card rounded-xl p-6 space-y-5">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-mono text-sky-400 kicker-caps">Guarded Database Exposure</span>
+                        <h2 class="text-lg font-semibold text-white heading-tight">Read-Only SQL Explorer (<code class="text-sm">db-exposure</code>)</h2>
+                    </div>
+                    <button @click="loadDBTables()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Inspect Tables</button>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="block text-xs text-slate-400">Read-Only SQL SELECT Statement (DDL/DML/PRAGMA blocked)</label>
+                    <div class="flex gap-2">
+                        <input type="text" x-model="dbSQLQuery" class="flex-1 surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                        <button @click="runDBQuery()" class="tactile-btn px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold">
+                            Run SELECT
+                        </button>
+                    </div>
+                </div>
+
+                <pre class="surface-inset rounded-lg p-3.5 text-xs font-mono text-slate-200 max-h-72 overflow-y-auto whitespace-pre-wrap" x-text="dbQueryOutput || 'Click Run SELECT or Inspect Tables to view database records.'"></pre>
+            </div>
+        </section>
+
+        <!-- TAB 6: MODEL CONTEXT PROTOCOL (MCP) SERVER & TRACE RETENTION -->
+        <section x-show="activeTab === 'mcp'" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <div>
+                    <span class="text-[11px] font-mono text-emerald-400 kicker-caps">JSON-RPC 2.0 Protocol 2024-11-05</span>
+                    <h2 class="text-lg font-semibold text-white heading-tight">Interactive MCP Server Playground</h2>
+                    <p class="text-xs text-slate-400">Every MCP tool call, resource read, and prompt request is traced with a unique <code class="text-slate-300">mcp_tr_...</code> ID and linked to the SHA-256 audit log.</p>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <button @click="sendMCPPreset('initialize', {})" class="tactile-btn px-2.5 py-1 rounded surface-inset text-xs font-mono text-slate-200">initialize</button>
+                    <button @click="sendMCPPreset('tools/list', {})" class="tactile-btn px-2.5 py-1 rounded surface-inset text-xs font-mono text-slate-200">tools/list</button>
+                    <button @click="sendMCPPreset('resources/list', {})" class="tactile-btn px-2.5 py-1 rounded surface-inset text-xs font-mono text-slate-200">resources/list</button>
+                    <button @click="sendMCPPreset('prompts/list', {})" class="tactile-btn px-2.5 py-1 rounded surface-inset text-xs font-mono text-slate-200">prompts/list</button>
+                    <button @click="sendMCPPreset('tools/call', {name: 'audit_verify', arguments: {}})" class="tactile-btn px-2.5 py-1 rounded bg-emerald-600/20 border border-emerald-500/40 text-xs font-mono text-emerald-300">tools/call (audit_verify)</button>
+                    <button @click="sendMCPPreset('tools/call', {name: 'tls_status', arguments: {}})" class="tactile-btn px-2.5 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-xs font-mono text-sky-300">tools/call (tls_status)</button>
+                </div>
+
+                <textarea x-model="mcpRequestJSON" rows="6" class="w-full surface-inset rounded-lg p-3 text-xs font-mono text-white"></textarea>
+                <button @click="sendRawMCP()" class="tactile-btn px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+                    Send JSON-RPC 2.0 Request to /api/v1/mcp
+                </button>
+                <pre class="surface-inset rounded-lg p-3.5 text-xs font-mono text-emerald-300 max-h-60 overflow-y-auto whitespace-pre-wrap" x-text="mcpResponseJSON"></pre>
+            </div>
+
+            <!-- Retained MCP Traces -->
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-mono text-sky-400 kicker-caps">Full Lifecycle Traceability</span>
+                        <h3 class="text-base font-semibold text-white heading-tight">Retained MCP Interaction Traces</h3>
+                    </div>
+                    <button @click="loadMCPTraces()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Refresh Traces</button>
+                </div>
+
+                <div class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                    <template x-for="tr in mcpTraces" :key="tr.trace_id">
+                        <div class="surface-inset rounded-lg p-3 text-xs font-mono space-y-1">
+                            <div class="flex items-center justify-between">
+                                <span class="text-emerald-300 font-semibold" x-text="tr.trace_id"></span>
+                                <span class="text-slate-400 tabular-nums" x-text="tr.duration_ms + ' ms | ' + tr.status"></span>
+                            </div>
+                            <div class="text-slate-200" x-text="'method=' + tr.method + (tr.tool_name ? (' tool=' + tr.tool_name) : '') + ' actor=' + tr.actor"></div>
+                            <div class="text-[11px] text-slate-500" x-text="'audit_event=' + (tr.audit_event_id || 'n/a') + ' | ' + tr.timestamp"></div>
+                        </div>
+                    </template>
+                    <p x-show="mcpTraces.length === 0" class="text-xs text-slate-500 font-mono">No MCP traces recorded yet.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 7: SHA-256 TAMPER-EVIDENT AUDIT TRAIL & SYSTEM LOGS -->
+        <section x-show="activeTab === 'audit'" class="space-y-6">
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Cryptographic Non-Repudiation</span>
+                        <h2 class="text-xl font-semibold text-white heading-tight">SHA-256 Hash-Chained Audit Trail &amp; Structured Logs</h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button @click="verifyAuditChain()" class="tactile-btn px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold">
+                            Verify SHA-256 Chain Integrity
+                        </button>
+                        <button @click="loadAuditAndLogs()" class="tactile-btn px-3 py-1.5 rounded-lg surface-inset text-xs text-slate-300">
+                            Refresh Logs
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs font-mono tabular-nums">
+                        <thead class="text-slate-400 border-b border-white/10 text-[11px]">
+                            <tr>
+                                <th class="py-2">Event ID</th>
+                                <th class="py-2">Category / Action</th>
+                                <th class="py-2">Actor</th>
+                                <th class="py-2">Status</th>
+                                <th class="py-2">SHA-256 Entry Hash</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/5">
+                            <template x-for="ev in auditEvents" :key="ev.event_id">
+                                <tr>
+                                    <td class="py-2 text-emerald-300" x-text="ev.event_id"></td>
+                                    <td class="py-2 text-white" x-text="ev.category + ':' + ev.action"></td>
+                                    <td class="py-2 text-slate-300" x-text="ev.actor_type + ':' + ev.actor_id"></td>
+                                    <td class="py-2" :class="ev.status === 'ok' ? 'text-emerald-400' : 'text-amber-400'" x-text="ev.status"></td>
+                                    <td class="py-2 text-slate-400" x-text="(ev.entry_hash || '').slice(0, 20) + '...'"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 8: HTTPS / TLS CERTIFICATE MANAGER & SECURE FILE SERVER -->
+        <section x-show="activeTab === 'tls'" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Default HTTPS Encryption</span>
+                        <h2 class="text-lg font-semibold text-white heading-tight">X.509 TLS Certificate Lifecycle Manager</h2>
+                    </div>
+                    <div class="flex gap-2">
+                        <a href="/api/v1/tls/certificate" target="_blank" class="tactile-btn px-3 py-1.5 rounded surface-inset text-xs font-mono text-slate-200">Download PEM</a>
+                        <button @click="renewTLSCertificate()" class="tactile-btn px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-semibold">Rotate Certificate</button>
+                    </div>
+                </div>
+
+                <div class="surface-inset rounded-lg p-4 space-y-2 text-xs font-mono tabular-nums">
+                    <div><span class="text-slate-400">Subject:</span> <span class="text-white" x-text="tlsInfo.subject || 'N/A'"></span></div>
+                    <div><span class="text-slate-400">SHA-256 Fingerprint:</span> <span class="text-emerald-300 break-all" x-text="tlsInfo.fingerprint_sha256 || 'N/A'"></span></div>
+                    <div><span class="text-slate-400">Valid Until:</span> <span class="text-white" x-text="tlsInfo.not_after || 'N/A'"></span></div>
+                    <div><span class="text-slate-400">DNS SANs:</span> <span class="text-slate-300" x-text="(tlsInfo.dns_names || []).join(', ')"></span></div>
+                    <div><span class="text-slate-400">IP SANs:</span> <span class="text-slate-300" x-text="(tlsInfo.ip_addresses || []).join(', ')"></span></div>
+                </div>
+            </div>
+
+            <!-- Secure File Server -->
+            <div class="surface-card rounded-xl p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-mono text-sky-400 kicker-caps">Artifact Distribution</span>
+                        <h2 class="text-lg font-semibold text-white heading-tight">Secure Directory File Server</h2>
+                    </div>
+                    <button @click="loadFiles()" class="tactile-btn px-3 py-1.5 rounded surface-inset text-xs text-slate-300">Refresh Files</button>
+                </div>
+                <ul x-show="files.length > 0" class="space-y-1.5 text-xs font-mono">
+                    <template x-for="f in files" :key="f">
+                        <li class="surface-inset px-3 py-2 rounded flex items-center justify-between">
+                            <span class="text-slate-200" x-text="f"></span>
+                            <a :href="'/api/v1/files/' + f" target="_blank" class="text-emerald-400 hover:underline">Download</a>
+                        </li>
+                    </template>
+                </ul>
+                <p x-show="files.length === 0" class="text-xs text-slate-500 font-mono" x-text="filesError || 'No files exposed or file server disabled in config.'"></p>
+            </div>
+        </section>
+
+    </main>
 
     <script>
-        function adminApp() {
+        function adminConsole() {
             return {
+                activeTab: 'commands',
+                authToken: '',
+                statusBanner: '',
+                principal: null,
+
                 commands: [],
-                selectedCommand: null,
+                selectedCommand: '',
+                commandTimeoutOverride: '',
+                commandRunning: false,
                 commandOutput: '',
                 commandError: '',
+                lastExecMeta: '',
+
+                presetCatalogs: [],
+                users: [],
+                tokens: [],
+                serviceAccounts: [],
+                newlyIssuedSecret: '',
+                newlyIssuedSAKey: '',
+
+                loginForm: { username: 'admin', password: '' },
+                newUser: { username: '', password: '', display_name: '', role: 'operator' },
+                newToken: { user_id: 'admin', name: 'remote-cli-pat', ttl: '24h' },
+                newSA: { name: '', service_name: '', description: '', allowed_actions: 'disk-usage, ubuntu-*', ttl: '' },
+
+                plugins: [],
+                selectedPluginID: '',
+                selectedPluginAction: '',
+                pluginParamsJSON: '{"target": "localhost"}',
+                pluginOutput: '',
+
+                dbSQLQuery: 'SELECT id, timestamp, command, status FROM action_history ORDER BY id DESC LIMIT 20',
+                dbQueryOutput: '',
+
+                mcpRequestJSON: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, null, 2),
+                mcpResponseJSON: '',
+                mcpTraces: [],
+
+                auditEvents: [],
+                auditVerify: { valid: true, total_events: 0 },
+                tlsInfo: { enabled: true },
                 files: [],
                 filesError: '',
 
-                listCommands() {
-                    fetch('/api/v1/commands')
-                    .then(response => {
-                        if (!response.ok) throw new Error('Failed to load commands');
-                        return response.json();
-                    })
-                    .then(data => {
-                        this.commands = data.commands || [];
-                        if (this.commands.length > 0) {
+                get tabs() {
+                    return [
+                        { id: 'commands', label: '1. Command Executor', badge: this.commands.length },
+                        { id: 'presets', label: '2. Ubuntu & RedHat Presets', badge: this.presetCatalogs.length },
+                        { id: 'auth', label: '3. RBAC Users & PATs', badge: this.tokens.length },
+                        { id: 'service-accounts', label: '4. Service Accounts', badge: this.serviceAccounts.length },
+                        { id: 'plugins', label: '5. Plugins & SQL Explorer', badge: this.plugins.length },
+                        { id: 'mcp', label: '6. MCP Server & Traces', badge: this.mcpTraces.length },
+                        { id: 'audit', label: '7. SHA-256 Audit & Logs', badge: this.auditEvents.length },
+                        { id: 'tls', label: '8. HTTPS/TLS & Files', badge: null }
+                    ];
+                },
+
+                headers(extra = {}) {
+                    const h = { 'Content-Type': 'application/json', ...extra };
+                    if (this.authToken) {
+                        if (this.authToken.startsWith('gat_svc_')) {
+                            h['X-Service-Key'] = this.authToken;
+                        } else {
+                            h['Authorization'] = 'Bearer ' + this.authToken;
+                        }
+                    }
+                    return h;
+                },
+
+                switchTab(id) {
+                    this.activeTab = id;
+                },
+
+                clearToken() {
+                    this.authToken = '';
+                    this.refreshAll();
+                },
+
+                useIssuedSecret() {
+                    this.authToken = this.newlyIssuedSecret;
+                    this.newlyIssuedSecret = '';
+                    this.refreshAll();
+                },
+
+                curlSnippet() {
+                    const cmd = this.selectedCommand || 'list-processes';
+                    const t = this.commandTimeoutOverride ? `, "timeout": "${this.commandTimeoutOverride}"` : '';
+                    const hdr = this.authToken && this.authToken.startsWith('gat_svc_')
+                        ? `-H "X-Service-Key: ${this.authToken}"`
+                        : `-H "X-API-Token: ${this.authToken || 'gat_pat_<your_token>'}"`;
+                    return `curl -k -X POST ${window.location.origin}/api/v1/execute \\\n  ${hdr} \\\n  -H "Content-Type: application/json" \\\n  -d '{"name": "${cmd}"${t}}'`;
+                },
+
+                async loadPrincipal() {
+                    try {
+                        const r = await fetch('/api/v1/auth/me', { headers: this.headers() });
+                        if (r.ok) {
+                            const d = await r.json();
+                            this.principal = d.principal;
+                        }
+                    } catch (_) {}
+                },
+
+                async loadCommands() {
+                    try {
+                        const r = await fetch('/api/v1/commands', { headers: this.headers() });
+                        const d = await r.json();
+                        this.commands = d.commands || [];
+                        if (this.commands.length > 0 && !this.selectedCommand) {
                             this.selectedCommand = this.commands[0].name;
                         }
-                    })
-                    .catch(err => {
-                        console.error('Failed to list commands:', err);
-                        this.commandError = 'Could not fetch available commands.';
-                    });
+                    } catch (e) {
+                        this.commandError = 'Failed to load commands: ' + e;
+                    }
                 },
 
-                executeCommand() {
-                    this.commandOutput = 'Executing...';
+                async executeCommand() {
+                    this.commandRunning = true;
+                    this.commandOutput = '';
                     this.commandError = '';
-                    fetch('/api/v1/execute', {
+                    const payload = { name: this.selectedCommand };
+                    if (this.commandTimeoutOverride.trim() !== '') {
+                        payload.timeout = this.commandTimeoutOverride.trim();
+                    }
+                    try {
+                        const r = await fetch('/api/v1/execute', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify(payload)
+                        });
+                        const d = await r.json();
+                        this.commandOutput = d.output || '';
+                        this.commandError = d.error || '';
+                        this.lastExecMeta = `status=${r.status} timeout=${d.timeout || 'default'} timed_out=${!!d.timed_out}`;
+                        this.loadAuditAndLogs();
+                    } catch (e) {
+                        this.commandError = String(e);
+                    } finally {
+                        this.commandRunning = false;
+                    }
+                },
+
+                async loadPresets() {
+                    try {
+                        const r = await fetch('/api/v1/presets', { headers: this.headers() });
+                        if (r.ok) {
+                            const d = await r.json();
+                            this.presetCatalogs = d.catalogs || [];
+                        }
+                    } catch (_) {}
+                },
+
+                async activatePresets(families) {
+                    const r = await fetch('/api/v1/presets/activate', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: JSON.stringify({ os_families: families })
+                    });
+                    if (r.ok) {
+                        const d = await r.json();
+                        this.statusBanner = `Activated presets (${d.added_count} added, ${d.total_commands} total commands)`;
+                        await this.loadCommands();
+                    }
+                },
+
+                async runPresetTask(taskName) {
+                    await this.activatePresets(['ubuntu', 'redhat']);
+                    this.selectedCommand = taskName;
+                    this.activeTab = 'commands';
+                    await this.executeCommand();
+                },
+
+                async loginUser() {
+                    const r = await fetch('/api/v1/auth/login', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: this.selectedCommand })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        this.commandOutput = data.output;
-                        if (data.error) {
-                            this.commandError = data.error;
-                        }
-                    })
-                    .catch(err => {
-                        this.commandError = 'Failed to execute command: ' + err;
-                        this.commandOutput = '';
+                        body: JSON.stringify(this.loginForm)
                     });
+                    const d = await r.json();
+                    if (r.ok && d.token) {
+                        this.authToken = d.token;
+                        this.statusBanner = `Signed in as ${d.user.username} (${d.user.role})`;
+                        this.refreshAll();
+                    } else {
+                        this.statusBanner = d.error || 'Authentication failed';
+                    }
                 },
 
-                listFiles() {
-                    this.filesError = '';
-                    fetch('/api/v1/files')
-                    .then(response => {
-                        if (!response.ok) throw new Error('Failed to load files');
-                        return response.json();
-                    })
-                    .then(data => {
-                        this.files = data.files || [];
-                    })
-                    .catch(err => {
-                        console.error('Failed to list files:', err);
-                        this.filesError = 'Could not fetch file list.';
+                async loadAuthData() {
+                    try {
+                        const [uRes, tRes, saRes] = await Promise.all([
+                            fetch('/api/v1/auth/users', { headers: this.headers() }),
+                            fetch('/api/v1/auth/tokens', { headers: this.headers() }),
+                            fetch('/api/v1/auth/service-accounts', { headers: this.headers() })
+                        ]);
+                        if (uRes.ok) this.users = (await uRes.json()).users || [];
+                        if (tRes.ok) this.tokens = (await tRes.json()).tokens || [];
+                        if (saRes.ok) this.serviceAccounts = (await saRes.json()).service_accounts || [];
+                    } catch (_) {}
+                },
+
+                async createUser() {
+                    const r = await fetch('/api/v1/auth/users', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: JSON.stringify(this.newUser)
                     });
+                    if (r.ok) {
+                        this.newUser = { username: '', password: '', display_name: '', role: 'operator' };
+                        this.loadAuthData();
+                    }
+                },
+
+                async deleteUser(id) {
+                    await fetch('/api/v1/auth/users?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                    this.loadAuthData();
+                },
+
+                async createPAT() {
+                    const r = await fetch('/api/v1/auth/tokens', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: JSON.stringify(this.newToken)
+                    });
+                    const d = await r.json();
+                    if (r.ok) {
+                        this.newlyIssuedSecret = d.token;
+                        this.loadAuthData();
+                    }
+                },
+
+                async revokeToken(id) {
+                    await fetch('/api/v1/auth/tokens?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                    this.loadAuthData();
+                },
+
+                async createServiceAccount() {
+                    const actions = this.newSA.allowed_actions.split(',').map(s => s.trim()).filter(Boolean);
+                    const r = await fetch('/api/v1/auth/service-accounts', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: JSON.stringify({
+                            name: this.newSA.name,
+                            service_name: this.newSA.service_name,
+                            description: this.newSA.description,
+                            allowed_actions: actions,
+                            ttl: this.newSA.ttl
+                        })
+                    });
+                    const d = await r.json();
+                    if (r.ok) {
+                        this.newlyIssuedSAKey = d.api_key;
+                        this.loadAuthData();
+                    }
+                },
+
+                async rotateServiceAccount(id) {
+                    const r = await fetch('/api/v1/auth/service-accounts/rotate', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: JSON.stringify({ id })
+                    });
+                    const d = await r.json();
+                    if (r.ok) {
+                        this.newlyIssuedSAKey = d.api_key;
+                        this.loadAuthData();
+                    }
+                },
+
+                async deleteServiceAccount(id) {
+                    await fetch('/api/v1/auth/service-accounts?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                    this.loadAuthData();
+                },
+
+                async loadPlugins() {
+                    try {
+                        const r = await fetch('/api/v1/plugins', { headers: this.headers() });
+                        if (r.ok) {
+                            this.plugins = (await r.json()).plugins || [];
+                            if (this.plugins.length > 0 && !this.selectedPluginID) {
+                                this.selectedPluginID = this.plugins[0].id;
+                                this.syncPluginActions();
+                            }
+                        }
+                    } catch (_) {}
+                },
+
+                currentPluginActions() {
+                    const found = this.plugins.find(p => p.id === this.selectedPluginID);
+                    return found ? (found.actions || []) : [];
+                },
+
+                syncPluginActions() {
+                    const acts = this.currentPluginActions();
+                    this.selectedPluginAction = acts.length > 0 ? acts[0].name : '';
+                },
+
+                async executePlugin() {
+                    let parsedParams = {};
+                    try {
+                        parsedParams = this.pluginParamsJSON ? JSON.parse(this.pluginParamsJSON) : {};
+                    } catch (e) {
+                        this.pluginOutput = 'Invalid JSON parameters: ' + e;
+                        return;
+                    }
+                    const r = await fetch('/api/v1/plugins/execute', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: JSON.stringify({
+                            plugin_id: this.selectedPluginID,
+                            action: this.selectedPluginAction,
+                            params: parsedParams
+                        })
+                    });
+                    const d = await r.json();
+                    this.pluginOutput = JSON.stringify(d, null, 2);
+                },
+
+                async loadDBTables() {
+                    const r = await fetch('/api/v1/db/tables', { headers: this.headers() });
+                    this.dbQueryOutput = JSON.stringify(await r.json(), null, 2);
+                },
+
+                async runDBQuery() {
+                    const r = await fetch('/api/v1/db/query', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: JSON.stringify({ sql: this.dbSQLQuery, max_rows: 50 })
+                    });
+                    this.dbQueryOutput = JSON.stringify(await r.json(), null, 2);
+                },
+
+                sendMCPPreset(method, params) {
+                    this.mcpRequestJSON = JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }, null, 2);
+                    this.sendRawMCP();
+                },
+
+                async sendRawMCP() {
+                    const r = await fetch('/api/v1/mcp', {
+                        method: 'POST',
+                        headers: this.headers({ 'X-MCP-Session-ID': 'web-admin-console' }),
+                        body: this.mcpRequestJSON
+                    });
+                    this.mcpResponseJSON = JSON.stringify(await r.json(), null, 2);
+                    this.loadMCPTraces();
+                    this.loadAuditAndLogs();
+                },
+
+                async loadMCPTraces() {
+                    try {
+                        const r = await fetch('/api/v1/mcp/traces', { headers: this.headers() });
+                        if (r.ok) {
+                            this.mcpTraces = (await r.json()).traces || [];
+                        }
+                    } catch (_) {}
+                },
+
+                async loadAuditAndLogs() {
+                    try {
+                        const [aRes, vRes] = await Promise.all([
+                            fetch('/api/v1/audit/logs?limit=50', { headers: this.headers() }),
+                            fetch('/api/v1/audit/verify', { headers: this.headers() })
+                        ]);
+                        if (aRes.ok) this.auditEvents = (await aRes.json()).events || [];
+                        if (vRes.ok) this.auditVerify = await vRes.json();
+                    } catch (_) {}
+                },
+
+                async verifyAuditChain() {
+                    await this.loadAuditAndLogs();
+                    this.statusBanner = this.auditVerify.valid
+                        ? `SHA-256 Audit Chain Verified (${this.auditVerify.total_events} events intact)`
+                        : 'WARNING: Audit chain verification failed';
+                },
+
+                async loadTLSInfo() {
+                    try {
+                        const r = await fetch('/api/v1/tls/info', { headers: this.headers() });
+                        if (r.ok) this.tlsInfo = await r.json();
+                    } catch (_) {}
+                },
+
+                async renewTLSCertificate() {
+                    const r = await fetch('/api/v1/tls/renew', { method: 'POST', headers: this.headers() });
+                    if (r.ok) {
+                        this.tlsInfo = await r.json();
+                        this.statusBanner = 'Rotated X.509 certificate with zero downtime';
+                    }
+                },
+
+                async loadFiles() {
+                    try {
+                        const r = await fetch('/api/v1/files', { headers: this.headers() });
+                        if (r.ok) {
+                            this.files = (await r.json()).files || [];
+                            this.filesError = '';
+                        } else {
+                            this.files = [];
+                            this.filesError = 'Secure file server is disabled or directory is empty.';
+                        }
+                    } catch (e) {
+                        this.filesError = String(e);
+                    }
+                },
+
+                refreshAll() {
+                    this.loadPrincipal();
+                    this.loadCommands();
+                    this.loadPresets();
+                    this.loadAuthData();
+                    this.loadPlugins();
+                    this.loadMCPTraces();
+                    this.loadAuditAndLogs();
+                    this.loadTLSInfo();
+                    this.loadFiles();
                 },
 
                 init() {
-                    // To make this work, I need to add an endpoint to list commands.
-                    // I will add this feature now.
-                    this.listCommands();
-                    this.listFiles();
+                    this.refreshAll();
                 }
-            }
+            };
         }
     </script>
 </body>
