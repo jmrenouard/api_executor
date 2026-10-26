@@ -11,6 +11,7 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/plugins"
 
 	_ "go-admin-tool/docs"
 )
@@ -97,14 +98,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize Extensible Plugin Registry (Declarative & Advanced Native Modules)
+	pluginRegistry := plugins.NewRegistry()
+	if config.Plugins.Enabled {
+		if opsPlugin, err := plugins.DefaultDeclarativeOpsPlugin(); err == nil {
+			_ = pluginRegistry.Register(opsPlugin)
+		}
+		if config.Plugins.EnableDBExposure {
+			_ = pluginRegistry.Register(plugins.NewDatabaseExposurePlugin(db, config.Plugins.MaxQueryRows))
+		}
+		if config.Plugins.EnableSysDiag {
+			_ = pluginRegistry.Register(plugins.NewSystemDiagnosticsPlugin())
+		}
+		if config.Plugins.DeclarativeDir != "" {
+			if _, err := os.Stat(config.Plugins.DeclarativeDir); err == nil {
+				_, _ = pluginRegistry.LoadDeclarativeDirectory(config.Plugins.DeclarativeDir)
+			}
+		}
+	}
+
 	// Create API environment
 	apiEnv := &api.APIEnv{
-		Config:      config,
-		Logger:      logger,
-		DB:          db,
-		CertManager: certManager,
-		AuditLogger: auditLogger,
-		AuthManager: authManager,
+		Config:         config,
+		Logger:         logger,
+		DB:             db,
+		CertManager:    certManager,
+		AuditLogger:    auditLogger,
+		AuthManager:    authManager,
+		PluginRegistry: pluginRegistry,
 	}
 
 	// Create router

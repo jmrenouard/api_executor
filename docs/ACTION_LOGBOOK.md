@@ -9,7 +9,6 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-007` | `2026-10-25T22:20:00Z` | [#8](https://github.com/jmrenouard/api_executor/issues/8) | `feat/issue-8-extensible-plugins-and-db-exposure` | Add extensible plugin system supporting declarative YAML command modules and read-only SQLite database exposure. |
 | `ACT-008` | `2026-10-25T22:20:00Z` | [#9](https://github.com/jmrenouard/api_executor/issues/9) | `feat/issue-9-mcp-server-and-trace-retention` | Implement complete JSON-RPC 2.0 Model Context Protocol (MCP) server with persistent trace retention. |
 | `ACT-009` | `2026-10-25T22:20:00Z` | [#10](https://github.com/jmrenouard/api_executor/issues/10) | `feat/issue-10-web-administration-console` | Build pure Web Administration Console managing commands, OS presets, users, tokens, service accounts, plugins, DB, MCP, audit, and TLS. |
 | `ACT-010` | `2026-10-25T22:20:00Z` | [#11](https://github.com/jmrenouard/api_executor/issues/11) | `docs/issue-11-svg-branding-and-english-readme` | Add custom vector SVG logo, panoramic header banner, and comprehensive English `README.md`. |
@@ -18,9 +17,21 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-007` — Add Extensible Plugin System with Declarative Modules and Read-Only Database Exposure
+- **Timestamp (UTC)**: `2026-10-26T06:23:00Z`
+- **GitHub Issue**: [#8](https://github.com/jmrenouard/api_executor/issues/8)
+- **Branch**: `feat/issue-8-extensible-plugins-and-db-exposure`
+- **Request**:
+  - Implement an extensible plugin system (`internal/plugins`) supporting both declarative YAML/JSON command modules with strict regex parameter sanitization and advanced native plugins (`db-exposure` for read-only database inspection/SELECT querying and `sys-diagnostics`).
+- **Changes**:
+  - Added [`internal/plugins/plugin.go`](../internal/plugins/plugin.go), [`internal/plugins/declarative.go`](../internal/plugins/declarative.go), [`internal/plugins/db_exposure.go`](../internal/plugins/db_exposure.go), [`internal/plugins/sys_diagnostics.go`](../internal/plugins/sys_diagnostics.go), [`internal/plugins/plugins_test.go`](../internal/plugins/plugins_test.go), [`plugins/network-audit.yaml`](../plugins/network-audit.yaml), [`internal/api/plugin_handlers.go`](../internal/api/plugin_handlers.go), and [`internal/api/plugin_test.go`](../internal/api/plugin_test.go).
+  - Updated [`internal/core/config.go`](../internal/core/config.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/router.go`](../internal/api/router.go), and [`cmd/server/main.go`](../cmd/server/main.go).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/plugins` 66.9%, `internal/api` 76.8%).
+
 ### `ACT-006` — Implement RBAC User Management, Personal Access Tokens, and Third-Party Service Accounts
 - **Timestamp (UTC)**: `2026-10-26T06:15:00Z`
-- **GitHub Issue**: [#7](https://github.com/jmrenouard/api_executor/issues/7)
+- **GitHub Issue**: [#7](https://github.com/jmrenouard/api_executor/issues/7) (PR [#17](https://github.com/jmrenouard/api_executor/pull/17), commit `02535c7`)
 - **Branch**: `feat/issue-7-rbac-users-tokens-and-service-accounts`
 - **Request**:
   - Add RBAC user management (`admin`, `operator`, `viewer`), Personal Access Tokens (`gat_pat_...`) for remote calls, and Third-Party Service Accounts (`gat_svc_...`) with action-level scoping (`allowed_actions` exact & prefix wildcards) and key rotation.

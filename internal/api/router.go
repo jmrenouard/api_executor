@@ -309,6 +309,13 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/auth/service-accounts", http.HandlerFunc(env.AuthServiceAccountsHandler))
 	mux.Handle("/api/v1/auth/service-accounts/rotate", http.HandlerFunc(env.AuthServiceAccountRotateHandler))
 
+	// Extensible Plugin System & Read-Only Database Exposure routes
+	mux.Handle("/api/v1/plugins", http.HandlerFunc(env.PluginsListHandler))
+	mux.Handle("/api/v1/plugins/execute", http.HandlerFunc(env.PluginExecuteHandler))
+	mux.Handle("/api/v1/plugins/declarative", http.HandlerFunc(env.PluginDeclarativeRegisterHandler))
+	mux.Handle("/api/v1/db/tables", http.HandlerFunc(env.DBTablesHandler))
+	mux.Handle("/api/v1/db/query", http.HandlerFunc(env.DBQueryHandler))
+
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
 
