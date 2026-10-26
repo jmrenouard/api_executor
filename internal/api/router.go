@@ -183,6 +183,11 @@ func normalizeActionLabel(action string) string {
 	return label
 }
 
+// RecordActionCall updates Prometheus counters and latency histograms for an action call.
+func RecordActionCall(action, outcome string, timedOut bool, duration time.Duration) {
+	recordActionCall(action, outcome, timedOut, duration)
+}
+
 // recordActionCall updates Prometheus counters and latency histograms for an action call.
 // outcome must be one of "ok", "error", or "failure".
 func recordActionCall(action, outcome string, timedOut bool, duration time.Duration) {
@@ -315,6 +320,12 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/plugins/declarative", http.HandlerFunc(env.PluginDeclarativeRegisterHandler))
 	mux.Handle("/api/v1/db/tables", http.HandlerFunc(env.DBTablesHandler))
 	mux.Handle("/api/v1/db/query", http.HandlerFunc(env.DBQueryHandler))
+
+	// Model Context Protocol (MCP) Server & Trace Retention routes
+	mux.Handle("/api/v1/mcp", http.HandlerFunc(env.MCPHandler))
+	mux.Handle("/api/v1/mcp/tools", http.HandlerFunc(env.MCPToolsHandler))
+	mux.Handle("/api/v1/mcp/traces", http.HandlerFunc(env.MCPTracesHandler))
+	mux.Handle("/api/v1/mcp/traces/", http.HandlerFunc(env.MCPTraceByIDHandler))
 
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
