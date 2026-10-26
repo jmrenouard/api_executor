@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go-admin-tool/internal/audit"
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 )
 
@@ -33,10 +35,13 @@ func setupTestAPIEnvWithTLS(t *testing.T, tlsEnabled bool) (*APIEnv, *core.CertM
 		t.Fatalf("failed to create CertManager: %v", err)
 	}
 
+	auditLogger, _ := audit.NewAuditLogger(cfg.Audit, nil, logger)
+
 	env := &APIEnv{
 		Config:      cfg,
 		Logger:      logger,
 		CertManager: cm,
+		AuditLogger: auditLogger,
 	}
 	return env, cm
 }
@@ -125,6 +130,35 @@ func TestTLSRenewEndpoint(t *testing.T) {
 	}
 	if renewed.FingerprintSHA256 == oldFP {
 		t.Errorf("expected certificate fingerprint to change after renewal, still %s", oldFP)
+	}
+
+	// Verify audit event recorded for TLS renewal
+	events := env.AuditLogger.Query(audit.AuditFilter{Category: "tls"})
+	if len(events) == 0 {
+		t.Fatalf("expected TLS renewal to record an event in AuditLogger")
+	}
+
+	// Verify RBAC enforcement when RequireAuth=true
+	env.Config.Auth.Enabled = true
+	env.Config.Auth.RequireAuth = true
+	authMgr, _ := auth.NewManager(env.Config.Auth)
+	env.AuthManager = authMgr
+	_, _ = authMgr.CreateUser("viewer1", "viewer-pass-123", "Viewer", "", auth.RoleViewer)
+	_, _, viewerTok, _ := authMgr.AuthenticateUser("viewer1", "viewer-pass-123")
+
+	unauthReq := httptest.NewRequest(http.MethodPost, "/api/v1/tls/renew", nil)
+	unauthRec := httptest.NewRecorder()
+	router.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated POST /api/v1/tls/renew when RequireAuth=true, got %d", unauthRec.Code)
+	}
+
+	viewerReq := httptest.NewRequest(http.MethodPost, "/api/v1/tls/renew", nil)
+	viewerReq.Header.Set("X-API-Token", viewerTok)
+	viewerRec := httptest.NewRecorder()
+	router.ServeHTTP(viewerRec, viewerReq)
+	if viewerRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer POST /api/v1/tls/renew, got %d", viewerRec.Code)
 	}
 }
 

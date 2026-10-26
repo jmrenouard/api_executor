@@ -333,8 +333,16 @@ func (s *Server) Prompts() []MCPPrompt {
 	}
 }
 
+// ToolAuthorizer validates whether the authenticated caller is permitted to invoke a given scope and target action.
+type ToolAuthorizer func(requiredScope string, targetAction string) error
+
 // HandleJSONRPC processes a JSON-RPC 2.0 MCP request, records a persistent trace, and writes an audit log entry.
 func (s *Server) HandleJSONRPC(ctx context.Context, req JSONRPCRequest, sessionID string, actor string) JSONRPCResponse {
+	return s.HandleJSONRPCWithAuthorizer(ctx, req, sessionID, actor, nil)
+}
+
+// HandleJSONRPCWithAuthorizer processes a JSON-RPC 2.0 MCP request while enforcing caller RBAC scopes and service-account action allowlists.
+func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCRequest, sessionID string, actor string, authorizer ToolAuthorizer) JSONRPCResponse {
 	start := time.Now()
 	traceID := generateTraceID()
 	if strings.TrimSpace(actor) == "" {
@@ -382,7 +390,7 @@ func (s *Server) HandleJSONRPC(ctx context.Context, req JSONRPCRequest, sessionI
 		}
 
 	case "tools/call":
-		callRes, calledTool, callStatus, rpcErr := s.handleToolCall(ctx, req.Params, traceID)
+		callRes, calledTool, callStatus, rpcErr := s.handleToolCall(ctx, req.Params, traceID, authorizer)
 		toolName = calledTool
 		status = callStatus
 		if rpcErr != nil {
@@ -485,7 +493,7 @@ func (s *Server) HandleJSONRPC(ctx context.Context, req JSONRPCRequest, sessionI
 	return resp
 }
 
-func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, traceID string) (MCPCallToolResult, string, string, *JSONRPCError) {
+func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, traceID string, authorizer ToolAuthorizer) (MCPCallToolResult, string, string, *JSONRPCError) {
 	var callReq struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
@@ -514,6 +522,14 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		}
 		if cmdName == "" {
 			return s.toolErrorResult(traceID, "missing required argument 'name'"), toolName, "error", nil
+		}
+		if authorizer != nil {
+			if err := authorizer("commands:execute", cmdName); err != nil {
+				if s.metricCallback != nil {
+					s.metricCallback(cmdName, "error", false, 0)
+				}
+				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for command %q: %v", cmdName, err)), toolName, "denied", nil
+			}
 		}
 
 		var timeoutOverride time.Duration
@@ -662,9 +678,19 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		if pluginID == "" || action == "" {
 			return s.toolErrorResult(traceID, "plugin_id and action are required"), toolName, "error", nil
 		}
+		metricLabel := fmt.Sprintf("plugin:%s:%s", pluginID, action)
+		if authorizer != nil {
+			if err := authorizer("plugins:execute", metricLabel); err != nil {
+				if authorizer("plugins:execute", pluginID) != nil && authorizer("plugins:execute", action) != nil {
+					if s.metricCallback != nil {
+						s.metricCallback(metricLabel, "error", false, 0)
+					}
+					return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for plugin %q action %q: %v", pluginID, action, err)), toolName, "denied", nil
+				}
+			}
+		}
 
 		res, err := s.pluginRegistry.Execute(ctx, pluginID, action, params, 30*time.Second)
-		metricLabel := fmt.Sprintf("plugin:%s:%s", pluginID, action)
 		if err != nil {
 			if s.metricCallback != nil {
 				s.metricCallback(metricLabel, res.Status, res.TimedOut, time.Duration(res.DurationMs)*time.Millisecond)
@@ -690,6 +716,11 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		if s.pluginRegistry == nil {
 			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", nil
 		}
+		if authorizer != nil {
+			if err := authorizer("plugins:execute", "db-exposure"); err != nil && authorizer("plugins:execute", "plugin:db-exposure:query_readonly") != nil {
+				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_query: %v", err)), toolName, "denied", nil
+			}
+		}
 		res, err := s.pluginRegistry.Execute(ctx, "db-exposure", "query_readonly", callReq.Arguments, 15*time.Second)
 		if err != nil {
 			return MCPCallToolResult{
@@ -709,6 +740,11 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 	case "db_list_tables":
 		if s.pluginRegistry == nil {
 			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", nil
+		}
+		if authorizer != nil {
+			if err := authorizer("plugins:read", "db-exposure"); err != nil && authorizer("plugins:execute", "db-exposure") != nil {
+				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_list_tables: %v", err)), toolName, "denied", nil
+			}
 		}
 		res, err := s.pluginRegistry.Execute(ctx, "db-exposure", "list_tables", nil, 10*time.Second)
 		if err != nil {

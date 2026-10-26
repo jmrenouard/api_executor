@@ -236,6 +236,10 @@ func (env *APIEnv) AuthTokensHandler(w http.ResponseWriter, r *http.Request) {
 		}{Tokens: env.AuthManager.ListTokens()})
 
 	case http.MethodPost:
+		if p.Type == "service_account" {
+			writeJSONError(w, "Service accounts cannot issue Personal Access Tokens", http.StatusForbidden)
+			return
+		}
 		var req struct {
 			UserID string   `json:"user_id"`
 			Name   string   `json:"name"`
@@ -247,7 +251,24 @@ func (env *APIEnv) AuthTokensHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.TrimSpace(req.UserID) == "" {
-			req.UserID = "admin"
+			if p.Type == "user_token" && strings.TrimSpace(p.Username) != "" {
+				req.UserID = p.Username
+			} else {
+				req.UserID = "admin"
+			}
+		}
+		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+			if !strings.EqualFold(strings.TrimSpace(req.UserID), p.Username) {
+				writeJSONError(w, "Admin role required to issue Personal Access Tokens for other users", http.StatusForbidden)
+				return
+			}
+			for _, requestedScope := range req.Scopes {
+				rs := strings.TrimSpace(requestedScope)
+				if rs == "*" || strings.EqualFold(rs, "admin:*") || auth.Authorize(p, rs, "") != nil {
+					writeJSONError(w, fmt.Sprintf("Cannot issue token with scope %q exceeding caller permissions", rs), http.StatusForbidden)
+					return
+				}
+			}
 		}
 		var ttl time.Duration
 		if strings.TrimSpace(req.TTL) != "" {
@@ -285,6 +306,23 @@ func (env *APIEnv) AuthTokensHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		id := strings.TrimSpace(r.URL.Query().Get("id"))
+		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+			if p.Type == "service_account" {
+				writeJSONError(w, "Service accounts cannot revoke Personal Access Tokens", http.StatusForbidden)
+				return
+			}
+			owned := false
+			for _, t := range env.AuthManager.ListTokens() {
+				if t.ID == id && strings.EqualFold(t.Username, p.Username) {
+					owned = true
+					break
+				}
+			}
+			if !owned {
+				writeJSONError(w, "Admin role required to revoke another user's token", http.StatusForbidden)
+				return
+			}
+		}
 		if err := env.AuthManager.RevokeToken(id); err != nil {
 			writeJSONError(w, err.Error(), http.StatusNotFound)
 			return

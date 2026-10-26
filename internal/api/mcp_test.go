@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"go-admin-tool/internal/audit"
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
@@ -111,4 +112,50 @@ func TestMCPEndpointsAndTraceInspection(t *testing.T) {
 	if recDel.Code != http.StatusOK {
 		t.Fatalf("expected 200 from DELETE /api/v1/mcp/traces, got %d", recDel.Code)
 	}
+
+	// 6. Verify service account allowed_actions cannot be bypassed via POST /api/v1/mcp tools/call
+	cfg.Auth.Enabled = true
+	cfg.Auth.RequireAuth = true
+	cmdForbidden := core.CommandDefinition{Name: "mcp-forbidden-cmd", Command: cmdDef.Command, Args: cmdDef.Args}
+	cfg.Executor.Commands = []core.CommandDefinition{cmdDef, cmdForbidden}
+
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+	env.AuthManager = authMgr
+	_, saKey, err := authMgr.CreateServiceAccount("mcp-sa", "MCP Bot", "Scoped to mcp-test-cmd only", nil, []string{"mcp-test-cmd"}, 0)
+	if err != nil {
+		t.Fatalf("failed to create service account: %v", err)
+	}
+
+	// Allowed command via MCP succeeds
+	reqAllowedMCP := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", bytes.NewReader(rpcBody))
+	reqAllowedMCP.Header.Set("X-Service-Key", saKey)
+	recAllowedMCP := httptest.NewRecorder()
+	router.ServeHTTP(recAllowedMCP, reqAllowedMCP)
+	if recAllowedMCP.Code != http.StatusOK || strings.Contains(recAllowedMCP.Body.String(), `"isError":true`) {
+		t.Fatalf("expected allowed command to succeed via MCP for scoped service account, got %d: %s", recAllowedMCP.Code, recAllowedMCP.Body.String())
+	}
+
+	// Forbidden command via MCP must be denied (isError: true)
+	forbidRPCBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name": "execute_command",
+			"arguments": map[string]any{
+				"name": "mcp-forbidden-cmd",
+			},
+		},
+	})
+	reqForbidMCP := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", bytes.NewReader(forbidRPCBody))
+	reqForbidMCP.Header.Set("X-Service-Key", saKey)
+	recForbidMCP := httptest.NewRecorder()
+	router.ServeHTTP(recForbidMCP, reqForbidMCP)
+	if !strings.Contains(recForbidMCP.Body.String(), `"isError":true`) {
+		t.Fatalf("expected MCP tools/call on forbidden command to return isError=true for scoped service account, got: %s", recForbidMCP.Body.String())
+	}
 }
+

@@ -2,9 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"go-admin-tool/internal/audit"
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 )
 
@@ -27,11 +30,38 @@ func (env *APIEnv) ActivatePresetsHandler(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if authErr := auth.Authorize(p, "commands:execute", ""); authErr != nil {
+			if env.AuditLogger != nil {
+				_, _ = env.AuditLogger.Record(audit.AuditEvent{
+					Category:  "admin",
+					Action:    "presets.activate",
+					ActorType: p.Type,
+					ActorID:   p.Name,
+					SourceIP:  r.RemoteAddr,
+					Status:    "denied",
+					Summary:   fmt.Sprintf("Denied OS preset activation for %s: %v", p.Name, authErr),
+				})
+			}
+			writeJSONError(w, authErr.Error(), http.StatusForbidden)
+			return
+		}
+	}
+
 	var req struct {
-		Families []string `json:"families"`
+		Families   []string `json:"families"`
+		OSFamilies []string `json:"os_families"`
 	}
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if len(req.Families) == 0 && len(req.OSFamilies) > 0 {
+		req.Families = req.OSFamilies
 	}
 	if len(req.Families) == 0 {
 		family := strings.TrimSpace(r.URL.Query().Get("family"))
@@ -47,6 +77,18 @@ func (env *APIEnv) ActivatePresetsHandler(w http.ResponseWriter, r *http.Request
 	env.Config.Executor.EnableOSPresets = true
 	initConfiguredActionMetrics(env)
 	after := len(env.Config.Executor.Commands)
+
+	if env.AuditLogger != nil {
+		_, _ = env.AuditLogger.Record(audit.AuditEvent{
+			Category:  "admin",
+			Action:    "presets.activate",
+			ActorType: p.Type,
+			ActorID:   p.Name,
+			SourceIP:  r.RemoteAddr,
+			Status:    "ok",
+			Summary:   fmt.Sprintf("Activated OS presets %v (%d added, %d total)", req.Families, after-before, after),
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {

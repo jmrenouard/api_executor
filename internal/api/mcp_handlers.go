@@ -64,7 +64,9 @@ func (env *APIEnv) MCPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := p.Type + ":" + p.Name
 
-	rpcResp := env.MCPServer.HandleJSONRPC(r.Context(), rpcReq, sessionID, actor)
+	rpcResp := env.MCPServer.HandleJSONRPCWithAuthorizer(r.Context(), rpcReq, sessionID, actor, func(requiredScope, targetAction string) error {
+		return auth.Authorize(p, requiredScope, targetAction)
+	})
 	if rpcResp.TraceID != "" {
 		w.Header().Set("X-MCP-Trace-ID", rpcResp.TraceID)
 	}
