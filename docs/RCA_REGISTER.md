@@ -110,6 +110,18 @@ This living governance register records all errors encountered, technical dead-e
   - Extracted `resolveConfigPath()`, `initializeServerEnv(configPath string)`, and `buildHTTPServer(env, router)` in `cmd/server/main.go` and added unit tests in `cmd/server/main_test.go`.
 - **Result & Non-Regression Test**: Verified by `TestLoggerLevelsStructuredOutputAndRingBuffer` (`internal/core/logger_test.go`) and `TestResolveConfigPathAndInitializeServerEnv` (`cmd/server/main_test.go`).
 
+### `RCA-012` — Declarative Plugin Registration Banner Key Mismatch (`d.plugin.id` vs `d.id`) and Missing Favicon Console Error in Web Administration Console
+- **Date**: `2026-10-26`
+- **Observed Symptom**:
+  1. Clicking "Register Declarative Plugin" in Tab 5 of `web/static/index.html` displayed `"Registered declarative plugin "` without the newly registered plugin ID (`custom-ops`), and mutating actions across Tabs 2–5 did not immediately refresh the Tab 7 SHA-256 Audit badge count.
+  2. Navigating to the Web Administration Console in MCP Playwright logged a browser console error: `Failed to load resource: the server responded with a status of 404 (Not Found) @ /favicon.ico`.
+- **Root Cause Analysis**:
+  - `POST /api/v1/plugins/declarative` (`PluginsHandler` in `internal/api/plugin_handlers.go`) serializes `plugins.PluginInfo` directly at the root JSON object (`{"id": "custom-ops", ...}`), whereas `registerDeclarativePlugin()` in `web/static/index.html` checked `d.plugin ? d.plugin.id : ''`.
+  - `web/static/index.html` did not declare a `<link rel="icon">` tag in `<head>`, causing Chromium to request `/favicon.ico`.
+- **Applied Change / Fix**:
+  - Updated `registerDeclarativePlugin()` in `web/static/index.html` to read `const pluginID = d.id || (d.plugin && d.plugin.id) || ''`, added `this.loadAuditAndLogs()` refresh calls after preset, user, PAT, service-account, plugin, SQL, and TLS mutations, and added an inline SVG data-URI favicon `<link rel="icon" type="image/svg+xml" ...>`.
+- **Result & Non-Regression Test**: Verified interactively via MCP Playwright across all 8 tabs (`0` console errors) and by `TestWebAdministrationConsoleServed` and `TestWebAdministrationConsoleEndToEndWorkflows` in `internal/api/web_console_test.go`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

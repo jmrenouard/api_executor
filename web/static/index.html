@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API Executor — Enterprise Remote Administration Console</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23059669'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-family='monospace' font-weight='bold' font-size='14'%3EAE%3C/text%3E%3C/svg%3E">
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
@@ -848,10 +849,13 @@
                         headers: this.headers(),
                         body: JSON.stringify({ os_families: families })
                     });
+                    const d = await r.json();
                     if (r.ok) {
-                        const d = await r.json();
                         this.statusBanner = `Activated presets (${d.added_count} added, ${d.total_commands} total commands)`;
                         await this.loadCommands();
+                        this.loadAuditAndLogs();
+                    } else {
+                        this.statusBanner = d.error || 'Failed to activate presets';
                     }
                 },
 
@@ -897,9 +901,14 @@
                         headers: this.headers(),
                         body: JSON.stringify(this.newUser)
                     });
+                    const d = await r.json();
                     if (r.ok) {
+                        this.statusBanner = `Created user ${d.username} (${d.role})`;
                         this.newUser = { username: '', password: '', display_name: '', role: 'operator' };
                         this.loadAuthData();
+                        this.loadAuditAndLogs();
+                    } else {
+                        this.statusBanner = d.error || 'Failed to create user';
                     }
                 },
 
@@ -917,7 +926,11 @@
                     const d = await r.json();
                     if (r.ok) {
                         this.newlyIssuedSecret = d.token;
+                        this.statusBanner = `Issued Personal Access Token ${d.token_info ? d.token_info.name : ''}`;
                         this.loadAuthData();
+                        this.loadAuditAndLogs();
+                    } else {
+                        this.statusBanner = d.error || 'Failed to issue token';
                     }
                 },
 
@@ -942,7 +955,11 @@
                     const d = await r.json();
                     if (r.ok) {
                         this.newlyIssuedSAKey = d.api_key;
+                        this.statusBanner = `Created service account ${d.service_account ? d.service_account.name : ''}`;
                         this.loadAuthData();
+                        this.loadAuditAndLogs();
+                    } else {
+                        this.statusBanner = d.error || 'Failed to create service account';
                     }
                 },
 
@@ -955,7 +972,10 @@
                     const d = await r.json();
                     if (r.ok) {
                         this.newlyIssuedSAKey = d.api_key;
+                        this.statusBanner = `Rotated key for service account ${d.service_account ? d.service_account.name : id}`;
                         this.loadAuthData();
+                    } else {
+                        this.statusBanner = d.error || 'Failed to rotate service account key';
                     }
                 },
 
@@ -1006,6 +1026,7 @@
                     });
                     const d = await r.json();
                     this.pluginOutput = JSON.stringify(d, null, 2);
+                    this.loadAuditAndLogs();
                 },
 
                 async registerDeclarativePlugin() {
@@ -1017,8 +1038,12 @@
                     const d = await r.json();
                     this.pluginOutput = JSON.stringify(d, null, 2);
                     if (r.ok) {
-                        this.statusBanner = 'Registered declarative plugin ' + (d.plugin ? d.plugin.id : '');
+                        const pluginID = d.id || (d.plugin && d.plugin.id) || '';
+                        this.statusBanner = 'Registered declarative plugin ' + pluginID;
                         await this.loadPlugins();
+                        this.loadAuditAndLogs();
+                    } else {
+                        this.statusBanner = d.error || 'Failed to register declarative plugin';
                     }
                 },
 
@@ -1034,6 +1059,7 @@
                         body: JSON.stringify({ sql: this.dbSQLQuery, max_rows: 50 })
                     });
                     this.dbQueryOutput = JSON.stringify(await r.json(), null, 2);
+                    this.loadAuditAndLogs();
                 },
 
                 sendMCPPreset(method, params) {
@@ -1092,9 +1118,13 @@
 
                 async renewTLSCertificate() {
                     const r = await fetch('/api/v1/tls/renew', { method: 'POST', headers: this.headers() });
+                    const d = await r.json();
                     if (r.ok) {
-                        this.tlsInfo = await r.json();
+                        this.tlsInfo = d;
                         this.statusBanner = 'Rotated X.509 certificate with zero downtime';
+                        this.loadAuditAndLogs();
+                    } else {
+                        this.statusBanner = d.error || 'Failed to rotate TLS certificate';
                     }
                 },
 

@@ -9,15 +9,26 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| *(None — all atomic issues `#2` through `#11` and `#22`, `#24`, `#26`, `#28` completed)* | — | — | — | — |
+| *(None — all requested atomic actions completed and merged)* | — | — | — | — |
 
 ---
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-015` — Verify Web Administration Console via MCP Playwright Across All 8 Tabs and Fix Declarative Plugin Banner
+- **Timestamp (UTC)**: `2026-10-26T22:24:00Z`
+- **GitHub Issue**: [#30](https://github.com/jmrenouard/api_executor/issues/30)
+- **Branch**: `test/issue-30-mcp-playwright-web-console`
+- **Request**:
+  - Verify the Web Administration Console (`web/static/index.html`) interactively across all 8 tabs using MCP Playwright against a live API Executor server instance, fix the declarative plugin status banner (`d.id`), eliminate browser console 404 errors on `/favicon.ico`, and expand `internal/api/web_console_test.go`.
+- **Changes**:
+  - Updated [`web/static/index.html`](../web/static/index.html), [`internal/api/web_console_test.go`](../internal/api/web_console_test.go), [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md), and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - Interactive MCP Playwright E2E verification passed across all 8 tabs (`1. Command Executor`, `2. Ubuntu & RedHat Presets`, `3. RBAC Users & PATs`, `4. Service Accounts`, `5. Plugins & SQL Explorer`, `6. MCP Server & Traces`, `7. SHA-256 Audit & Logs`, `8. HTTPS/TLS & Files`) with `0` console errors; `go test -count=1 -cover ./...` passing (`docs` 100.0%, `internal/database` 96.2%, `internal/audit` 95.5%, `internal/auth` 94.3%, `internal/mcp` 94.2%, `internal/plugins` 93.0%, `internal/api` 88.4%, `internal/core` 88.2%, `cmd/server` 66.0%).
+
 ### `ACT-014` — Expand Unit and Integration Test Coverage Across Core Packages and REST API Endpoints
 - **Timestamp (UTC)**: `2026-10-26T22:04:00Z`
-- **GitHub Issue**: [#28](https://github.com/jmrenouard/api_executor/issues/28)
+- **GitHub Issue**: [#28](https://github.com/jmrenouard/api_executor/issues/28) (PR [#29](https://github.com/jmrenouard/api_executor/pull/29), commit `d97f19b`)
 - **Branch**: `test/issue-28-unit-and-api-test-coverage`
 - **Request**:
   - Expand unit and integration tests across `internal/core`, `internal/database`, `internal/audit`, `internal/auth`, `internal/plugins`, `internal/mcp`, `internal/api`, and `cmd/server` to achieve >= 85% statement coverage across all internal packages and cover all error/boundary paths.
