@@ -63,6 +63,11 @@ func TestWebAdministrationConsoleServed(t *testing.T) {
 		"/api/v1/logs",
 		"/api/v1/history",
 		"/api/v1/tls/renew",
+		"this.principal = null;",
+		"Deleted user ",
+		"Revoked token ",
+		"Deleted service account ",
+		"Executed plugin ",
 	}
 
 	for _, marker := range requiredSections {

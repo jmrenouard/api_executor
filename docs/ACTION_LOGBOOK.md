@@ -15,9 +15,20 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-016` — Audit All RBAC Credential Mutations, Surface `401`/`403` Feedback in Web Console, and Raise `cmd/server` Coverage Above 80%
+- **Timestamp (UTC)**: `2026-10-26T22:42:00Z`
+- **GitHub Issue**: [#32](https://github.com/jmrenouard/api_executor/issues/32)
+- **Branch**: `fix/issue-32-web-console-rbac-feedback-and-server-coverage`
+- **Request**:
+  - Record SHA-256 audit events (`user.update`, `user.delete`, `token.revoke`, `service_account.delete`, `service_account.rotate`) in `internal/api/auth_handlers.go`, surface `401`/`403` `statusBanner` feedback, reset stale `principal` state, and await async refreshes across `web/static/index.html`, extract `runServer()` in `cmd/server/main.go` to raise `cmd/server` coverage above `80%`, and re-verify all 8 tabs plus restricted `viewer` PAT and scoped `gat_svc_...` Service Account `403` flows via MCP Playwright.
+- **Changes**:
+  - Updated [`internal/api/auth_handlers.go`](../internal/api/auth_handlers.go), [`internal/api/auth_test.go`](../internal/api/auth_test.go), [`internal/api/web_console_test.go`](../internal/api/web_console_test.go), [`web/static/index.html`](../web/static/index.html), [`cmd/server/main.go`](../cmd/server/main.go), [`cmd/server/main_test.go`](../cmd/server/main_test.go), [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md), and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - Interactive MCP Playwright E2E verification passed across all 8 tabs plus restricted `viewer` PAT (`403 Forbidden`), scoped `gat_svc_...` Service Account (`200 OK` on `host-check`, `403 Forbidden` on `ubuntu-os-release`), invalid token principal reset (`null`), and RBAC deletion/revocation/rotation workflows (`18` hash-chained audit events verified); `go test -count=1 -cover ./...` passing with `>= 82.4%` coverage across all 9 packages (`docs` 100.0%, `internal/database` 96.2%, `internal/audit` 95.5%, `internal/auth` 94.3%, `internal/mcp` 94.2%, `internal/plugins` 93.0%, `internal/api` 89.2%, `internal/core` 88.2%, `cmd/server` 82.4%).
+
 ### `ACT-015` — Verify Web Administration Console via MCP Playwright Across All 8 Tabs and Fix Declarative Plugin Banner
 - **Timestamp (UTC)**: `2026-10-26T22:24:00Z`
-- **GitHub Issue**: [#30](https://github.com/jmrenouard/api_executor/issues/30)
+- **GitHub Issue**: [#30](https://github.com/jmrenouard/api_executor/issues/30) (PR [#31](https://github.com/jmrenouard/api_executor/pull/31), commit `85a880f`)
 - **Branch**: `test/issue-30-mcp-playwright-web-console`
 - **Request**:
   - Verify the Web Administration Console (`web/static/index.html`) interactively across all 8 tabs using MCP Playwright against a live API Executor server instance, fix the declarative plugin status banner (`d.id`), eliminate browser console 404 errors on `/favicon.ico`, and expand `internal/api/web_console_test.go`.
