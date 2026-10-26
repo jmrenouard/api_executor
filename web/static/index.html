@@ -766,6 +766,7 @@
 
                 clearToken() {
                     this.authToken = '';
+                    this.statusBanner = 'Cleared active API credential';
                     this.refreshAll();
                 },
 
@@ -787,9 +788,12 @@
                 async loadPrincipal() {
                     try {
                         const r = await fetch('/api/v1/auth/me', { headers: this.headers() });
+                        const d = await r.json();
                         if (r.ok) {
-                            const d = await r.json();
                             this.principal = d.principal;
+                        } else {
+                            this.principal = null;
+                            this.statusBanner = d.error || ('Authentication failed (' + r.status + ')');
                         }
                     } catch (_) {}
                 },
@@ -825,7 +829,10 @@
                         this.commandOutput = d.output || '';
                         this.commandError = d.error || '';
                         this.lastExecMeta = `status=${r.status} timeout=${d.timeout || 'default'} timed_out=${!!d.timed_out}`;
-                        this.loadAuditAndLogs();
+                        if (!r.ok && d.error) {
+                            this.statusBanner = d.error;
+                        }
+                        await this.loadAuditAndLogs();
                     } catch (e) {
                         this.commandError = String(e);
                     } finally {
@@ -852,8 +859,7 @@
                     const d = await r.json();
                     if (r.ok) {
                         this.statusBanner = `Activated presets (${d.added_count} added, ${d.total_commands} total commands)`;
-                        await this.loadCommands();
-                        this.loadAuditAndLogs();
+                        await Promise.all([this.loadCommands(), this.loadAuditAndLogs()]);
                     } else {
                         this.statusBanner = d.error || 'Failed to activate presets';
                     }
@@ -905,16 +911,21 @@
                     if (r.ok) {
                         this.statusBanner = `Created user ${d.username} (${d.role})`;
                         this.newUser = { username: '', password: '', display_name: '', role: 'operator' };
-                        this.loadAuthData();
-                        this.loadAuditAndLogs();
+                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
                     } else {
                         this.statusBanner = d.error || 'Failed to create user';
                     }
                 },
 
                 async deleteUser(id) {
-                    await fetch('/api/v1/auth/users?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
-                    this.loadAuthData();
+                    const r = await fetch('/api/v1/auth/users?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                    const d = await r.json();
+                    if (r.ok) {
+                        this.statusBanner = 'Deleted user ' + id;
+                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                    } else {
+                        this.statusBanner = d.error || 'Failed to delete user';
+                    }
                 },
 
                 async createPAT() {
@@ -927,16 +938,21 @@
                     if (r.ok) {
                         this.newlyIssuedSecret = d.token;
                         this.statusBanner = `Issued Personal Access Token ${d.token_info ? d.token_info.name : ''}`;
-                        this.loadAuthData();
-                        this.loadAuditAndLogs();
+                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
                     } else {
                         this.statusBanner = d.error || 'Failed to issue token';
                     }
                 },
 
                 async revokeToken(id) {
-                    await fetch('/api/v1/auth/tokens?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
-                    this.loadAuthData();
+                    const r = await fetch('/api/v1/auth/tokens?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                    const d = await r.json();
+                    if (r.ok) {
+                        this.statusBanner = 'Revoked token ' + id;
+                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                    } else {
+                        this.statusBanner = d.error || 'Failed to revoke token';
+                    }
                 },
 
                 async createServiceAccount() {
@@ -956,8 +972,7 @@
                     if (r.ok) {
                         this.newlyIssuedSAKey = d.api_key;
                         this.statusBanner = `Created service account ${d.service_account ? d.service_account.name : ''}`;
-                        this.loadAuthData();
-                        this.loadAuditAndLogs();
+                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
                     } else {
                         this.statusBanner = d.error || 'Failed to create service account';
                     }
@@ -973,15 +988,21 @@
                     if (r.ok) {
                         this.newlyIssuedSAKey = d.api_key;
                         this.statusBanner = `Rotated key for service account ${d.service_account ? d.service_account.name : id}`;
-                        this.loadAuthData();
+                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
                     } else {
                         this.statusBanner = d.error || 'Failed to rotate service account key';
                     }
                 },
 
                 async deleteServiceAccount(id) {
-                    await fetch('/api/v1/auth/service-accounts?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
-                    this.loadAuthData();
+                    const r = await fetch('/api/v1/auth/service-accounts?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                    const d = await r.json();
+                    if (r.ok) {
+                        this.statusBanner = 'Deleted service account ' + id;
+                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                    } else {
+                        this.statusBanner = d.error || 'Failed to delete service account';
+                    }
                 },
 
                 async loadPlugins() {
@@ -1026,7 +1047,12 @@
                     });
                     const d = await r.json();
                     this.pluginOutput = JSON.stringify(d, null, 2);
-                    this.loadAuditAndLogs();
+                    if (r.ok) {
+                        this.statusBanner = 'Executed plugin ' + this.selectedPluginID + ':' + this.selectedPluginAction;
+                    } else {
+                        this.statusBanner = d.error || 'Plugin execution failed';
+                    }
+                    await this.loadAuditAndLogs();
                 },
 
                 async registerDeclarativePlugin() {
@@ -1041,7 +1067,11 @@
                         const pluginID = d.id || (d.plugin && d.plugin.id) || '';
                         this.statusBanner = 'Registered declarative plugin ' + pluginID;
                         await this.loadPlugins();
-                        this.loadAuditAndLogs();
+                        if (pluginID) {
+                            this.selectedPluginID = pluginID;
+                            this.syncPluginActions();
+                        }
+                        await this.loadAuditAndLogs();
                     } else {
                         this.statusBanner = d.error || 'Failed to register declarative plugin';
                     }
@@ -1049,7 +1079,11 @@
 
                 async loadDBTables() {
                     const r = await fetch('/api/v1/db/tables', { headers: this.headers() });
-                    this.dbQueryOutput = JSON.stringify(await r.json(), null, 2);
+                    const d = await r.json();
+                    this.dbQueryOutput = JSON.stringify(d, null, 2);
+                    if (!r.ok && d.error) {
+                        this.statusBanner = d.error;
+                    }
                 },
 
                 async runDBQuery() {
@@ -1058,13 +1092,19 @@
                         headers: this.headers(),
                         body: JSON.stringify({ sql: this.dbSQLQuery, max_rows: 50 })
                     });
-                    this.dbQueryOutput = JSON.stringify(await r.json(), null, 2);
-                    this.loadAuditAndLogs();
+                    const d = await r.json();
+                    this.dbQueryOutput = JSON.stringify(d, null, 2);
+                    if (r.ok) {
+                        this.statusBanner = 'Executed read-only SQL query';
+                    } else {
+                        this.statusBanner = d.error || 'Database query failed';
+                    }
+                    await this.loadAuditAndLogs();
                 },
 
                 sendMCPPreset(method, params) {
                     this.mcpRequestJSON = JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }, null, 2);
-                    this.sendRawMCP();
+                    return this.sendRawMCP();
                 },
 
                 async sendRawMCP() {
@@ -1073,9 +1113,12 @@
                         headers: this.headers({ 'X-MCP-Session-ID': 'web-admin-console' }),
                         body: this.mcpRequestJSON
                     });
-                    this.mcpResponseJSON = JSON.stringify(await r.json(), null, 2);
-                    this.loadMCPTraces();
-                    this.loadAuditAndLogs();
+                    const d = await r.json();
+                    this.mcpResponseJSON = JSON.stringify(d, null, 2);
+                    if (!r.ok && d.error) {
+                        this.statusBanner = typeof d.error === 'string' ? d.error : (d.error.message || 'MCP request failed');
+                    }
+                    await Promise.all([this.loadMCPTraces(), this.loadAuditAndLogs()]);
                 },
 
                 async loadMCPTraces() {
@@ -1122,7 +1165,7 @@
                     if (r.ok) {
                         this.tlsInfo = d;
                         this.statusBanner = 'Rotated X.509 certificate with zero downtime';
-                        this.loadAuditAndLogs();
+                        await this.loadAuditAndLogs();
                     } else {
                         this.statusBanner = d.error || 'Failed to rotate TLS certificate';
                     }

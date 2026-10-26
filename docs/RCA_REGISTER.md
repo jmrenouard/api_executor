@@ -122,6 +122,22 @@ This living governance register records all errors encountered, technical dead-e
   - Updated `registerDeclarativePlugin()` in `web/static/index.html` to read `const pluginID = d.id || (d.plugin && d.plugin.id) || ''`, added `this.loadAuditAndLogs()` refresh calls after preset, user, PAT, service-account, plugin, SQL, and TLS mutations, and added an inline SVG data-URI favicon `<link rel="icon" type="image/svg+xml" ...>`.
 - **Result & Non-Regression Test**: Verified interactively via MCP Playwright across all 8 tabs (`0` console errors) and by `TestWebAdministrationConsoleServed` and `TestWebAdministrationConsoleEndToEndWorkflows` in `internal/api/web_console_test.go`.
 
+### `RCA-013` — Unaudited RBAC Credential Deletions/Rotations, Unawaited Async Refreshes & Missing `401`/`403` Banner Feedback in Web Console, and `cmd/server` Coverage Below 80%
+- **Date**: `2026-10-26`
+- **Observed Symptom**:
+  1. `PATCH`/`DELETE /api/v1/auth/users`, `DELETE /api/v1/auth/tokens`, `DELETE /api/v1/auth/service-accounts`, and `POST /api/v1/auth/service-accounts/rotate` succeeded without recording SHA-256 audit events (`user.update`, `user.delete`, `token.revoke`, `service_account.delete`, `service_account.rotate`) in `AuditLogger`.
+  2. In `web/static/index.html`, `deleteUser()`, `revokeToken()`, and `deleteServiceAccount()` discarded HTTP responses without updating `statusBanner` or calling `loadAuditAndLogs()`; `loadPrincipal()` left stale `principal` data displayed when `GET /api/v1/auth/me` returned `401 Unauthorized`; `executePlugin()` and `runDBQuery()` did not update `statusBanner`; and `loadAuthData()`/`loadAuditAndLogs()` were invoked without `await` inside async mutation methods.
+  3. `cmd/server` statement coverage was `66.0%` (below the 80% minimum threshold) because listener dispatch remained inside `func main()`.
+- **Root Cause Analysis**:
+  - `internal/api/auth_handlers.go` wired `env.AuditLogger.Record` on `POST` creation handlers (`login`, `user.create`, `token.create`, `service_account.create`) but omitted `PATCH`, `DELETE`, and key rotation handlers.
+  - `web/static/index.html` omitted `!r.ok` handling and `await` on secondary refresh promises in its Alpine.js controller methods.
+  - `cmd/server/main.go` coupled `buildHTTPServer` and `ListenAndServe`/`ListenAndServeTLS` directly to `main()`.
+- **Applied Change / Fix**:
+  - Added `env.AuditLogger.Record` calls for `user.update`, `user.delete`, `token.revoke`, `service_account.delete`, and `service_account.rotate` in `internal/api/auth_handlers.go`.
+  - Updated `web/static/index.html` to reset `this.principal = null` on `401`, surface `statusBanner` feedback across all RBAC mutations and `401`/`403` responses, and `await` `loadAuthData()`, `loadMCPTraces()`, and `loadAuditAndLogs()`.
+  - Extracted `runServer(configPath, serveFn)` in `cmd/server/main.go` and expanded `cmd/server/main_test.go` (`66.0%` -> `82.4%` statement coverage).
+- **Result & Non-Regression Test**: Verified by `TestAuthTokensPrivilegeEscalationPrevention` (`internal/api/auth_test.go`), `TestWebAdministrationConsoleServed` (`internal/api/web_console_test.go`), `TestResolveConfigPathAndInitializeServerEnv` (`cmd/server/main_test.go`), and live MCP Playwright E2E verification across all 8 tabs.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

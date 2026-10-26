@@ -129,5 +129,59 @@ command_executor:
 	if _, _, _, err := initializeServerEnv(badTLSCfg); err == nil {
 		t.Errorf("expected error when TLS auto_generate is false and cert files are missing")
 	}
+
+	// 5. Verify runServer with custom serveFn for HTTPS, HTTP, and error branches
+	var servedTLS bool
+	var servedAddr string
+	err = runServer(customCfgPath, func(srv *http.Server, tlsEnabled bool) error {
+		servedTLS = tlsEnabled
+		servedAddr = srv.Addr
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected runServer (HTTPS) to succeed, got %v", err)
+	}
+	if !servedTLS || servedAddr != "127.0.0.1:18443" {
+		t.Errorf("expected servedTLS=true and addr='127.0.0.1:18443', got tls=%v addr=%q", servedTLS, servedAddr)
+	}
+
+	httpCfgPath := filepath.Join(tmpDir, "http-config.yaml")
+	_ = os.WriteFile(httpCfgPath, []byte("server:\n  port: 18080\n  host: \"127.0.0.1\"\n  tls:\n    enabled: false\n"), 0600)
+	err = runServer(httpCfgPath, func(srv *http.Server, tlsEnabled bool) error {
+		servedTLS = tlsEnabled
+		servedAddr = srv.Addr
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected runServer (HTTP) to succeed, got %v", err)
+	}
+	if servedTLS || servedAddr != "127.0.0.1:18080" {
+		t.Errorf("expected servedTLS=false and addr='127.0.0.1:18080', got tls=%v addr=%q", servedTLS, servedAddr)
+	}
+
+	if err := runServer(filepath.Join(tmpDir, "nonexistent.yaml"), nil); err == nil {
+		t.Errorf("expected runServer to fail when config file does not exist")
+	}
+
+	err = runServer(httpCfgPath, func(srv *http.Server, tlsEnabled bool) error {
+		return fmt.Errorf("simulated listen failure")
+	})
+	if err == nil {
+		t.Errorf("expected runServer to propagate serveFn error")
+	}
+
+	err = runServer(customCfgPath, func(srv *http.Server, tlsEnabled bool) error {
+		return fmt.Errorf("simulated https listen failure")
+	})
+	if err == nil {
+		t.Errorf("expected runServer (HTTPS) to propagate serveFn error")
+	}
+
+	badAuthCfg := filepath.Join(tmpDir, "bad-auth.yaml")
+	_ = os.WriteFile(badAuthCfg, []byte("server:\n  tls:\n    enabled: false\nauth:\n  enabled: true\n  bootstrap_password: \"123\"\n"), 0600)
+	if _, _, _, err := initializeServerEnv(badAuthCfg); err == nil {
+		t.Errorf("expected error when auth.bootstrap_password is shorter than 6 characters")
+	}
 }
+
 

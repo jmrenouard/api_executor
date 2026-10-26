@@ -195,6 +195,17 @@ func (env *APIEnv) AuthUsersHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "auth",
+				Action:    "user.update",
+				ActorType: p.Type,
+				ActorID:   p.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "ok",
+				Summary:   fmt.Sprintf("Updated user %q (role=%s, active=%v)", u.Username, u.Role, u.Active),
+			})
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(u)
 
@@ -207,6 +218,17 @@ func (env *APIEnv) AuthUsersHandler(w http.ResponseWriter, r *http.Request) {
 		if err := env.AuthManager.DeleteUser(id); err != nil {
 			writeJSONError(w, err.Error(), http.StatusNotFound)
 			return
+		}
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "auth",
+				Action:    "user.delete",
+				ActorType: p.Type,
+				ActorID:   p.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "ok",
+				Summary:   fmt.Sprintf("Deleted user %q", id),
+			})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"deleted": id})
@@ -327,6 +349,17 @@ func (env *APIEnv) AuthTokensHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "auth",
+				Action:    "token.revoke",
+				ActorType: p.Type,
+				ActorID:   p.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "ok",
+				Summary:   fmt.Sprintf("Revoked personal access token %q", id),
+			})
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"revoked": id})
 
@@ -415,6 +448,17 @@ func (env *APIEnv) AuthServiceAccountsHandler(w http.ResponseWriter, r *http.Req
 			writeJSONError(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "auth",
+				Action:    "service_account.delete",
+				ActorType: p.Type,
+				ActorID:   p.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "ok",
+				Summary:   fmt.Sprintf("Deleted third-party service account %q", id),
+			})
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"deleted": id})
 
@@ -453,6 +497,17 @@ func (env *APIEnv) AuthServiceAccountRotateHandler(w http.ResponseWriter, r *htt
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusNotFound)
 		return
+	}
+	if env.AuditLogger != nil {
+		_, _ = env.AuditLogger.Record(audit.AuditEvent{
+			Category:  "auth",
+			Action:    "service_account.rotate",
+			ActorType: p.Type,
+			ActorID:   p.Name,
+			SourceIP:  r.RemoteAddr,
+			Status:    "ok",
+			Summary:   fmt.Sprintf("Rotated API key for third-party service account %q (%s)", sa.Name, sa.ID),
+		})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {

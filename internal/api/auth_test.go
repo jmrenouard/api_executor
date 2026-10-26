@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"testing"
 
+	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 )
@@ -202,7 +203,11 @@ func TestAuthTokensPrivilegeEscalationPrevention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create auth manager: %v", err)
 	}
-	env := &APIEnv{Config: cfg, AuthManager: authMgr}
+	auditLogger, err := audit.NewAuditLogger(cfg.Audit, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create audit logger: %v", err)
+	}
+	env := &APIEnv{Config: cfg, AuthManager: authMgr, AuditLogger: auditLogger}
 	router := NewRouter(env)
 
 	_, adminTokInfo, adminTok, err := authMgr.AuthenticateUser("admin", "admin-secret-password")
@@ -350,6 +355,52 @@ func TestAuthTokensPrivilegeEscalationPrevention(t *testing.T) {
 	router.ServeHTTP(recBadSATTL, reqBadSATTL)
 	if recBadSATTL.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid service account TTL, got %d", recBadSATTL.Code)
+	}
+
+	// Rotate and delete a service account, revoke a PAT, and verify all 5 RBAC lifecycle mutations are recorded in AuditLogger
+	saCreated, _, err := authMgr.CreateServiceAccount("rot-del-sa", "Monitor", "test", nil, []string{"disk-usage"}, 0)
+	if err != nil {
+		t.Fatalf("failed to create SA: %v", err)
+	}
+	reqRotSA := httptest.NewRequest(http.MethodPost, "/api/v1/auth/service-accounts/rotate?id="+saCreated.ID, nil)
+	reqRotSA.Header.Set("X-API-Token", adminTok)
+	recRotSA := httptest.NewRecorder()
+	router.ServeHTTP(recRotSA, reqRotSA)
+	if recRotSA.Code != http.StatusOK {
+		t.Fatalf("expected 200 rotating SA via query id, got %d", recRotSA.Code)
+	}
+
+	reqDelSA := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/service-accounts?id="+saCreated.ID, nil)
+	reqDelSA.Header.Set("X-API-Token", adminTok)
+	recDelSA := httptest.NewRecorder()
+	router.ServeHTTP(recDelSA, reqDelSA)
+	if recDelSA.Code != http.StatusOK {
+		t.Fatalf("expected 200 deleting SA, got %d", recDelSA.Code)
+	}
+
+	var selfPATResp struct {
+		TokenInfo auth.APIToken `json:"token_info"`
+	}
+	_ = json.Unmarshal(recOpSelf.Body.Bytes(), &selfPATResp)
+	reqRevSelf := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens?id="+selfPATResp.TokenInfo.ID, nil)
+	reqRevSelf.Header.Set("X-API-Token", opTok)
+	recRevSelf := httptest.NewRecorder()
+	router.ServeHTTP(recRevSelf, reqRevSelf)
+	if recRevSelf.Code != http.StatusOK {
+		t.Fatalf("expected 200 when operator revokes own token, got %d", recRevSelf.Code)
+	}
+
+	for _, expectedAction := range []string{
+		"user.update",
+		"user.delete",
+		"token.revoke",
+		"service_account.rotate",
+		"service_account.delete",
+	} {
+		evs := auditLogger.Query(audit.AuditFilter{Category: "auth", Action: expectedAction})
+		if len(evs) == 0 {
+			t.Errorf("expected SHA-256 audit log to record auth action %q, found 0 events", expectedAction)
+		}
 	}
 
 	// MethodNotAllowed (405) and nil AuthManager (503) checks
