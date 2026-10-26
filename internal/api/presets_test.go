@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"go-admin-tool/internal/audit"
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 )
 
@@ -18,7 +20,8 @@ func TestPresetsEndpointsListAndActivate(t *testing.T) {
 		{Name: "custom-cmd", Command: "echo", Args: []string{"ok"}},
 	}
 
-	env := &APIEnv{Config: cfg}
+	auditLogger, _ := audit.NewAuditLogger(cfg.Audit, nil, nil)
+	env := &APIEnv{Config: cfg, AuditLogger: auditLogger}
 	router := NewRouter(env)
 
 	// 1. GET /api/v1/presets
@@ -56,5 +59,33 @@ func TestPresetsEndpointsListAndActivate(t *testing.T) {
 	}
 	if actResp.AddedCount < 20 {
 		t.Fatalf("expected at least 20 Ubuntu+RedHat preset commands added, got %d", actResp.AddedCount)
+	}
+
+	// Verify audit event recorded
+	if len(auditLogger.Query(audit.AuditFilter{Action: "presets.activate"})) == 0 {
+		t.Fatalf("expected presets.activate event in AuditLogger")
+	}
+
+	// 3. Enforce authentication & authorization when RequireAuth=true
+	cfg.Auth.Enabled = true
+	cfg.Auth.RequireAuth = true
+	authMgr, _ := auth.NewManager(cfg.Auth)
+	env.AuthManager = authMgr
+	_, _ = authMgr.CreateUser("viewer1", "viewer-pass-123", "Viewer", "", auth.RoleViewer)
+	_, _, viewerTok, _ := authMgr.AuthenticateUser("viewer1", "viewer-pass-123")
+
+	unauthReq := httptest.NewRequest(http.MethodPost, "/api/v1/presets/activate", bytes.NewReader(body))
+	unauthRec := httptest.NewRecorder()
+	router.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated POST /api/v1/presets/activate, got %d", unauthRec.Code)
+	}
+
+	viewerReq := httptest.NewRequest(http.MethodPost, "/api/v1/presets/activate", bytes.NewReader(body))
+	viewerReq.Header.Set("X-API-Token", viewerTok)
+	viewerRec := httptest.NewRecorder()
+	router.ServeHTTP(viewerRec, viewerReq)
+	if viewerRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer POST /api/v1/presets/activate, got %d", viewerRec.Code)
 	}
 }

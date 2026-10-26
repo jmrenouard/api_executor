@@ -15,6 +15,17 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-011` — Enforce RBAC and Service Account Authorization on PAT Issuance, MCP Tool Calls, TLS Renewal, and Preset Activation
+- **Timestamp (UTC)**: `2026-10-26T19:50:00Z`
+- **GitHub Issue**: [#22](https://github.com/jmrenouard/api_executor/issues/22)
+- **Branch**: `fix/issue-22-rbac-mcp-tls-preset-authorization`
+- **Request**:
+  - Remediate privilege escalation on `POST`/`DELETE /api/v1/auth/tokens`, enforce service-account `allowed_actions` and RBAC scopes on MCP `tools/call` (`execute_command`, `execute_plugin`, `db_query`, `db_list_tables`), and enforce authentication, authorization, and SHA-256 audit logging on `POST /api/v1/tls/renew` and `POST /api/v1/presets/activate`.
+- **Changes**:
+  - Updated [`internal/api/auth_handlers.go`](../internal/api/auth_handlers.go), [`internal/mcp/server.go`](../internal/mcp/server.go), [`internal/api/mcp_handlers.go`](../internal/api/mcp_handlers.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/presets_handlers.go`](../internal/api/presets_handlers.go), [`internal/api/auth_test.go`](../internal/api/auth_test.go), [`internal/api/mcp_test.go`](../internal/api/mcp_test.go), [`internal/api/tls_test.go`](../internal/api/tls_test.go), and [`internal/api/presets_test.go`](../internal/api/presets_test.go).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/api` 77.2%, `internal/auth` 85.1%, `internal/audit` 79.1%, `internal/core` 72.5%, `internal/mcp` 65.9%, `internal/plugins` 66.9%).
+
 ### `ACT-010` — Add Custom SVG Logo, Panoramic Header Banner, and Comprehensive English README
 - **Timestamp (UTC)**: `2026-10-26T19:29:00Z`
 - **GitHub Issue**: [#11](https://github.com/jmrenouard/api_executor/issues/11)

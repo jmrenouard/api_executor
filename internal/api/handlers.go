@@ -569,6 +569,26 @@ func (env *APIEnv) TLSRenewHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "tls",
+				Action:    "tls.renew",
+				ActorType: p.Type,
+				ActorID:   p.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "denied",
+				Summary:   fmt.Sprintf("Denied TLS certificate renewal for %s (%s)", p.Name, p.Role),
+			})
+		}
+		writeJSONError(w, "Admin role required to rotate TLS certificate", http.StatusForbidden)
+		return
+	}
 	if env.CertManager == nil || !env.Config.Server.TLS.Enabled {
 		writeJSONError(w, "TLS is disabled", http.StatusBadRequest)
 		return
@@ -577,6 +597,17 @@ func (env *APIEnv) TLSRenewHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to renew TLS certificate: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if env.AuditLogger != nil {
+		_, _ = env.AuditLogger.Record(audit.AuditEvent{
+			Category:  "tls",
+			Action:    "tls.renew",
+			ActorType: p.Type,
+			ActorID:   p.Name,
+			SourceIP:  r.RemoteAddr,
+			Status:    "ok",
+			Summary:   fmt.Sprintf("Rotated X.509 TLS certificate (fingerprint=%s)", info.FingerprintSHA256),
+		})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

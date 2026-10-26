@@ -43,6 +43,22 @@ This living governance register records all errors encountered, technical dead-e
 - **Applied Change / Fix**: Added `resolveStaticDir()` in `internal/api/router.go` to probe `./web/static` and `../../web/static`.
 - **Result & Non-Regression Test**: Verified by `TestWebAdministrationConsoleServed` in `internal/api/web_console_test.go`.
 
+### `RCA-008` — RBAC Privilege Escalation on `/api/v1/auth/tokens`, Service Account Bypass via MCP `tools/call`, and Unauthenticated TLS/Preset Mutations
+- **Date**: `2026-10-26`
+- **Observed Symptom**:
+  1. Authenticated non-admin principals (`operator`, `viewer`, or `service_account`) could call `POST /api/v1/auth/tokens` with `{"user_id": "admin"}` and receive a valid `admin` Personal Access Token (`scopes: ["*"]`), or call `DELETE /api/v1/auth/tokens` to revoke admin tokens.
+  2. A third-party `service_account` restricted to specific `allowed_actions` (e.g. `["mcp-test-cmd"]`) could bypass its command/plugin allowlist by invoking `POST /api/v1/mcp` (`tools/call` -> `execute_command` / `execute_plugin`).
+  3. `POST /api/v1/tls/renew` and `POST /api/v1/presets/activate` executed without calling `resolvePrincipal` or recording an event in `AuditLogger`.
+- **Root Cause Analysis**:
+  - `AuthTokensHandler` validated the caller's token via `resolvePrincipal` but did not verify that non-admin callers could only issue/revoke tokens for their own user account and within their own granted scopes.
+  - `MCPHandler` authorized `mcp:access` with an empty `targetAction` (`""`), and `MCPServer.HandleJSONRPC` did not receive a per-tool `ToolAuthorizer` callback to check `commands:execute` / `plugins:execute` against the caller's `AllowedActions`.
+  - `TLSRenewHandler` and `ActivatePresetsHandler` were implemented before `AuthManager` and `AuditLogger` were wired into `APIEnv`.
+- **Applied Change / Fix**:
+  - Enforced role, user-ownership, and scope-subset checks in `AuthTokensHandler` (`internal/api/auth_handlers.go`).
+  - Added `HandleJSONRPCWithAuthorizer` and `ToolAuthorizer` enforcement across `execute_command`, `execute_plugin`, `db_query`, and `db_list_tables` in `internal/mcp/server.go` and `internal/api/mcp_handlers.go`.
+  - Added `resolvePrincipal`, role/scope checks, and `AuditLogger.Record` calls to `TLSRenewHandler` and `ActivatePresetsHandler`.
+- **Result & Non-Regression Test**: Verified by `TestAuthTokensPrivilegeEscalationPrevention`, `TestMCPEndpointsAndTraceInspection` (step 6), `TestTLSRenewEndpoint`, and `TestPresetsEndpointsListAndActivate`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

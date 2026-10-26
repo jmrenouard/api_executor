@@ -190,3 +190,98 @@ func TestAuthEndpointsAndServiceAccountCommandScoping(t *testing.T) {
 	}
 }
 
+func TestAuthTokensPrivilegeEscalationPrevention(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+	cfg.Auth.Enabled = true
+	cfg.Auth.RequireAuth = true
+	cfg.Auth.BootstrapUsername = "admin"
+	cfg.Auth.BootstrapPassword = "admin-secret-password"
+
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+	env := &APIEnv{Config: cfg, AuthManager: authMgr}
+	router := NewRouter(env)
+
+	_, adminTokInfo, adminTok, err := authMgr.AuthenticateUser("admin", "admin-secret-password")
+	if err != nil {
+		t.Fatalf("admin login failed: %v", err)
+	}
+	_, _ = authMgr.CreateUser("operator1", "operator-pass-123", "Operator", "", auth.RoleOperator)
+	_, _, opTok, err := authMgr.AuthenticateUser("operator1", "operator-pass-123")
+	if err != nil {
+		t.Fatalf("operator login failed: %v", err)
+	}
+	_, _ = authMgr.CreateUser("viewer1", "viewer-pass-123", "Viewer", "", auth.RoleViewer)
+	_, _, viewerTok, err := authMgr.AuthenticateUser("viewer1", "viewer-pass-123")
+	if err != nil {
+		t.Fatalf("viewer login failed: %v", err)
+	}
+	_, saKey, err := authMgr.CreateServiceAccount("ci-probe", "CI", "probe", nil, []string{"disk-usage"}, 0)
+	if err != nil {
+		t.Fatalf("create SA failed: %v", err)
+	}
+
+	// 1. Operator attempting to mint a token for "admin" must be rejected with 403 Forbidden
+	escBody, _ := json.Marshal(map[string]any{"user_id": "admin", "name": "escalated-admin-pat"})
+	reqOpEsc := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(escBody))
+	reqOpEsc.Header.Set("X-API-Token", opTok)
+	recOpEsc := httptest.NewRecorder()
+	router.ServeHTTP(recOpEsc, reqOpEsc)
+	if recOpEsc.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when operator tries to mint token for admin, got %d: %s", recOpEsc.Code, recOpEsc.Body.String())
+	}
+
+	// 2. Service account attempting to mint a PAT must be rejected with 403 Forbidden
+	reqSAEsc := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(escBody))
+	reqSAEsc.Header.Set("X-Service-Key", saKey)
+	recSAEsc := httptest.NewRecorder()
+	router.ServeHTTP(recSAEsc, reqSAEsc)
+	if recSAEsc.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when service account tries to mint a PAT, got %d: %s", recSAEsc.Code, recSAEsc.Body.String())
+	}
+
+	// 3. Viewer attempting to mint a PAT for admin must be rejected with 403 Forbidden
+	reqViewerEsc := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(escBody))
+	reqViewerEsc.Header.Set("X-API-Token", viewerTok)
+	recViewerEsc := httptest.NewRecorder()
+	router.ServeHTTP(recViewerEsc, reqViewerEsc)
+	if recViewerEsc.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when viewer tries to mint a PAT for admin, got %d: %s", recViewerEsc.Code, recViewerEsc.Body.String())
+	}
+
+	// 4. Operator attempting to revoke admin's session token must be rejected with 403 Forbidden
+	reqOpRevokeAdmin := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens?id="+adminTokInfo.ID, nil)
+	reqOpRevokeAdmin.Header.Set("X-API-Token", opTok)
+	recOpRevokeAdmin := httptest.NewRecorder()
+	router.ServeHTTP(recOpRevokeAdmin, reqOpRevokeAdmin)
+	if recOpRevokeAdmin.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when operator tries to revoke admin token, got %d: %s", recOpRevokeAdmin.Code, recOpRevokeAdmin.Body.String())
+	}
+
+	// 5. Operator minting a PAT for themselves ("operator1") without admin scopes succeeds (201)
+	selfBody, _ := json.Marshal(map[string]any{"user_id": "operator1", "name": "op-self-pat"})
+	reqOpSelf := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(selfBody))
+	reqOpSelf.Header.Set("X-API-Token", opTok)
+	recOpSelf := httptest.NewRecorder()
+	router.ServeHTTP(recOpSelf, reqOpSelf)
+	if recOpSelf.Code != http.StatusCreated {
+		t.Fatalf("expected 201 when operator mints token for self, got %d: %s", recOpSelf.Code, recOpSelf.Body.String())
+	}
+
+	// 6. Operator attempting to self-assign wildcard "*" admin scope must be rejected with 403 Forbidden
+	wildcardBody, _ := json.Marshal(map[string]any{"user_id": "operator1", "name": "op-wildcard", "scopes": []string{"*"}})
+	reqOpWildcard := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(wildcardBody))
+	reqOpWildcard.Header.Set("X-API-Token", opTok)
+	recOpWildcard := httptest.NewRecorder()
+	router.ServeHTTP(recOpWildcard, reqOpWildcard)
+	if recOpWildcard.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when operator tries to self-assign '*' scope, got %d: %s", recOpWildcard.Code, recOpWildcard.Body.String())
+	}
+
+	_ = adminTok
+}
+
+
