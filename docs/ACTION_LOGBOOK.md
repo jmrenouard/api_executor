@@ -9,15 +9,27 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-010` | `2026-10-25T22:20:00Z` | [#11](https://github.com/jmrenouard/api_executor/issues/11) | `docs/issue-11-svg-branding-and-english-readme` | Add custom vector SVG logo, panoramic header banner, and comprehensive English `README.md`. |
+| *(None — all atomic issues `#2` through `#11` completed)* | — | — | — | — |
 
 ---
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-010` — Add Custom SVG Logo, Panoramic Header Banner, and Comprehensive English README
+- **Timestamp (UTC)**: `2026-10-26T19:29:00Z`
+- **GitHub Issue**: [#11](https://github.com/jmrenouard/api_executor/issues/11)
+- **Branch**: `docs/issue-11-svg-branding-and-english-readme`
+- **Request**:
+  - Create a custom vector SVG logo (`docs/assets/logo.svg`) and panoramic header banner (`docs/assets/header-banner.svg`) and rewrite `README.md` in English covering all v2.0 enterprise subsystems (HTTPS/TLS, Prometheus per-action telemetry, hierarchical timeouts, Ubuntu/RedHat Docker presets, Web Console, RBAC/PAT/Service Accounts, Declarative & SQL Plugins, MCP Server with trace retention, and SHA-256 hash-chained audit logging).
+- **Changes**:
+  - Added [`docs/assets/logo.svg`](assets/logo.svg), [`docs/assets/header-banner.svg`](assets/header-banner.svg), and [`docs/branding_test.go`](branding_test.go).
+  - Updated [`README.md`](../README.md), [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md), and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - `go test -v -cover ./...` passing (`docs` 100.0%, `internal/api` 76.8%, `internal/auth` 85.1%, `internal/audit` 79.1%, `internal/core` 72.5%, `internal/mcp` 68.3%, `internal/plugins` 66.9%).
+
 ### `ACT-009` — Build Pure Web Administration Console for Commands, Presets, Auth, Plugins, DB, MCP, Audit & TLS
 - **Timestamp (UTC)**: `2026-10-26T19:23:00Z`
-- **GitHub Issue**: [#10](https://github.com/jmrenouard/api_executor/issues/10)
+- **GitHub Issue**: [#10](https://github.com/jmrenouard/api_executor/issues/10) (PR [#20](https://github.com/jmrenouard/api_executor/pull/20), commit `e93e078`)
 - **Branch**: `feat/issue-10-web-administration-console`
 - **Request**:
   - Build a pure Web Administration Console (`web/static/index.html`) covering all 8 functional domains: Command Executor (with per-call timeout override and cURL snippet generator), Ubuntu & RedHat OS Task Presets, RBAC Users & Personal Access Tokens (`gat_pat_...`), Third-Party Service Accounts (`gat_svc_...`), Extensible Plugins & Read-Only SQL Explorer (`db-exposure`), Interactive MCP Server Playground & Trace Inspector (`mcp_tr_...`), SHA-256 Hash-Chained Audit Trail & Logs, and HTTPS/TLS Certificate Manager.

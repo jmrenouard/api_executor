@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-labelledby="bannerTitle bannerDesc">
+  <title id="bannerTitle">API Executor — Enterprise Zero-Trust Remote Command &amp; MCP Platform</title>
+  <desc id="bannerDesc">Panoramic architectural banner showcasing HTTPS/TLS 1.3 by default, per-action Prometheus metrics, hierarchical timeouts, Ubuntu and RedHat OS presets, RBAC and Service Accounts, Declarative and SQL Plugins, MCP Server, and SHA-256 hash-chained audit logging.</desc>
+  <defs>
+    <linearGradient id="canvasBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080b11"/>
+      <stop offset="55%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#09101d"/>
+    </linearGradient>
+    <linearGradient id="accentEmerald" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <pattern id="gridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.75" stroke-opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <!-- Base Canvas & Technical Grid -->
+  <rect width="1200" height="320" rx="20" fill="url(#canvasBg)" stroke="#1e293b" stroke-width="2"/>
+  <rect width="1200" height="320" rx="20" fill="url(#gridPattern)"/>
+
+  <!-- Top Specular Accent Line -->
+  <line x1="40" y1="2" x2="1160" y2="2" stroke="url(#accentEmerald)" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Crosshair Registration Markers -->
+  <g stroke="#475569" stroke-width="1.2">
+    <path d="M24 28 H36 M30 22 V34"/>
+    <path d="M1164 28 H1176 M1170 22 V34"/>
+    <path d="M24 292 H36 M30 286 V298"/>
+    <path d="M1164 292 H1176 M1170 286 V298"/>
+  </g>
+
+  <!-- Left Emblem Shield -->
+  <g transform="translate(56, 56)">
+    <rect x="0" y="0" width="168" height="168" rx="32" fill="#0b1120" stroke="#1e293b" stroke-width="2.5"/>
+    <polygon points="84,22 142,55 142,113 84,146 26,113 26,55"
+             fill="#0f172a" stroke="url(#accentEmerald)" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M56 66 L78 84 L56 102" fill="none" stroke="#34d399" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="88" y1="102" x2="114" y2="102" stroke="#38bdf8" stroke-width="7.5" stroke-linecap="round"/>
+    <circle cx="84" cy="22" r="4.5" fill="#34d399"/>
+    <circle cx="142" cy="55" r="4" fill="#38bdf8"/>
+    <circle cx="142" cy="113" r="4" fill="#38bdf8"/>
+    <circle cx="84" cy="146" r="4.5" fill="#34d399"/>
+    <circle cx="26" cy="113" r="4" fill="#38bdf8"/>
+    <circle cx="26" cy="55" r="4" fill="#38bdf8"/>
+  </g>
+
+  <!-- Kicker Pill -->
+  <rect x="256" y="54" width="350" height="26" rx="6" fill="#064e3b" fill-opacity="0.55" stroke="#10b981" stroke-width="1"/>
+  <circle cx="272" cy="67" r="4" fill="#34d399"/>
+  <text x="284" y="71" fill="#a7f3d0" font-family="monospace" font-size="11" font-weight="bold" letter-spacing="1.5">ZERO-TRUST REMOTE ADMINISTRATION ENGINE</text>
+
+  <!-- Primary Headline -->
+  <text x="256" y="124" fill="#f8fafc" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="800" letter-spacing="-1">API Executor</text>
+  <text x="538" y="124" fill="#38bdf8" font-family="monospace" font-size="22" font-weight="600">go-admin-tool v2.0</text>
+
+  <!-- Subtitle -->
+  <text x="256" y="158" fill="#94a3b8" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="400">
+    HTTPS/TLS by Default &#8226; Per-Action Prometheus Telemetry &#8226; RBAC &amp; Service Accounts &#8226; Plugins &amp; Read-Only SQL &#8226; MCP Server
+  </text>
+
+  <!-- Feature Telemetry Badges Row 1 -->
+  <g font-family="monospace" font-size="11.5" font-weight="600">
+    <rect x="256" y="182" width="204" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="270" y="201" fill="#34d399">HTTPS / X.509 Auto-Renewal</text>
+
+    <rect x="472" y="182" width="224" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="486" y="201" fill="#38bdf8">Prometheus Action Metrics</text>
+
+    <rect x="708" y="182" width="218" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="722" y="201" fill="#fbbf24">Hierarchical Call Timeouts</text>
+
+    <rect x="938" y="182" width="206" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="952" y="201" fill="#f472b6">Ubuntu &amp; RHEL Presets</text>
+  </g>
+
+  <!-- Feature Telemetry Badges Row 2 -->
+  <g font-family="monospace" font-size="11.5" font-weight="600">
+    <rect x="256" y="222" width="226" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="270" y="241" fill="#a78bfa">RBAC + PAT + Service Keys</text>
+
+    <rect x="494" y="222" width="236" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="508" y="241" fill="#34d399">Declarative &amp; SQL Plugins</text>
+
+    <rect x="742" y="222" width="202" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="756" y="241" fill="#38bdf8">MCP Server + Traces</text>
+
+    <rect x="956" y="222" width="188" height="30" rx="6" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="970" y="241" fill="#6ee7b7">SHA-256 Hash Audit</text>
+  </g>
+
+  <!-- Bottom Telemetry Status Strip -->
+  <rect x="56" y="268" width="1088" height="28" rx="6" fill="#06090f" stroke="#1e293b" stroke-width="1"/>
+  <text x="74" y="286" fill="#64748b" font-family="monospace" font-size="11">
+    ENDPOINT: https://localhost:8443/api/v1 &#160;|&#160; MCP: POST /api/v1/mcp (2024-11-05) &#160;|&#160; METRICS: GET /metrics &#160;|&#160; AUDIT CHAIN: SHA-256 GENESIS VERIFIED
+  </text>
+</svg>
