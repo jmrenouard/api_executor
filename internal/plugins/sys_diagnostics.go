@@ -50,7 +50,8 @@ func (p *SystemDiagnosticsPlugin) Actions() []PluginAction {
 
 func (p *SystemDiagnosticsPlugin) Execute(_ context.Context, action string, _ map[string]any, _ time.Duration) (PluginResult, error) {
 	start := time.Now()
-	switch action {
+	normalized := strings.ReplaceAll(strings.TrimSpace(action), "-", "_")
+	switch normalized {
 	case "runtime_stats":
 		var mem runtime.MemStats
 		runtime.ReadMemStats(&mem)

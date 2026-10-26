@@ -162,7 +162,11 @@ func TestDatabaseExposurePluginAndSQLGuardrails(t *testing.T) {
 
 func TestSystemDiagnosticsPlugin(t *testing.T) {
 	p := NewSystemDiagnosticsPlugin()
-	for _, action := range []string{"runtime_stats", "network_interfaces", "env_summary"} {
+	for _, action := range []string{
+		"runtime_stats", "runtime-stats",
+		"network_interfaces", "network-interfaces",
+		"env_summary", "env-summary",
+	} {
 		res, err := p.Execute(context.Background(), action, nil, 5*time.Second)
 		if err != nil || res.Status != "ok" {
 			t.Errorf("expected %s to succeed, got err=%v res=%+v", action, err, res)
@@ -172,4 +176,5 @@ func TestSystemDiagnosticsPlugin(t *testing.T) {
 		t.Errorf("expected ErrActionNotFound for unknown sys-diagnostics action, got %v", err)
 	}
 }
+
 
