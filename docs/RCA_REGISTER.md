@@ -59,6 +59,20 @@ This living governance register records all errors encountered, technical dead-e
   - Added `resolvePrincipal`, role/scope checks, and `AuditLogger.Record` calls to `TLSRenewHandler` and `ActivatePresetsHandler`.
 - **Result & Non-Regression Test**: Verified by `TestAuthTokensPrivilegeEscalationPrevention`, `TestMCPEndpointsAndTraceInspection` (step 6), `TestTLSRenewEndpoint`, and `TestPresetsEndpointsListAndActivate`.
 
+### `RCA-009` — Web Console Preset Catalog JSON Key Mismatch (`cat.tasks` vs `cat.commands`, `os_families` vs `families`) and Missing Declarative Plugin / Log Panels
+- **Date**: `2026-10-26`
+- **Observed Symptom**:
+  1. In Tab 2 of `web/static/index.html`, OS preset catalogs rendered `0 tasks` and zero command cards despite `GET /api/v1/presets` returning 10 Ubuntu and 10 RedHat commands.
+  2. Clicking "Activate Ubuntu Presets" sent `{"os_families": ["ubuntu"]}` to `POST /api/v1/presets/activate`, which only bound `json:"families"`, causing `req.Families` to be empty and activating all 20 OS presets instead of only 10 Ubuntu presets.
+  3. Tab 5 and Tab 7 did not expose UI panels for `POST /api/v1/plugins/declarative`, `GET /api/v1/logs`, or `GET /api/v1/history`.
+- **Root Cause Analysis**:
+  - `core.OSPresetCatalog` serializes its command slice as `json:"commands"`, while `web/static/index.html` bound `cat.tasks`.
+  - `ActivatePresetsHandler` defined `Families []string` with `json:"families"` while the frontend sent `os_families`.
+- **Applied Change / Fix**:
+  - Updated `web/static/index.html` to iterate `(cat.commands || cat.tasks || [])`, pass `cat.os_family` into `runPresetTask`, and wire UI panels for `/api/v1/plugins/declarative`, `/api/v1/logs`, and `/api/v1/history`.
+  - Updated `ActivatePresetsHandler` to accept both `families` and `os_families`.
+- **Result & Non-Regression Test**: Verified by `TestWebAdministrationConsoleServed` in `internal/api/web_console_test.go`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

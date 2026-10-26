@@ -15,9 +15,20 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-012` — Fix OS Preset Catalog Rendering in Web Console and Add Declarative Plugin & System Log Panels
+- **Timestamp (UTC)**: `2026-10-26T20:03:00Z`
+- **GitHub Issue**: [#24](https://github.com/jmrenouard/api_executor/issues/24)
+- **Branch**: `fix/issue-24-web-console-presets-plugins-logs`
+- **Request**:
+  - Fix Tab 2 of `web/static/index.html` where `cat.tasks` was referenced instead of `cat.commands` (causing `0 tasks` to render), pass `cat.os_family` into `runPresetTask`, and add Web Console UI panels for dynamic declarative plugin registration (`POST /api/v1/plugins/declarative`), system application logs (`GET /api/v1/logs`), and action execution history (`GET /api/v1/history`).
+- **Changes**:
+  - Updated [`web/static/index.html`](../web/static/index.html) and [`internal/api/web_console_test.go`](../internal/api/web_console_test.go).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/api` 77.3%, `docs` 100.0%, `internal/auth` 85.1%, `internal/audit` 79.1%, `internal/core` 72.5%, `internal/mcp` 65.9%, `internal/plugins` 66.9%).
+
 ### `ACT-011` — Enforce RBAC and Service Account Authorization on PAT Issuance, MCP Tool Calls, TLS Renewal, and Preset Activation
 - **Timestamp (UTC)**: `2026-10-26T19:50:00Z`
-- **GitHub Issue**: [#22](https://github.com/jmrenouard/api_executor/issues/22)
+- **GitHub Issue**: [#22](https://github.com/jmrenouard/api_executor/issues/22) (PR [#23](https://github.com/jmrenouard/api_executor/pull/23), commit `51eab49`)
 - **Branch**: `fix/issue-22-rbac-mcp-tls-preset-authorization`
 - **Request**:
   - Remediate privilege escalation on `POST`/`DELETE /api/v1/auth/tokens`, enforce service-account `allowed_actions` and RBAC scopes on MCP `tools/call` (`execute_command`, `execute_plugin`, `db_query`, `db_list_tables`), and enforce authentication, authorization, and SHA-256 audit logging on `POST /api/v1/tls/renew` and `POST /api/v1/presets/activate`.
