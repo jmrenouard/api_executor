@@ -8,6 +8,7 @@ import (
 
 	"go-admin-tool/internal/api"
 	"go-admin-tool/internal/audit"
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
 
@@ -89,6 +90,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize Authentication, Token & Third-Party Service Account Manager
+	authManager, err := auth.NewManager(config.Auth)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to initialize authentication manager: %v", err))
+		os.Exit(1)
+	}
+
 	// Create API environment
 	apiEnv := &api.APIEnv{
 		Config:      config,
@@ -96,6 +104,7 @@ func main() {
 		DB:          db,
 		CertManager: certManager,
 		AuditLogger: auditLogger,
+		AuthManager: authManager,
 	}
 
 	// Create router

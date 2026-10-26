@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go-admin-tool/internal/audit"
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
 )
@@ -24,6 +25,7 @@ type APIEnv struct {
 	DB          *database.DB
 	CertManager *core.CertManager
 	AuditLogger *audit.AuditLogger
+	AuthManager *auth.Manager
 }
 
 // ExecuteCommandRequest defines the structure for the command execution request body.
@@ -276,6 +278,29 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	principal, authErr := env.resolvePrincipal(r)
+	if authErr != nil {
+		recordActionCall(req.Name, "error", false, 0)
+		writeJSONError(w, authErr.Error(), http.StatusUnauthorized)
+		return
+	}
+	if err := auth.Authorize(principal, "commands:execute", req.Name); err != nil {
+		recordActionCall(req.Name, "error", false, 0)
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "command",
+				Action:    req.Name,
+				ActorType: principal.Type,
+				ActorID:   principal.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "denied",
+				Summary:   fmt.Sprintf("Denied command %q for %s (%s): %v", req.Name, principal.Name, principal.Type, err),
+			})
+		}
+		writeJSONError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
 	timeoutOverride, err := extractTimeoutOverride(r, req)
 	if err != nil {
 		recordActionCall(req.Name, "error", false, 0)
@@ -345,8 +370,8 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 		_, _ = env.AuditLogger.Record(audit.AuditEvent{
 			Category:   "command",
 			Action:     req.Name,
-			ActorType:  "user",
-			ActorID:    "api-caller",
+			ActorType:  principal.Type,
+			ActorID:    principal.Name,
 			SourceIP:   r.RemoteAddr,
 			Status:     auditStatus,
 			DurationMs: execDuration.Milliseconds(),

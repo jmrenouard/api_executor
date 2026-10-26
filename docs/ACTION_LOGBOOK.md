@@ -9,7 +9,6 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-006` | `2026-10-25T22:20:00Z` | [#7](https://github.com/jmrenouard/api_executor/issues/7) | `feat/issue-7-rbac-users-tokens-and-service-accounts` | Implement RBAC user management, Personal Access Tokens (PAT), and Third-Party Service Accounts with action scoping. |
 | `ACT-007` | `2026-10-25T22:20:00Z` | [#8](https://github.com/jmrenouard/api_executor/issues/8) | `feat/issue-8-extensible-plugins-and-db-exposure` | Add extensible plugin system supporting declarative YAML command modules and read-only SQLite database exposure. |
 | `ACT-008` | `2026-10-25T22:20:00Z` | [#9](https://github.com/jmrenouard/api_executor/issues/9) | `feat/issue-9-mcp-server-and-trace-retention` | Implement complete JSON-RPC 2.0 Model Context Protocol (MCP) server with persistent trace retention. |
 | `ACT-009` | `2026-10-25T22:20:00Z` | [#10](https://github.com/jmrenouard/api_executor/issues/10) | `feat/issue-10-web-administration-console` | Build pure Web Administration Console managing commands, OS presets, users, tokens, service accounts, plugins, DB, MCP, audit, and TLS. |
@@ -18,6 +17,18 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 ---
 
 ## 2. Completed Actions (`COMPLETED`)
+
+### `ACT-006` — Implement RBAC User Management, Personal Access Tokens, and Third-Party Service Accounts
+- **Timestamp (UTC)**: `2026-10-26T06:15:00Z`
+- **GitHub Issue**: [#7](https://github.com/jmrenouard/api_executor/issues/7)
+- **Branch**: `feat/issue-7-rbac-users-tokens-and-service-accounts`
+- **Request**:
+  - Add RBAC user management (`admin`, `operator`, `viewer`), Personal Access Tokens (`gat_pat_...`) for remote calls, and Third-Party Service Accounts (`gat_svc_...`) with action-level scoping (`allowed_actions` exact & prefix wildcards) and key rotation.
+- **Changes**:
+  - Added [`internal/auth/manager.go`](../internal/auth/manager.go), [`internal/auth/manager_test.go`](../internal/auth/manager_test.go), [`internal/api/auth_handlers.go`](../internal/api/auth_handlers.go), and [`internal/api/auth_test.go`](../internal/api/auth_test.go).
+  - Updated [`internal/core/config.go`](../internal/core/config.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/router.go`](../internal/api/router.go), and [`cmd/server/main.go`](../cmd/server/main.go).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/auth` 85.1%, `internal/api` 78.8%).
 
 ### `ACT-005` — Implement Tamper-Evident SHA-256 Hash-Chained Audit Trail and Structured Log Buffer
 - **Timestamp (UTC)**: `2026-10-25T22:30:00Z`
