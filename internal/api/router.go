@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -334,8 +335,18 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
 
 	// Frontend
-	staticFileServer := http.FileServer(http.Dir("./web/static"))
+	staticFileServer := http.FileServer(http.Dir(resolveStaticDir()))
 	mux.Handle("/", staticFileServer)
 
 	return prometheusMiddleware(mux)
 }
+
+func resolveStaticDir() string {
+	for _, candidate := range []string{"./web/static", "../../web/static"} {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return "./web/static"
+}
+

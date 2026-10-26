@@ -9,16 +9,27 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 | Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
 |---|---|---|---|---|
-| `ACT-009` | `2026-10-25T22:20:00Z` | [#10](https://github.com/jmrenouard/api_executor/issues/10) | `feat/issue-10-web-administration-console` | Build pure Web Administration Console managing commands, OS presets, users, tokens, service accounts, plugins, DB, MCP, audit, and TLS. |
 | `ACT-010` | `2026-10-25T22:20:00Z` | [#11](https://github.com/jmrenouard/api_executor/issues/11) | `docs/issue-11-svg-branding-and-english-readme` | Add custom vector SVG logo, panoramic header banner, and comprehensive English `README.md`. |
 
 ---
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-009` — Build Pure Web Administration Console for Commands, Presets, Auth, Plugins, DB, MCP, Audit & TLS
+- **Timestamp (UTC)**: `2026-10-26T19:23:00Z`
+- **GitHub Issue**: [#10](https://github.com/jmrenouard/api_executor/issues/10)
+- **Branch**: `feat/issue-10-web-administration-console`
+- **Request**:
+  - Build a pure Web Administration Console (`web/static/index.html`) covering all 8 functional domains: Command Executor (with per-call timeout override and cURL snippet generator), Ubuntu & RedHat OS Task Presets, RBAC Users & Personal Access Tokens (`gat_pat_...`), Third-Party Service Accounts (`gat_svc_...`), Extensible Plugins & Read-Only SQL Explorer (`db-exposure`), Interactive MCP Server Playground & Trace Inspector (`mcp_tr_...`), SHA-256 Hash-Chained Audit Trail & Logs, and HTTPS/TLS Certificate Manager.
+- **Changes**:
+  - Updated [`web/static/index.html`](../web/static/index.html) and [`internal/api/router.go`](../internal/api/router.go).
+  - Added [`internal/api/web_console_test.go`](../internal/api/web_console_test.go).
+- **Result**:
+  - `go test -v -cover ./...` passing (`internal/api` 76.8%).
+
 ### `ACT-008` — Implement Model Context Protocol (MCP) Server with Persistent Trace Retention
 - **Timestamp (UTC)**: `2026-10-26T06:34:00Z`
-- **GitHub Issue**: [#9](https://github.com/jmrenouard/api_executor/issues/9)
+- **GitHub Issue**: [#9](https://github.com/jmrenouard/api_executor/issues/9) (PR [#19](https://github.com/jmrenouard/api_executor/pull/19), commit `4f84ba2`)
 - **Branch**: `feat/issue-9-mcp-server-and-trace-retention`
 - **Request**:
   - Implement a complete JSON-RPC 2.0 Model Context Protocol (`2024-11-05`) server (`internal/mcp`) exposing tools, resources, and prompts with full request/response trace retention (`mcp_tr_<hex>`) linked to the SHA-256 hash-chained audit trail.
