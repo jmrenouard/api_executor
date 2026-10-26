@@ -121,7 +121,7 @@ curl -k https://localhost:8443/api/v1/commands
 # Execute a predefined RedHat package audit with a 10-second per-call timeout override
 curl -k -X POST https://localhost:8444/api/v1/execute \
   -H "Content-Type: application/json" \
-  -d '{"name": "redhat-rpm-packages", "timeout": "10s"}'
+  -d '{"name": "redhat-rpm-qa", "timeout": "10s"}'
 ```
 
 ---

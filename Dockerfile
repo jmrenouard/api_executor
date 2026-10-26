@@ -33,15 +33,13 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 # Copy the binary from the builder stage
 COPY --from=builder /go-admin-tool .
 
-# Copy configuration and static files
+# Copy configuration, declarative plugins, and static files
 COPY config.yaml .
+COPY --from=builder /app/plugins ./plugins
 COPY --chown=appuser:appgroup web ./web
 
-# The secure directory needs to be created and owned by the app user
-# The path is configurable, so this is tricky.
-# I will assume the user will mount a volume for the secure directory.
-# However, for the default config, I will create it.
-RUN mkdir -p /var/log/secure_files && chown appuser:appgroup /var/log/secure_files
+# Create secure file directory and TLS certificate directory owned by appuser
+RUN mkdir -p /var/log/secure_files /app/certs && chown -R appuser:appgroup /app /var/log/secure_files
 
 # Switch to the non-root user
 USER appuser

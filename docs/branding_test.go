@@ -64,8 +64,23 @@ func TestSVGAssetsAreValidXMLAndREADMEIncludesBranding(t *testing.T) {
 			t.Errorf("expected README.md to contain %q", marker)
 		}
 	}
+	if !strings.Contains(readme, "redhat-rpm-qa") || strings.Contains(readme, "redhat-rpm-packages") {
+		t.Errorf("expected README.md to reference real preset name redhat-rpm-qa instead of redhat-rpm-packages")
+	}
+
+	rootDockerfile, err := os.ReadFile("../Dockerfile")
+	if err != nil {
+		t.Fatalf("failed to read ../Dockerfile: %v", err)
+	}
+	rootDF := string(rootDockerfile)
+	for _, marker := range []string{"/app/certs", "chown -R appuser:appgroup /app", "COPY --from=builder /app/plugins ./plugins"} {
+		if !strings.Contains(rootDF, marker) {
+			t.Errorf("expected root Dockerfile to contain %q", marker)
+		}
+	}
 
 	if SwaggerInfo.Title == "" {
 		t.Errorf("expected SwaggerInfo.Title to be initialized")
 	}
 }
+

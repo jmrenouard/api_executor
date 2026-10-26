@@ -8,19 +8,31 @@ This living governance register records all errors encountered, technical dead-e
 
 ### `RCA-001` — Bundling Multiple Distinct Features into a Monolithic Issue #2 ("Kitchen-Sink / Papa-Maman" Anti-Pattern)
 - **Date**: `2026-10-25`
-- **Applied Change / Fix**: Codified the Strict Atomicity Rule in `AGENTS.md` and `.agents/rules/atomic-workflow.md` and decomposed Issue #2 into atomic Issues `#2` through `#11`.
+- **Observed Symptom**: Multiple unrelated engineering domains (metrics, timeouts, TLS, OS presets, RBAC, plugins, MCP, Web UI, and branding) were initially grouped into a single catch-all issue.
+- **Root Cause Analysis**: Lack of an explicit repository rule enforcing `1 Item = 1 Issue = 1 Branch = 1 PR = 1 Merge`.
+- **Applied Change / Fix**: Codified the Strict Atomicity Rule in `AGENTS.md` and `.agents/rules/atomic-workflow.md` and decomposed the backlog into atomic Issues `#2` through `#11`.
+- **Result & Non-Regression Test**: Verified via isolated atomic branches and PRs `#12` through `#21`.
 
 ### `RCA-002` — Grandchild Process Leak on Command Timeout and `CGO_ENABLED=0` SQLite Failure
 - **Date**: `2026-10-25`
-- **Applied Change / Fix**: Process-group kill (`Setpgid` on Unix, `WaitDelay` on Windows/Unix) and pure-Go in-memory fallback in `internal/database/db.go`.
+- **Observed Symptom**: `exec.CommandContext` only sent `SIGKILL` to the direct child process on timeout, leaving spawned background grandchild processes alive, and `go-sqlite3` failed at runtime when compiled with `CGO_ENABLED=0`.
+- **Root Cause Analysis**: Default `os/exec` behavior kills only the process leader PID unless a process group (`Setpgid`) and `WaitDelay` are configured; `mattn/go-sqlite3` requires CGO.
+- **Applied Change / Fix**: Process-group kill (`Setpgid` on Unix, `WaitDelay` on Windows/Unix) in `internal/core/executor.go` and pure-Go in-memory fallback in `internal/database/db.go`.
+- **Result & Non-Regression Test**: Verified by `TestExecuteCommandGrandchildProcessGroupTimeout` and `TestDatabaseRecordActionAndValidation`.
 
 ### `RCA-003` — Static `tls.LoadX509KeyPair` Prevented Zero-Downtime Certificate Renewal
 - **Date**: `2026-10-25`
+- **Observed Symptom**: Standard `http.Server.ListenAndServeTLS(certFile, keyFile)` loads the certificate once at startup and ignores subsequent rotations.
+- **Root Cause Analysis**: Static certificate loading in `crypto/tls` does not re-read rotated key pairs without a dynamic `GetCertificate` callback.
 - **Applied Change / Fix**: Dynamic `CertManager.GetCertificate` callback protected by `sync.RWMutex` in `internal/core/tls.go`.
+- **Result & Non-Regression Test**: Verified by `TestCertManagerRotateAndRealHTTPSHandshake` and `TestTLSRenewEndpoint`.
 
 ### `RCA-004` — RedHat UBI9 Minimal Base Missing `ps` and `ss` Utilities by Default
 - **Date**: `2026-10-25`
+- **Observed Symptom**: Containerized RedHat preset tasks (`redhat-process-tree`, `redhat-listening-sockets`) failed if `procps-ng` and `iproute` were not installed in the UBI9 image.
+- **Root Cause Analysis**: RedHat UBI9 minimal base image omits `ps` (`procps-ng`) and `ss` (`iproute`) by default.
 - **Applied Change / Fix**: Installed `procps-ng` and `iproute` in `docker/Dockerfile.redhat`.
+- **Result & Non-Regression Test**: Verified by `TestOSPresetCatalogsUbuntuAndRedHat` and `docker/Dockerfile.redhat`.
 
 ### `RCA-005` — World-Readable `0666` Log File Permissions and Unverifiable Audit Records
 - **Date**: `2026-10-25`
@@ -72,6 +84,18 @@ This living governance register records all errors encountered, technical dead-e
   - Updated `web/static/index.html` to iterate `(cat.commands || cat.tasks || [])`, pass `cat.os_family` into `runPresetTask`, and wire UI panels for `/api/v1/plugins/declarative`, `/api/v1/logs`, and `/api/v1/history`.
   - Updated `ActivatePresetsHandler` to accept both `families` and `os_families`.
 - **Result & Non-Regression Test**: Verified by `TestWebAdministrationConsoleServed` in `internal/api/web_console_test.go`.
+
+### `RCA-010` — README cURL Example Mismatches (`redhat-rpm-packages`, `runtime-stats`) and Root `Dockerfile` Non-Root Write Permission Failure
+- **Date**: `2026-10-26`
+- **Observed Symptom**:
+  1. `README.md` line 124 invoked `{"name": "redhat-rpm-packages"}` (actual preset name: `"redhat-rpm-qa"`) and line 205 invoked `{"plugin_id": "sys-diagnostics", "action": "runtime-stats"}` (which returned `404` because `sys-diagnostics` only matched `"runtime_stats"`).
+  2. Root `Dockerfile` ran as `USER appuser` without `chown -R appuser:appgroup /app`, `/app/certs`, or `COPY --from=builder /app/plugins ./plugins`.
+- **Root Cause Analysis**:
+  - `README.md` examples were written without normalizing hyphenated action names in `sys_diagnostics.go` or checking the exact preset name in `internal/core/os_presets.go`.
+  - Root `Dockerfile` was not updated when default HTTPS certificate auto-generation (`./certs`) and declarative plugins (`./plugins`) were introduced in Issues #4 and #8.
+- **Applied Change / Fix**:
+  - Normalized hyphen/underscore action names in `internal/plugins/sys_diagnostics.go`, updated `README.md` to use `redhat-rpm-qa`, and updated `Dockerfile`, `docker/Dockerfile.ubuntu`, and `docker/Dockerfile.redhat` to copy `plugins/` and grant `appuser:appgroup` ownership of `/app` and `/app/certs`.
+- **Result & Non-Regression Test**: Verified by `TestSVGAssetsAreValidXMLAndREADMEIncludesBranding` (`docs/branding_test.go`) and `TestSystemDiagnosticsPlugin` (`internal/plugins/plugins_test.go`).
 
 ---
 
