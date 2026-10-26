@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"go-admin-tool/internal/api"
 	"go-admin-tool/internal/audit"
@@ -17,89 +19,78 @@ import (
 	_ "go-admin-tool/docs"
 )
 
-// @title Go Admin Tool API
-// @version 1.0
-// @description This is a lightweight remote administration tool.
-// @termsOfService http://swagger.io/terms/
+// resolveConfigPath returns CONFIG_PATH from the environment or defaults to "config.yaml".
+func resolveConfigPath() string {
+	if p := strings.TrimSpace(os.Getenv("CONFIG_PATH")); p != "" {
+		return p
+	}
+	return "config.yaml"
+}
 
-// @contact.name API Support
-// @contact.url http://www.swagger.io/support
-// @contact.email support@swagger.io
-
-// @license.name Apache 2.0
-// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
-
-// @host localhost:8080
-// @BasePath /
-func main() {
-	// Load configuration
-	config, err := core.LoadConfig("config.yaml")
+// initializeServerEnv loads configuration and initializes all subsystems (Logger, SecureDir, DB, TLS, Audit, Auth, Plugins, MCP, Router).
+func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), error) {
+	config, err := core.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Initialize logger
 	logger, err := core.NewLogger(config.Logging)
 	if err != nil {
-		log.Fatalf("Failed to initialize logger: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to initialize logger: %w", err)
 	}
 	logger.Info("Logger initialized")
 
 	// Create a dummy secure directory if it doesn't exist for demonstration.
-	if config.FileServer.Enabled {
+	if config.FileServer.Enabled && strings.TrimSpace(config.FileServer.SecureDir) != "" {
 		if _, err := os.Stat(config.FileServer.SecureDir); os.IsNotExist(err) {
 			logger.Info(fmt.Sprintf("Creating secure directory for demonstration: %s", config.FileServer.SecureDir))
 			if err := os.MkdirAll(config.FileServer.SecureDir, 0755); err != nil {
 				logger.Error(fmt.Sprintf("Failed to create secure directory: %v", err))
-			}
-			// Create a dummy file in the secure directory
-			dummyFilePath := fmt.Sprintf("%s/dummy.txt", config.FileServer.SecureDir)
-			dummyFile, err := os.Create(dummyFilePath)
-			if err != nil {
-				logger.Error(fmt.Sprintf("Failed to create dummy file: %v", err))
 			} else {
-				_, _ = dummyFile.WriteString("This is a dummy file for testing.")
-				_ = dummyFile.Close()
+				dummyFilePath := filepath.Join(config.FileServer.SecureDir, "dummy.txt")
+				if dummyFile, err := os.Create(dummyFilePath); err == nil {
+					_, _ = dummyFile.WriteString("This is a dummy file for testing.")
+					_ = dummyFile.Close()
+				}
 			}
 		}
 	}
 
-	// Initialize database
 	db, err := database.NewDB(config.Database.Path)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to connect to database: %v", err))
-		os.Exit(1)
+		_ = logger.Close()
+		return nil, nil, nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer db.Close()
-
 	if err := db.Init(); err != nil {
-		logger.Error(fmt.Sprintf("Failed to initialize database schema: %v", err))
-		os.Exit(1)
+		_ = db.Close()
+		_ = logger.Close()
+		return nil, nil, nil, fmt.Errorf("failed to initialize database schema: %w", err)
 	}
 	logger.Info("Database initialized")
 
-	// Initialize TLS Certificate Manager (HTTPS by default)
+	cleanup := func() {
+		_ = db.Close()
+		_ = logger.Close()
+	}
+
 	certManager, err := core.NewCertManager(config.Server.TLS, config.Server.Host)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to initialize TLS certificate manager: %v", err))
-		os.Exit(1)
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize TLS certificate manager: %w", err)
 	}
 
-	// Initialize Tamper-Evident Audit Logger
 	auditLogger, err := audit.NewAuditLogger(config.Audit, db, logger)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to initialize audit logger: %v", err))
-		os.Exit(1)
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize audit logger: %w", err)
 	}
 
-	// Initialize Authentication, Token & Third-Party Service Account Manager
 	authManager, err := auth.NewManager(config.Auth)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to initialize authentication manager: %v", err))
-		os.Exit(1)
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize authentication manager: %w", err)
 	}
 
-	// Initialize Extensible Plugin Registry (Declarative & Advanced Native Modules)
 	pluginRegistry := plugins.NewRegistry()
 	if config.Plugins.Enabled {
 		if opsPlugin, err := plugins.DefaultDeclarativeOpsPlugin(); err == nil {
@@ -118,7 +109,6 @@ func main() {
 		}
 	}
 
-	// Initialize Model Context Protocol (MCP) Server with Trace Retention
 	mcpServer, err := mcp.NewServer(
 		config.MCP,
 		config,
@@ -130,11 +120,10 @@ func main() {
 		api.RecordActionCall,
 	)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to initialize MCP server: %v", err))
-		os.Exit(1)
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize MCP server: %w", err)
 	}
 
-	// Create API environment
 	apiEnv := &api.APIEnv{
 		Config:         config,
 		Logger:         logger,
@@ -146,33 +135,66 @@ func main() {
 		MCPServer:      mcpServer,
 	}
 
-	// Create router
 	router := api.NewRouter(apiEnv)
+	return apiEnv, router, cleanup, nil
+}
 
-	// Start server
-	serverAddr := fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port)
-	if config.Server.TLS.Enabled {
-		tlsConfig, err := certManager.TLSConfig()
+// buildHTTPServer constructs the configured *http.Server for either HTTPS/TLS or plain HTTP mode.
+func buildHTTPServer(env *api.APIEnv, router http.Handler) (*http.Server, error) {
+	serverAddr := fmt.Sprintf("%s:%d", env.Config.Server.Host, env.Config.Server.Port)
+	srv := &http.Server{
+		Addr:    serverAddr,
+		Handler: router,
+	}
+	if env.Config.Server.TLS.Enabled {
+		tlsConfig, err := env.CertManager.TLSConfig()
 		if err != nil {
-			logger.Error(fmt.Sprintf("Failed to build TLS configuration: %v", err))
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to build TLS configuration: %w", err)
 		}
-		info := certManager.Info()
-		logger.Info(fmt.Sprintf("Starting HTTPS server on https://%s (cert SHA-256=%s, auto_generated=%v). Swagger docs at https://%s/swagger/index.html",
-			serverAddr, info.FingerprintSHA256, info.AutoGenerated, serverAddr))
-		srv := &http.Server{
-			Addr:      serverAddr,
-			Handler:   router,
-			TLSConfig: tlsConfig,
-		}
+		srv.TLSConfig = tlsConfig
+	}
+	return srv, nil
+}
+
+// @title Go Admin Tool API
+// @version 1.0
+// @description This is a lightweight remote administration tool.
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url http://www.swagger.io/support
+// @contact.email support@swagger.io
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:8080
+// @BasePath /
+func main() {
+	apiEnv, router, cleanup, err := initializeServerEnv(resolveConfigPath())
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	defer cleanup()
+
+	srv, err := buildHTTPServer(apiEnv, router)
+	if err != nil {
+		apiEnv.Logger.Error(err.Error())
+		os.Exit(1)
+	}
+
+	if apiEnv.Config.Server.TLS.Enabled {
+		info := apiEnv.CertManager.Info()
+		apiEnv.Logger.Info(fmt.Sprintf("Starting HTTPS server on https://%s (cert SHA-256=%s, auto_generated=%v). Swagger docs at https://%s/swagger/index.html",
+			srv.Addr, info.FingerprintSHA256, info.AutoGenerated, srv.Addr))
 		if err := srv.ListenAndServeTLS("", ""); err != nil {
-			logger.Error(fmt.Sprintf("HTTPS server failed to start: %v", err))
+			apiEnv.Logger.Error(fmt.Sprintf("HTTPS server failed to start: %v", err))
 			os.Exit(1)
 		}
 	} else {
-		logger.Info(fmt.Sprintf("Starting HTTP server on http://%s. Swagger docs at http://%s/swagger/index.html", serverAddr, serverAddr))
-		if err := http.ListenAndServe(serverAddr, router); err != nil {
-			logger.Error(fmt.Sprintf("HTTP server failed to start: %v", err))
+		apiEnv.Logger.Info(fmt.Sprintf("Starting HTTP server on http://%s. Swagger docs at http://%s/swagger/index.html", srv.Addr, srv.Addr))
+		if err := srv.ListenAndServe(); err != nil {
+			apiEnv.Logger.Error(fmt.Sprintf("HTTP server failed to start: %v", err))
 			os.Exit(1)
 		}
 	}

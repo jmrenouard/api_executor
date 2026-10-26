@@ -97,6 +97,19 @@ This living governance register records all errors encountered, technical dead-e
   - Normalized hyphen/underscore action names in `internal/plugins/sys_diagnostics.go`, updated `README.md` to use `redhat-rpm-qa`, and updated `Dockerfile`, `docker/Dockerfile.ubuntu`, and `docker/Dockerfile.redhat` to copy `plugins/` and grant `appuser:appgroup` ownership of `/app` and `/app/certs`.
 - **Result & Non-Regression Test**: Verified by `TestSVGAssetsAreValidXMLAndREADMEIncludesBranding` (`docs/branding_test.go`) and `TestSystemDiagnosticsPlugin` (`internal/plugins/plugins_test.go`).
 
+### `RCA-011` — Unclosed File Handle in `core.Logger` on Windows and Untestable Monolithic `main()` in `cmd/server/main.go`
+- **Date**: `2026-10-26`
+- **Observed Symptom**:
+  1. Writing unit tests for `core.NewLogger` with a file-backed `LoggingConfig.Path` inside `t.TempDir()` failed on Windows during test cleanup with `The process cannot access the file because it is being used by another process`.
+  2. `cmd/server` had `0.0%` unit test coverage and hardcoded `"config.yaml"` inside `func main()`.
+- **Root Cause Analysis**:
+  - `core.NewLogger` opened the log file via `os.OpenFile` and passed it to `log.New(output, "", 0)` without exposing a `Close() error` method on `*core.Logger` to release the OS file descriptor.
+  - All server bootstrap wiring in `cmd/server/main.go` was coupled directly to `log.Fatalf` / `os.Exit(1)` and `ListenAndServe` inside `main()`.
+- **Applied Change / Fix**:
+  - Added `(*core.Logger).Close() error` in `internal/core/logger.go` to safely close file-backed log writers.
+  - Extracted `resolveConfigPath()`, `initializeServerEnv(configPath string)`, and `buildHTTPServer(env, router)` in `cmd/server/main.go` and added unit tests in `cmd/server/main_test.go`.
+- **Result & Non-Regression Test**: Verified by `TestLoggerLevelsStructuredOutputAndRingBuffer` (`internal/core/logger_test.go`) and `TestResolveConfigPathAndInitializeServerEnv` (`cmd/server/main_test.go`).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

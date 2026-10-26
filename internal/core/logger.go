@@ -157,3 +157,17 @@ func (l *Logger) RecentEntries(limit int, minLevelStr string) []LogRecord {
 	}
 	return result
 }
+
+// Close closes the underlying log file if one was opened by NewLogger.
+func (l *Logger) Close() error {
+	if l == nil || l.logger == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if f, ok := l.logger.Writer().(*os.File); ok && f != os.Stdout && f != os.Stderr {
+		return f.Close()
+	}
+	return nil
+}
+

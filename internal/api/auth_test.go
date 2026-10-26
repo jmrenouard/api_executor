@@ -281,7 +281,116 @@ func TestAuthTokensPrivilegeEscalationPrevention(t *testing.T) {
 		t.Fatalf("expected 403 when operator tries to self-assign '*' scope, got %d: %s", recOpWildcard.Code, recOpWildcard.Body.String())
 	}
 
-	_ = adminTok
+	// 7. Admin user lifecycle operations: GET /api/v1/auth/users, PATCH user, DELETE user, GET/POST/DELETE tokens & service accounts
+	reqGetUsers := httptest.NewRequest(http.MethodGet, "/api/v1/auth/users", nil)
+	reqGetUsers.Header.Set("X-API-Token", adminTok)
+	recGetUsers := httptest.NewRecorder()
+	router.ServeHTTP(recGetUsers, reqGetUsers)
+	if recGetUsers.Code != http.StatusOK {
+		t.Errorf("expected 200 from GET /api/v1/auth/users, got %d", recGetUsers.Code)
+	}
+
+	// Create temporary user, PATCH it, then DELETE it
+	createTmpBody, _ := json.Marshal(map[string]any{"username": "tempuser", "password": "temppass123", "role": "viewer"})
+	reqCreateTmp := httptest.NewRequest(http.MethodPost, "/api/v1/auth/users", bytes.NewReader(createTmpBody))
+	reqCreateTmp.Header.Set("X-API-Token", adminTok)
+	recCreateTmp := httptest.NewRecorder()
+	router.ServeHTTP(recCreateTmp, reqCreateTmp)
+	var createdUser auth.User
+	_ = json.Unmarshal(recCreateTmp.Body.Bytes(), &createdUser)
+
+	patchBody, _ := json.Marshal(map[string]any{"id": createdUser.ID, "role": "operator"})
+	reqPatch := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/users", bytes.NewReader(patchBody))
+	reqPatch.Header.Set("X-API-Token", adminTok)
+	recPatch := httptest.NewRecorder()
+	router.ServeHTTP(recPatch, reqPatch)
+	if recPatch.Code != http.StatusOK {
+		t.Errorf("expected 200 from PATCH /api/v1/auth/users, got %d: %s", recPatch.Code, recPatch.Body.String())
+	}
+
+	reqDelUser := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/users?id="+createdUser.ID, nil)
+	reqDelUser.Header.Set("X-API-Token", adminTok)
+	recDelUser := httptest.NewRecorder()
+	router.ServeHTTP(recDelUser, reqDelUser)
+	if recDelUser.Code != http.StatusOK {
+		t.Errorf("expected 200 from DELETE /api/v1/auth/users, got %d", recDelUser.Code)
+	}
+
+	// GET /api/v1/auth/tokens, POST with TTL and invalid TTL, DELETE token
+	reqGetTokens := httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	reqGetTokens.Header.Set("X-API-Token", adminTok)
+	recGetTokens := httptest.NewRecorder()
+	router.ServeHTTP(recGetTokens, reqGetTokens)
+	if recGetTokens.Code != http.StatusOK {
+		t.Errorf("expected 200 from GET /api/v1/auth/tokens, got %d", recGetTokens.Code)
+	}
+
+	badTTLTok, _ := json.Marshal(map[string]any{"name": "bad-ttl", "ttl": "invalid"})
+	reqBadTTL := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(badTTLTok))
+	reqBadTTL.Header.Set("X-API-Token", adminTok)
+	recBadTTL := httptest.NewRecorder()
+	router.ServeHTTP(recBadTTL, reqBadTTL)
+	if recBadTTL.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid token TTL, got %d", recBadTTL.Code)
+	}
+
+	// GET & DELETE /api/v1/auth/service-accounts
+	reqGetSA := httptest.NewRequest(http.MethodGet, "/api/v1/auth/service-accounts", nil)
+	reqGetSA.Header.Set("X-API-Token", adminTok)
+	recGetSA := httptest.NewRecorder()
+	router.ServeHTTP(recGetSA, reqGetSA)
+	if recGetSA.Code != http.StatusOK {
+		t.Errorf("expected 200 from GET /api/v1/auth/service-accounts, got %d", recGetSA.Code)
+	}
+
+	badTTLSA, _ := json.Marshal(map[string]any{"name": "bad-sa", "ttl": "invalid"})
+	reqBadSATTL := httptest.NewRequest(http.MethodPost, "/api/v1/auth/service-accounts", bytes.NewReader(badTTLSA))
+	reqBadSATTL.Header.Set("X-API-Token", adminTok)
+	recBadSATTL := httptest.NewRecorder()
+	router.ServeHTTP(recBadSATTL, reqBadSATTL)
+	if recBadSATTL.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid service account TTL, got %d", recBadSATTL.Code)
+	}
+
+	// MethodNotAllowed (405) and nil AuthManager (503) checks
+	nilAuthRouter := NewRouter(&APIEnv{Config: cfg})
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/v1/auth/login"},
+		{http.MethodGet, "/api/v1/auth/users"},
+		{http.MethodGet, "/api/v1/auth/tokens"},
+		{http.MethodGet, "/api/v1/auth/service-accounts"},
+		{http.MethodPost, "/api/v1/auth/service-accounts/rotate"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		rec := httptest.NewRecorder()
+		nilAuthRouter.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("expected 503 for %s %s when AuthManager is nil, got %d", tc.method, tc.path, rec.Code)
+		}
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/auth/login"},
+		{http.MethodOptions, "/api/v1/auth/users"},
+		{http.MethodPut, "/api/v1/auth/tokens"},
+		{http.MethodPut, "/api/v1/auth/service-accounts"},
+		{http.MethodGet, "/api/v1/auth/service-accounts/rotate"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set("X-API-Token", adminTok)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected 405 for %s %s, got %d", tc.method, tc.path, rec.Code)
+		}
+	}
 }
+
 
 

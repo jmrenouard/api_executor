@@ -103,4 +103,17 @@ func TestAuditLogsVerifyAndSystemLogsEndpoints(t *testing.T) {
 	if recHist.Code != http.StatusOK {
 		t.Fatalf("expected 200 from /api/v1/history, got %d", recHist.Code)
 	}
+
+	// 6. Verify graceful empty responses when AuditLogger, Logger, and DB are nil
+	nilEnv := &APIEnv{Config: cfg}
+	nilRouter := NewRouter(nilEnv)
+	for _, ep := range []string{"/api/v1/audit/logs", "/api/v1/audit/verify", "/api/v1/logs", "/api/v1/history"} {
+		req := httptest.NewRequest(http.MethodGet, ep, nil)
+		rec := httptest.NewRecorder()
+		nilRouter.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 from %s with nil dependencies, got %d", ep, rec.Code)
+		}
+	}
 }
+

@@ -130,4 +130,69 @@ func TestPluginEndpointsDeclarativeRegistrationAndReadOnlyDBExposure(t *testing.
 	if recBadQuery.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden for DROP TABLE query, got %d: %s", recBadQuery.Code, recBadQuery.Body.String())
 	}
+
+	// 6. POST /api/v1/db/query with empty SQL defaults to table_sample
+	sampleBody, _ := json.Marshal(map[string]any{"table": "action_history", "max_rows": 5})
+	reqSample := httptest.NewRequest(http.MethodPost, "/api/v1/db/query", bytes.NewReader(sampleBody))
+	recSample := httptest.NewRecorder()
+	router.ServeHTTP(recSample, reqSample)
+	if recSample.Code != http.StatusOK {
+		t.Errorf("expected 200 for default table_sample in /api/v1/db/query, got %d", recSample.Code)
+	}
+
+	// 7. Error cases on /api/v1/plugins/execute (missing fields, bad timeout, unknown plugin)
+	for _, tc := range []struct {
+		body map[string]any
+		code int
+	}{
+		{map[string]any{"plugin_id": ""}, http.StatusBadRequest},
+		{map[string]any{"plugin_id": "ops-quick-tools", "action": "probe-target", "timeout": "bad"}, http.StatusBadRequest},
+		{map[string]any{"plugin_id": "unknown-plugin", "action": "act"}, http.StatusNotFound},
+		{map[string]any{"plugin_id": "db-exposure", "action": "query_readonly", "params": map[string]any{"sql": "DROP TABLE x"}}, http.StatusForbidden},
+	} {
+		b, _ := json.Marshal(tc.body)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/execute", bytes.NewReader(b))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != tc.code {
+			t.Errorf("expected %d for body %v, got %d: %s", tc.code, tc.body, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 8. Fallback resolveDBExposurePlugin when PluginRegistry is nil, and 503 when both Registry and DB are nil
+	fallbackEnv := &APIEnv{Config: cfg, DB: db}
+	fallbackRouter := NewRouter(fallbackEnv)
+	reqFbTables := httptest.NewRequest(http.MethodGet, "/api/v1/db/tables", nil)
+	recFbTables := httptest.NewRecorder()
+	fallbackRouter.ServeHTTP(recFbTables, reqFbTables)
+	if recFbTables.Code != http.StatusOK {
+		t.Errorf("expected 200 from fallback DBTablesHandler, got %d", recFbTables.Code)
+	}
+
+	emptyEnv := &APIEnv{Config: cfg}
+	emptyRouter := NewRouter(emptyEnv)
+	for _, tc := range []struct {
+		method string
+		path   string
+		code   int
+	}{
+		{http.MethodGet, "/api/v1/plugins", http.StatusOK},
+		{http.MethodPost, "/api/v1/plugins", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/api/v1/plugins/execute", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/api/v1/plugins/execute", http.StatusServiceUnavailable},
+		{http.MethodGet, "/api/v1/plugins/declarative", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/api/v1/plugins/declarative", http.StatusServiceUnavailable},
+		{http.MethodPost, "/api/v1/db/tables", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/api/v1/db/tables", http.StatusServiceUnavailable},
+		{http.MethodGet, "/api/v1/db/query", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/api/v1/db/query", http.StatusServiceUnavailable},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		rec := httptest.NewRecorder()
+		emptyRouter.ServeHTTP(rec, req)
+		if rec.Code != tc.code {
+			t.Errorf("expected %d for %s %s on emptyEnv, got %d", tc.code, tc.method, tc.path, rec.Code)
+		}
+	}
 }
+
