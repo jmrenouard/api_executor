@@ -229,17 +229,17 @@
                                     <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-slate-200 uppercase" x-text="cat.os_family"></span>
                                     <h3 class="text-base font-semibold text-white mt-1" x-text="cat.display_name"></h3>
                                 </div>
-                                <span class="text-xs font-mono text-slate-400 tabular-nums" x-text="(cat.tasks ? cat.tasks.length : 0) + ' tasks'"></span>
+                                <span class="text-xs font-mono text-slate-400 tabular-nums" x-text="((cat.commands || cat.tasks || []).length) + ' tasks'"></span>
                             </div>
                             <div class="space-y-2 max-h-80 overflow-y-auto pr-1">
-                                <template x-for="task in (cat.tasks || [])" :key="task.name">
+                                <template x-for="task in (cat.commands || cat.tasks || [])" :key="task.name">
                                     <div class="p-3 rounded-lg bg-[#0d131f] border border-white/5 flex items-center justify-between gap-3">
                                         <div>
                                             <div class="font-mono text-xs font-semibold text-emerald-300" x-text="task.name"></div>
                                             <div class="text-xs text-slate-400" x-text="task.description"></div>
                                             <div class="text-[11px] font-mono text-slate-500 mt-0.5" x-text="task.command + ' ' + (task.args || []).join(' ') + ' [' + (task.timeout || '15s') + ']'"></div>
                                         </div>
-                                        <button @click="runPresetTask(task.name)" class="tactile-btn px-2.5 py-1 rounded bg-white/10 hover:bg-white/15 text-xs font-mono text-white">
+                                        <button @click="runPresetTask(task.name, cat.os_family)" class="tactile-btn px-2.5 py-1 rounded bg-white/10 hover:bg-white/15 text-xs font-mono text-white">
                                             Run
                                         </button>
                                     </div>
@@ -474,6 +474,15 @@
                 </button>
 
                 <pre x-show="pluginOutput" class="surface-inset rounded-lg p-3.5 text-xs font-mono text-emerald-300 max-h-60 overflow-y-auto whitespace-pre-wrap" x-text="pluginOutput"></pre>
+
+                <div class="border-t border-white/10 pt-4 space-y-2.5">
+                    <span class="text-[11px] font-mono text-sky-400 kicker-caps">Dynamic Extension</span>
+                    <h3 class="text-sm font-semibold text-white heading-tight">Register Declarative Plugin Module (<code class="text-xs">/api/v1/plugins/declarative</code>)</h3>
+                    <textarea x-model="declarativeSpecJSON" rows="4" class="w-full surface-inset rounded-lg p-3 text-xs font-mono text-white"></textarea>
+                    <button @click="registerDeclarativePlugin()" class="tactile-btn px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold">
+                        Register Declarative Plugin
+                    </button>
+                </div>
             </div>
 
             <!-- Read-Only SQLite Database Explorer (db-exposure) -->
@@ -594,6 +603,33 @@
                     </table>
                 </div>
             </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="surface-card rounded-xl p-6 space-y-3">
+                    <span class="text-[11px] font-mono text-sky-400 kicker-caps">Structured Telemetry</span>
+                    <h3 class="text-base font-semibold text-white heading-tight">System Application Logs (<code class="text-xs">/api/v1/logs</code>)</h3>
+                    <div class="space-y-1.5 max-h-60 overflow-y-auto font-mono text-xs tabular-nums">
+                        <template x-for="(lg, idx) in systemLogs" :key="idx">
+                            <div class="surface-inset px-3 py-2 rounded text-slate-300" x-text="(lg.time || lg.timestamp || '') + ' [' + (lg.level || 'INFO') + '] ' + (lg.msg || lg.message || JSON.stringify(lg))"></div>
+                        </template>
+                        <p x-show="systemLogs.length === 0" class="text-xs text-slate-500">No structured application log lines returned yet.</p>
+                    </div>
+                </div>
+
+                <div class="surface-card rounded-xl p-6 space-y-3">
+                    <span class="text-[11px] font-mono text-emerald-400 kicker-caps">SQLite Execution Journal</span>
+                    <h3 class="text-base font-semibold text-white heading-tight">Action Execution History (<code class="text-xs">/api/v1/history</code>)</h3>
+                    <div class="space-y-1.5 max-h-60 overflow-y-auto font-mono text-xs tabular-nums">
+                        <template x-for="h in actionHistory" :key="h.id">
+                            <div class="surface-inset px-3 py-2 rounded flex items-center justify-between">
+                                <span class="text-white" x-text="h.command + ' (' + h.status + ')'"></span>
+                                <span class="text-slate-400" x-text="h.timestamp"></span>
+                            </div>
+                        </template>
+                        <p x-show="actionHistory.length === 0" class="text-xs text-slate-500">No command execution history recorded yet.</p>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- TAB 8: HTTPS / TLS CERTIFICATE MANAGER & SECURE FILE SERVER -->
@@ -675,6 +711,13 @@
                 selectedPluginAction: '',
                 pluginParamsJSON: '{"target": "localhost"}',
                 pluginOutput: '',
+                declarativeSpecJSON: JSON.stringify({
+                    id: 'custom-ops',
+                    name: 'Custom Ops Plugin',
+                    version: '1.0.0',
+                    description: 'Declarative diagnostic commands',
+                    actions: [{ name: 'hostname-check', description: 'Print hostname', command: 'hostname', args: [], timeout: '5s' }]
+                }, null, 2),
 
                 dbSQLQuery: 'SELECT id, timestamp, command, status FROM action_history ORDER BY id DESC LIMIT 20',
                 dbQueryOutput: '',
@@ -685,6 +728,8 @@
 
                 auditEvents: [],
                 auditVerify: { valid: true, total_events: 0 },
+                systemLogs: [],
+                actionHistory: [],
                 tlsInfo: { enabled: true },
                 files: [],
                 filesError: '',
@@ -810,8 +855,8 @@
                     }
                 },
 
-                async runPresetTask(taskName) {
-                    await this.activatePresets(['ubuntu', 'redhat']);
+                async runPresetTask(taskName, osFamily) {
+                    await this.activatePresets(osFamily ? [osFamily] : ['ubuntu', 'redhat']);
                     this.selectedCommand = taskName;
                     this.activeTab = 'commands';
                     await this.executeCommand();
@@ -963,6 +1008,20 @@
                     this.pluginOutput = JSON.stringify(d, null, 2);
                 },
 
+                async registerDeclarativePlugin() {
+                    const r = await fetch('/api/v1/plugins/declarative', {
+                        method: 'POST',
+                        headers: this.headers(),
+                        body: this.declarativeSpecJSON
+                    });
+                    const d = await r.json();
+                    this.pluginOutput = JSON.stringify(d, null, 2);
+                    if (r.ok) {
+                        this.statusBanner = 'Registered declarative plugin ' + (d.plugin ? d.plugin.id : '');
+                        await this.loadPlugins();
+                    }
+                },
+
                 async loadDBTables() {
                     const r = await fetch('/api/v1/db/tables', { headers: this.headers() });
                     this.dbQueryOutput = JSON.stringify(await r.json(), null, 2);
@@ -1004,12 +1063,16 @@
 
                 async loadAuditAndLogs() {
                     try {
-                        const [aRes, vRes] = await Promise.all([
+                        const [aRes, vRes, lRes, hRes] = await Promise.all([
                             fetch('/api/v1/audit/logs?limit=50', { headers: this.headers() }),
-                            fetch('/api/v1/audit/verify', { headers: this.headers() })
+                            fetch('/api/v1/audit/verify', { headers: this.headers() }),
+                            fetch('/api/v1/logs?limit=50', { headers: this.headers() }),
+                            fetch('/api/v1/history?limit=50', { headers: this.headers() })
                         ]);
                         if (aRes.ok) this.auditEvents = (await aRes.json()).events || [];
                         if (vRes.ok) this.auditVerify = await vRes.json();
+                        if (lRes.ok) this.systemLogs = (await lRes.json()).logs || [];
+                        if (hRes.ok) this.actionHistory = (await hRes.json()).history || [];
                     } catch (_) {}
                 },
 
