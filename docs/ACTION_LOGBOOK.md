@@ -15,6 +15,18 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-017` — Core Recursive Plugin Engine, Category Metadata Filtering, and 24 Native Go Plugins
+- **Timestamp (UTC)**: `2026-10-27T00:15:00Z`
+- **GitHub Issue**: [#34](https://github.com/jmrenouard/api_executor/issues/34)
+- **Branch**: `feat/issue-34-core-engine-and-native-plugins`
+- **Request**:
+  - Implement recursive declarative directory loader with category inference in `internal/plugins/declarative.go`, extend `Plugin` and `PluginInfo` with `Category` and `Type` metadata, add duplicate ID rejection and filtered listing in `internal/plugins/plugin.go`, enrich `PluginsListHandler` in `internal/api/plugin_handlers.go` with `category`/`domain`, `q`, and `type` query parameter filtering, implement 24 pure Go native plugins across all 10 operational domains with zero CGO dependencies in `internal/plugins/native_*.go`, and verify with >= 80% test coverage.
+- **Changes**:
+  - Created [`internal/plugins/helpers.go`](../internal/plugins/helpers.go), [`internal/plugins/builtin.go`](../internal/plugins/builtin.go), [`internal/plugins/native_system.go`](../internal/plugins/native_system.go), [`internal/plugins/native_net.go`](../internal/plugins/native_net.go), [`internal/plugins/native_secops.go`](../internal/plugins/native_secops.go), [`internal/plugins/native_container.go`](../internal/plugins/native_container.go), [`internal/plugins/native_k8s.go`](../internal/plugins/native_k8s.go), [`internal/plugins/native_dataops.go`](../internal/plugins/native_dataops.go), [`internal/plugins/native_devops.go`](../internal/plugins/native_devops.go), [`internal/plugins/native_sre.go`](../internal/plugins/native_sre.go), [`internal/plugins/native_aiops.go`](../internal/plugins/native_aiops.go), [`internal/plugins/native_crypto.go`](../internal/plugins/native_crypto.go), and [`internal/api/plugin_handlers_test.go`](../internal/api/plugin_handlers_test.go).
+  - Updated [`internal/plugins/declarative.go`](../internal/plugins/declarative.go), [`internal/plugins/plugin.go`](../internal/plugins/plugin.go), [`internal/plugins/sys_diagnostics.go`](../internal/plugins/sys_diagnostics.go), [`internal/plugins/db_exposure.go`](../internal/plugins/db_exposure.go), [`internal/plugins/plugins_test.go`](../internal/plugins/plugins_test.go), [`internal/api/plugin_handlers.go`](../internal/api/plugin_handlers.go), [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md), and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - Full test suite passing across all 10 packages (`145 passed in 10 packages`); statement coverage on modified packages: `internal/plugins` at 85.9% and `internal/api` at 89.3% (well exceeding the 80% minimum threshold); all 24 native plugins registered and executing real logic; duplicate registration prevention and filtering verified.
+
 ### `ACT-018` — Author Comprehensive E2E Opaque-Box Test Suite (Tiers 1-4) and Test Infrastructure
 - **Timestamp (UTC)**: `2026-10-27T01:05:00Z`
 - **GitHub Issue**: [#35](https://github.com/jmrenouard/api_executor/issues/35)

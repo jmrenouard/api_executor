@@ -18,8 +18,9 @@ const (
 )
 
 var (
-	ErrPluginNotFound = errors.New("plugin not found")
-	ErrActionNotFound = errors.New("plugin action not found")
+	ErrPluginNotFound    = errors.New("plugin not found")
+	ErrActionNotFound    = errors.New("plugin action not found")
+	ErrDuplicatePlugin   = errors.New("plugin already registered")
 )
 
 // ActionParameter describes an input parameter accepted by a plugin action.
@@ -46,6 +47,8 @@ type PluginInfo struct {
 	Name        string         `json:"name"`
 	Version     string         `json:"version"`
 	Kind        PluginKind     `json:"kind"`
+	Type        string         `json:"type"`
+	Category    string         `json:"category"`
 	Description string         `json:"description"`
 	Actions     []PluginAction `json:"actions"`
 }
@@ -68,6 +71,8 @@ type Plugin interface {
 	Name() string
 	Version() string
 	Kind() PluginKind
+	Type() string
+	Category() string
 	Description() string
 	Actions() []PluginAction
 	Execute(ctx context.Context, action string, params map[string]any, timeout time.Duration) (PluginResult, error)
@@ -79,15 +84,52 @@ type Registry struct {
 	plugins map[string]Plugin
 }
 
-// NewRegistry creates an empty plugin registry.
+// NewRegistry creates a plugin registry populated with default native Go plugins.
 func NewRegistry() *Registry {
+	r := &Registry{
+		plugins: make(map[string]Plugin),
+	}
+	RegisterDefaultNativePlugins(r, nil, 200)
+	return r
+}
+
+// NewEmptyRegistry creates an empty plugin registry with no default plugins.
+func NewEmptyRegistry() *Registry {
 	return &Registry{
 		plugins: make(map[string]Plugin),
 	}
 }
 
-// Register adds or updates a plugin in the registry.
+// Register adds a plugin to the registry, detecting duplicate IDs to prevent silent overwriting.
 func (r *Registry) Register(p Plugin) error {
+	if p == nil {
+		return errors.New("cannot register nil plugin")
+	}
+	id := strings.TrimSpace(p.ID())
+	if id == "" {
+		return errors.New("plugin ID cannot be empty")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.plugins[id]; exists {
+		// Allow updating DatabaseExposurePlugin when binding a non-nil database instance
+		if dbExp, ok := p.(*DatabaseExposurePlugin); ok && dbExp.db != nil {
+			r.plugins[id] = p
+			return nil
+		}
+		// Allow re-registering SystemDiagnosticsPlugin
+		if _, ok := p.(*SystemDiagnosticsPlugin); ok {
+			r.plugins[id] = p
+			return nil
+		}
+		return fmt.Errorf("%w: plugin with ID %q is already registered", ErrDuplicatePlugin, id)
+	}
+	r.plugins[id] = p
+	return nil
+}
+
+// RegisterOrReplace adds or forcibly updates a plugin in the registry without duplicate check.
+func (r *Registry) RegisterOrReplace(p Plugin) error {
 	if p == nil {
 		return errors.New("cannot register nil plugin")
 	}
@@ -101,6 +143,18 @@ func (r *Registry) Register(p Plugin) error {
 	return nil
 }
 
+// Unregister removes a plugin by ID from the registry.
+func (r *Registry) Unregister(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	id = strings.TrimSpace(id)
+	if _, exists := r.plugins[id]; exists {
+		delete(r.plugins, id)
+		return true
+	}
+	return false
+}
+
 // Get retrieves a plugin by ID.
 func (r *Registry) Get(id string) (Plugin, bool) {
 	r.mu.RLock()
@@ -111,19 +165,87 @@ func (r *Registry) Get(id string) (Plugin, bool) {
 
 // List returns metadata for all registered plugins sorted by ID.
 func (r *Registry) List() []PluginInfo {
+	return r.ListFiltered("", "", "")
+}
+
+// ListFiltered returns metadata for registered plugins matching optional category, query, and pluginType filters, sorted by ID.
+func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	category = strings.TrimSpace(strings.ToLower(category))
+	query = strings.TrimSpace(strings.ToLower(query))
+	pluginType = strings.TrimSpace(strings.ToLower(pluginType))
+
 	out := make([]PluginInfo, 0, len(r.plugins))
 	for _, p := range r.plugins {
-		out = append(out, PluginInfo{
+		pType := p.Type()
+		if pType == "" {
+			if p.Kind() == KindDeclarative {
+				pType = "declarative"
+			} else {
+				pType = "native"
+			}
+		}
+
+		info := PluginInfo{
 			ID:          p.ID(),
 			Name:        p.Name(),
 			Version:     p.Version(),
 			Kind:        p.Kind(),
+			Type:        pType,
+			Category:    p.Category(),
 			Description: p.Description(),
 			Actions:     p.Actions(),
-		})
+		}
+
+		// Filter by category
+		if category != "" && category != "all" {
+			pCat := strings.ToLower(info.Category)
+			if !strings.Contains(pCat, category) && !strings.EqualFold(info.Category, category) {
+				continue
+			}
+		}
+
+		// Filter by type ("native" vs "declarative")
+		if pluginType != "" && pluginType != "all" {
+			pTypeLower := strings.ToLower(info.Type)
+			pKindLower := strings.ToLower(string(info.Kind))
+			if pluginType == "native" && pTypeLower != "native" && pKindLower != "advanced" {
+				continue
+			}
+			if pluginType == "advanced" && pTypeLower != "native" && pKindLower != "advanced" {
+				continue
+			}
+			if pluginType == "declarative" && pTypeLower != "declarative" && pKindLower != "declarative" {
+				continue
+			}
+		}
+
+		// Filter by query (case-insensitive substring in ID, Name, Description, Category, or Action names)
+		if query != "" {
+			match := strings.Contains(strings.ToLower(info.ID), query) ||
+				strings.Contains(strings.ToLower(info.Name), query) ||
+				strings.Contains(strings.ToLower(info.Description), query) ||
+				strings.Contains(strings.ToLower(info.Category), query)
+
+			if !match {
+				for _, act := range info.Actions {
+					if strings.Contains(strings.ToLower(act.Name), query) ||
+						strings.Contains(strings.ToLower(act.Description), query) {
+						match = true
+						break
+					}
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+
+		out = append(out, info)
 	}
+
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].ID < out[j].ID
 	})

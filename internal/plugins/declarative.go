@@ -33,6 +33,7 @@ type DeclarativeModuleSpec struct {
 	ID          string                  `json:"id" yaml:"id"`
 	Name        string                  `json:"name" yaml:"name"`
 	Version     string                  `json:"version" yaml:"version"`
+	Category    string                  `json:"category,omitempty" yaml:"category,omitempty"`
 	Description string                  `json:"description" yaml:"description"`
 	OSFamily    string                  `json:"os_family,omitempty" yaml:"os_family,omitempty"`
 	Actions     []DeclarativeActionSpec `json:"actions" yaml:"actions"`
@@ -78,6 +79,13 @@ func (p *DeclarativePlugin) ID() string          { return p.spec.ID }
 func (p *DeclarativePlugin) Name() string        { return p.spec.Name }
 func (p *DeclarativePlugin) Version() string     { return p.spec.Version }
 func (p *DeclarativePlugin) Kind() PluginKind    { return KindDeclarative }
+func (p *DeclarativePlugin) Type() string        { return "declarative" }
+func (p *DeclarativePlugin) Category() string {
+	if p.spec.Category != "" {
+		return p.spec.Category
+	}
+	return "General"
+}
 func (p *DeclarativePlugin) Description() string { return p.spec.Description }
 
 func (p *DeclarativePlugin) Actions() []PluginAction {
@@ -217,30 +225,72 @@ func (r *Registry) RegisterDeclarativeModule(spec DeclarativeModuleSpec) (*Decla
 	return p, nil
 }
 
-// LoadDeclarativeDirectory loads all .yaml, .yml, and .json declarative plugin files from dir.
+// InferCategoryFromPath determines a canonical category from the directory path relative to the root plugins dir.
+func InferCategoryFromPath(baseDir, filePath string) string {
+	rel, err := filepath.Rel(baseDir, filepath.Dir(filePath))
+	if err != nil || rel == "." || rel == "" {
+		return "General"
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) == 0 || parts[0] == "." || parts[0] == "" {
+		return "General"
+	}
+	domainKey := strings.ToLower(parts[0])
+	switch domainKey {
+	case "sysadmin", "system", "sys":
+		return "SysAdmin"
+	case "netops", "net", "network", "networking":
+		return "NetOps"
+	case "secops", "sec", "security":
+		return "SecOps"
+	case "containerops", "container", "containers", "docker":
+		return "ContainerOps"
+	case "kubernetes", "k8s":
+		return "Kubernetes"
+	case "dataops", "database", "databases", "db":
+		return "DataOps"
+	case "devops", "ci", "cicd":
+		return "DevOps"
+	case "sre", "observability", "metrics", "monitoring":
+		return "SRE"
+	case "aiops", "ai", "llm", "mcp":
+		return "AIOps"
+	case "webutils", "web_utilities", "web", "crypto", "utilities":
+		return "Web & Crypto Utilities"
+	default:
+		if len(domainKey) > 0 {
+			return strings.ToUpper(domainKey[:1]) + domainKey[1:]
+		}
+		return "General"
+	}
+}
+
+// LoadDeclarativeDirectory recursively traverses dir using filepath.WalkDir and loads all .yaml, .yml, and .json declarative plugin files.
 func (r *Registry) LoadDeclarativeDirectory(dir string) (int, error) {
 	if strings.TrimSpace(dir) == "" {
 		return 0, nil
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
 		}
 		return 0, err
 	}
 	loaded := 0
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
 		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
-			continue
+			return nil
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		raw, err := os.ReadFile(path)
 		if err != nil {
-			return loaded, err
+			return err
 		}
 		var spec DeclarativeModuleSpec
 		if ext == ".json" {
@@ -249,14 +299,18 @@ func (r *Registry) LoadDeclarativeDirectory(dir string) (int, error) {
 			err = yaml.Unmarshal(raw, &spec)
 		}
 		if err != nil {
-			return loaded, fmt.Errorf("failed to parse declarative plugin %s: %w", entry.Name(), err)
+			return fmt.Errorf("failed to parse declarative plugin %s: %w", d.Name(), err)
+		}
+		if strings.TrimSpace(spec.Category) == "" {
+			spec.Category = InferCategoryFromPath(dir, path)
 		}
 		if _, err := r.RegisterDeclarativeModule(spec); err != nil {
-			return loaded, err
+			return err
 		}
 		loaded++
-	}
-	return loaded, nil
+		return nil
+	})
+	return loaded, err
 }
 
 // DefaultDeclarativeOpsPlugin returns a built-in cross-platform declarative command module.
@@ -282,6 +336,7 @@ func DefaultDeclarativeOpsPlugin() (*DeclarativePlugin, error) {
 		ID:          "ops-quick-tools",
 		Name:        "Declarative Quick Operations Module",
 		Version:     "1.0.0",
+		Category:    "SysAdmin",
 		Description: "Declarative command module providing parameterized target ping/echo and identity verification.",
 		Actions: []DeclarativeActionSpec{
 			{
