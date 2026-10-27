@@ -61,8 +61,8 @@ Every required feature from the survey and requirements is cataloged and assigne
 | M1 | Core Engine & Native Go Plugins | Recursive loader, Category/Type metadata, API query filtering, 24 native Go plugins | none | DONE |
 | M2 | Infrastructure & Systems Declarative Packs | 140 declarative plugins (SysAdmin, NetOps, SecOps, ContainerOps, Kubernetes) | M1 | DONE |
 | M3 | Applications, Data & AIOps Declarative Packs | 140 declarative plugins (DataOps, DevOps, SRE, AIOps, Web/Crypto Utilities) | M1 | DONE |
-| M4 | Web Console Tab 5 & MCP Integration | Search, domain pills, type filter, pagination, dynamic forms, MCP catalog verification | M1, M2, M3 | PLANNED |
-| M5 | Final Verification, Playwright & Governance | 100% E2E test pass, Playwright browser test, registers & documentation updates | M1, M2, M3, M4, E2E | PLANNED |
+| M4 | Web Console Tab 5 & MCP Integration | Search, domain pills, type filter, pagination, dynamic forms, MCP catalog verification | M1, M2, M3 | DONE |
+| M5 | Final Verification, Playwright & Governance | 100% E2E test pass, Playwright browser test, registers & documentation updates | M1, M2, M3, M4, E2E | DONE |
 | E2E | E2E Testing Track | Independent opaque-box test suite design (Tiers 1-4), harness, and `TEST_READY.md` | M1 interface | DONE |
 
 ---
