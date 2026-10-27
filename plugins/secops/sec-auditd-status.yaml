@@ -1,0 +1,14 @@
+id: sec-auditd-status
+name: Linux Audit Subsystem Daemon & Rules Status
+version: 1.0.0
+category: SecOps
+description: Query Linux Audit daemon status, active rule counts, backlog limits,
+  and lost event metrics.
+os_family: linux
+actions:
+- name: auditd_subsystem_status
+  description: Query auditctl status for active audit daemon configuration
+  command: auditctl
+  args:
+  - -s
+  timeout: 5s

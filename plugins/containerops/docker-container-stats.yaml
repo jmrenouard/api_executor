@@ -1,0 +1,24 @@
+id: docker-container-stats
+name: Docker Resource Telemetry (CPU, Memory, I/O)
+version: 1.0.0
+category: ContainerOps
+description: Collect live CPU utilization, memory limit, network I/O, and block I/O
+  metrics across containers.
+os_family: any
+actions:
+- name: resource_stats
+  description: Collect non-streaming container resource stats
+  command: docker
+  args:
+  - stats
+  - --no-stream
+  - --format
+  - '{{format}}'
+  timeout: 5s
+  parameters:
+  - name: format
+    type: string
+    required: false
+    default: "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
+    pattern: "^[a-zA-Z0-9. _\t-{}]+$"
+    description: Format template string

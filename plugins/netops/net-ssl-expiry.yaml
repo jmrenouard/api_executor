@@ -1,0 +1,31 @@
+id: net-ssl-expiry
+name: TLS Certificate SNI Handshake & Expiry Probe
+version: 1.0.0
+category: NetOps
+description: Initiate TLS handshake with SNI servername extension to verify cipher
+  negotiation and endpoint validity.
+os_family: linux
+actions:
+- name: check_tls_handshake
+  description: Perform TLS handshake with SNI to inspect negotiated cipher suite
+  command: openssl
+  args:
+  - s_client
+  - -connect
+  - '{{host}}:{{port}}'
+  - -servername
+  - '{{host}}'
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: true
+    default: localhost
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Destination hostname or IP address
+  - name: port
+    type: string
+    required: false
+    default: '443'
+    pattern: ^[0-9]+$
+    description: Destination TCP port

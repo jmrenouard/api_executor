@@ -1,0 +1,14 @@
+id: sys-swap-usage
+name: Swap Space Allocation & Priority Monitor
+version: 1.0.0
+category: SysAdmin
+description: Inspect active swap partitions, swap files, allocation sizes, and priority
+  levels.
+os_family: linux
+actions:
+- name: swap_partitions
+  description: Display active swap devices and usage stats via swapon
+  command: swapon
+  args:
+  - --show
+  timeout: 5s

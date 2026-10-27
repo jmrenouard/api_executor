@@ -1,0 +1,31 @@
+id: k8s-pod-describe
+name: Kubernetes Pod Lifecycle State & Events Inspector
+version: 1.0.0
+category: Kubernetes
+description: Inspect pod container statuses, volumes, IP addresses, QoS class, and
+  lifecycle warning events.
+os_family: any
+actions:
+- name: describe_pod_state
+  description: Describe pod lifecycle state, container statuses, and events
+  command: kubectl
+  args:
+  - describe
+  - pod
+  - '{{pod}}'
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: pod
+    type: string
+    required: true
+    default: api-executor-pod
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Pod name
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Kubernetes namespace

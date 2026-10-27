@@ -1,0 +1,31 @@
+id: net-tcpdump-sample
+name: Raw Network Packet Header Sample Capture
+version: 1.0.0
+category: NetOps
+description: Capture a sample of raw packet headers on specified network interface
+  without reverse DNS lookups.
+os_family: linux
+actions:
+- name: capture_packet_sample
+  description: Capture specified packet count sample on interface
+  command: tcpdump
+  args:
+  - -c
+  - '{{count}}'
+  - -nn
+  - -i
+  - '{{interface}}'
+  timeout: 5s
+  parameters:
+  - name: count
+    type: string
+    required: false
+    default: '5'
+    pattern: ^[0-9]+$
+    description: Number of packets to capture
+  - name: interface
+    type: string
+    required: false
+    default: any
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Network interface to monitor

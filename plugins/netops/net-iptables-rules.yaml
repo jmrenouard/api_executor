@@ -1,0 +1,16 @@
+id: net-iptables-rules
+name: IPv4 Netfilter Packet Filter Rules & Policies
+version: 1.0.0
+category: NetOps
+description: Audit active IPv4 iptables packet filter chains (INPUT, OUTPUT, FORWARD)
+  and packet hit counters.
+os_family: linux
+actions:
+- name: list_ipv4_rules
+  description: List all active IPv4 iptables rules with packet counts
+  command: iptables
+  args:
+  - -L
+  - -n
+  - -v
+  timeout: 5s

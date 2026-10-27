@@ -1,0 +1,14 @@
+id: containerd-crictl-images
+name: Containerd CRI Cached Images Store
+version: 1.0.0
+category: ContainerOps
+description: List container images cached in containerd CRI image store with tags,
+  digests, and disk sizes.
+os_family: linux
+actions:
+- name: list_crictl_images
+  description: Enumerate CRI container images via crictl images
+  command: crictl
+  args:
+  - images
+  timeout: 5s

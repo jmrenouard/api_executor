@@ -1,0 +1,15 @@
+id: sec-ssh-authorized-keys
+name: Root Authorized Keys File Permissions & Keys Audit
+version: 1.0.0
+category: SecOps
+description: Audit root user authorized_keys file existence, file permissions, and
+  public key configuration.
+os_family: linux
+actions:
+- name: check_root_authorized_keys
+  description: Inspect permissions and attributes of /root/.ssh/authorized_keys
+  command: ls
+  args:
+  - -la
+  - /root/.ssh/authorized_keys
+  timeout: 5s

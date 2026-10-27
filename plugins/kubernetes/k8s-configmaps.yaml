@@ -1,0 +1,24 @@
+id: k8s-configmaps
+name: Kubernetes ConfigMaps & Data Keys Enumerator
+version: 1.0.0
+category: Kubernetes
+description: Enumerate ConfigMap resources, data key counts, and creation timestamps
+  in a namespace.
+os_family: any
+actions:
+- name: list_configmaps
+  description: List ConfigMaps in target namespace
+  command: kubectl
+  args:
+  - get
+  - configmaps
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

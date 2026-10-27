@@ -1,0 +1,15 @@
+id: docker-compose-config
+name: Docker Compose Manifest Validation & Resolution
+version: 1.0.0
+category: ContainerOps
+description: Validate syntax and render effective service, volume, and secret declarations
+  of Compose project.
+os_family: any
+actions:
+- name: validate_compose
+  description: Validate and render Docker Compose configuration
+  command: docker
+  args:
+  - compose
+  - config
+  timeout: 5s

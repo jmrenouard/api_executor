@@ -1,0 +1,15 @@
+id: net-nftables-rules
+name: Modern nftables Ruleset & Active Tables
+version: 1.0.0
+category: NetOps
+description: Inspect active Linux nftables firewall rulesets, tables, chains, and
+  packet counters.
+os_family: linux
+actions:
+- name: list_nftables_ruleset
+  description: Dump complete nftables ruleset via nft
+  command: nft
+  args:
+  - list
+  - ruleset
+  timeout: 5s

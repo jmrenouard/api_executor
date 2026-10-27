@@ -1,0 +1,16 @@
+id: container-health-check
+name: Unhealthy Containers & Health Probe Failures
+version: 1.0.0
+category: ContainerOps
+description: Enumerate running containers reporting unhealthy status from Docker container
+  health checks.
+os_family: any
+actions:
+- name: find_unhealthy_containers
+  description: List containers reporting health=unhealthy
+  command: docker
+  args:
+  - ps
+  - --filter
+  - health=unhealthy
+  timeout: 5s

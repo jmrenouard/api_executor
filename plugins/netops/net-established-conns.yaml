@@ -1,0 +1,16 @@
+id: net-established-conns
+name: Established TCP Connections & Remote Peers
+version: 1.0.0
+category: NetOps
+description: List established TCP connections showing local addresses, foreign peers,
+  and connection states.
+os_family: linux
+actions:
+- name: established_connections
+  description: Filter and display established TCP connections via ss
+  command: ss
+  args:
+  - -tan
+  - state
+  - established
+  timeout: 5s

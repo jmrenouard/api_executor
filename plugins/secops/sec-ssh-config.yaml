@@ -1,0 +1,14 @@
+id: sec-ssh-config
+name: OpenSSH Daemon Effective Hardening Directives
+version: 1.0.0
+category: SecOps
+description: Audit active OpenSSH daemon configuration settings (PermitRootLogin,
+  PasswordAuthentication, Ciphers).
+os_family: linux
+actions:
+- name: sshd_effective_config
+  description: Dump effective SSH server configuration directives via sshd -T
+  command: sshd
+  args:
+  - -T
+  timeout: 5s

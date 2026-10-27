@@ -1,0 +1,14 @@
+id: sec-sudoers-config
+name: Sudoers Privileges & Drop-In Configuration Auditor
+version: 1.0.0
+category: SecOps
+description: Audit /etc/sudoers rules, NOPASSWD exemptions, and administrative command
+  delegations.
+os_family: linux
+actions:
+- name: audit_sudoers
+  description: Read /etc/sudoers file to audit privilege specifications
+  command: cat
+  args:
+  - /etc/sudoers
+  timeout: 5s

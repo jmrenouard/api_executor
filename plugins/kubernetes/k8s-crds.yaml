@@ -1,0 +1,15 @@
+id: k8s-crds
+name: Custom Resource Definitions (CRDs) Catalog
+version: 1.0.0
+category: Kubernetes
+description: Enumerate CustomResourceDefinitions (CRDs) installed in cluster, group
+  names, and API scopes.
+os_family: any
+actions:
+- name: list_custom_resources
+  description: List CustomResourceDefinitions registered in cluster
+  command: kubectl
+  args:
+  - get
+  - crds
+  timeout: 5s

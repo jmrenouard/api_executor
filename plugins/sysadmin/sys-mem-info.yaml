@@ -1,0 +1,14 @@
+id: sys-mem-info
+name: Physical & Virtual Memory Distribution
+version: 1.0.0
+category: SysAdmin
+description: Display total, used, free, buffered, and cached physical RAM and swap
+  in megabytes.
+os_family: linux
+actions:
+- name: memory_summary
+  description: Report RAM and swap allocation statistics in megabytes
+  command: free
+  args:
+  - -m
+  timeout: 5s

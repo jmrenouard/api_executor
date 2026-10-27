@@ -1,0 +1,13 @@
+id: sys-cron-jobs
+name: System Cron Schedules & Recurring Tasks Auditor
+version: 1.0.0
+category: SysAdmin
+description: Audit system-wide scheduled cron tasks and execution schedules in /etc/crontab.
+os_family: linux
+actions:
+- name: crontab_schedule
+  description: Display system scheduled crontab configuration entries
+  command: cat
+  args:
+  - /etc/crontab
+  timeout: 5s

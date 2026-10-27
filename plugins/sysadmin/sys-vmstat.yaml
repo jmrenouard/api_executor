@@ -1,0 +1,15 @@
+id: sys-vmstat
+name: Virtual Memory Statistics & Context Switch Monitor
+version: 1.0.0
+category: SysAdmin
+description: Report virtual memory statistics, process run queue states, memory swapping,
+  and context switches.
+os_family: linux
+actions:
+- name: virtual_memory_stats
+  description: Collect two-sample snapshot of kernel paging and system activity
+  command: vmstat
+  args:
+  - '1'
+  - '2'
+  timeout: 5s

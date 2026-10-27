@@ -1,0 +1,14 @@
+id: sec-pam-config
+name: PAM Authentication Stack & Security Modules
+version: 1.0.0
+category: SecOps
+description: Inspect Pluggable Authentication Modules (PAM) common authentication
+  configuration.
+os_family: linux
+actions:
+- name: pam_auth_stack
+  description: Inspect /etc/pam.d/common-auth configuration directives
+  command: cat
+  args:
+  - /etc/pam.d/common-auth
+  timeout: 5s

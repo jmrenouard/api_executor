@@ -1,0 +1,23 @@
+id: docker-image-list
+name: Locally Cached Docker Images & Disk Footprint
+version: 1.0.0
+category: ContainerOps
+description: List cached container images, repository tags, image IDs, creation timestamps,
+  and virtual sizes.
+os_family: any
+actions:
+- name: list_images
+  description: List locally stored Docker images
+  command: docker
+  args:
+  - images
+  - --format
+  - '{{format}}'
+  timeout: 5s
+  parameters:
+  - name: format
+    type: string
+    required: false
+    default: "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"
+    pattern: "^[a-zA-Z0-9. _\t-{}]+$"
+    description: Format template string

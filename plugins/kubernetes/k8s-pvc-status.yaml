@@ -1,0 +1,24 @@
+id: k8s-pvc-status
+name: PersistentVolumeClaims (PVC) Bound Status & Storage
+version: 1.0.0
+category: Kubernetes
+description: Inspect PersistentVolumeClaims (PVC), binding state (Bound, Pending),
+  storage class, and capacity.
+os_family: any
+actions:
+- name: list_pvc_claims
+  description: List PersistentVolumeClaims and binding status
+  command: kubectl
+  args:
+  - get
+  - pvc
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

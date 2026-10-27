@@ -1,0 +1,15 @@
+id: podman-ps
+name: Podman Containers List (Running & Stopped)
+version: 1.0.0
+category: ContainerOps
+description: List rootless and rootful Podman containers with container names, images,
+  status, and ports.
+os_family: linux
+actions:
+- name: list_podman_containers
+  description: List Podman containers via podman ps -a
+  command: podman
+  args:
+  - ps
+  - -a
+  timeout: 5s

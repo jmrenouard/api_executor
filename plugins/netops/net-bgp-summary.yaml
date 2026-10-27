@@ -1,0 +1,15 @@
+id: net-bgp-summary
+name: BGP Routing Peers Summary & Prefix Counts
+version: 1.0.0
+category: NetOps
+description: Query FRR/Quagga routing engine for Border Gateway Protocol (BGP) neighbor
+  states and prefixes.
+os_family: linux
+actions:
+- name: bgp_neighbor_summary
+  description: Query BGP neighbor status and prefix exchange summary
+  command: vtysh
+  args:
+  - -c
+  - show ip bgp summary
+  timeout: 5s

@@ -1,0 +1,14 @@
+id: containerd-crictl-pods
+name: Containerd CRI Sandbox Pods Auditor
+version: 1.0.0
+category: ContainerOps
+description: Query containerd Container Runtime Interface (CRI) for active pod sandboxes
+  and states.
+os_family: linux
+actions:
+- name: list_crictl_pods
+  description: List pod sandboxes via crictl pods
+  command: crictl
+  args:
+  - pods
+  timeout: 5s

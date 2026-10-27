@@ -1,0 +1,16 @@
+id: sec-passwd-users
+name: Interactive Login Accounts Auditor
+version: 1.0.0
+category: SecOps
+description: Identify system user accounts configured with valid, interactive login
+  shells in /etc/passwd.
+os_family: linux
+actions:
+- name: list_login_users
+  description: Filter /etc/passwd for accounts without nologin or false shells
+  command: awk
+  args:
+  - '-F:'
+  - $7 !~ /nologin|false/ {print $1, $6, $7}
+  - /etc/passwd
+  timeout: 5s

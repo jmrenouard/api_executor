@@ -1,0 +1,14 @@
+id: sec-core-dumps
+name: SUID Core Dump Disablement Policy Auditor
+version: 1.0.0
+category: SecOps
+description: Audit fs.suid_dumpable kernel parameter to ensure privileged process
+  core dumps are disabled.
+os_family: linux
+actions:
+- name: suid_core_dump_policy
+  description: Read fs.suid_dumpable sysctl setting
+  command: sysctl
+  args:
+  - fs.suid_dumpable
+  timeout: 5s

@@ -1,0 +1,23 @@
+id: docker-image-history
+name: Docker Image Layer Build History & Sizes
+version: 1.0.0
+category: ContainerOps
+description: Inspect intermediate image layer build instructions, creation sizes,
+  and layer IDs.
+os_family: any
+actions:
+- name: image_layer_history
+  description: Inspect build instructions and layer sizes of an image
+  command: docker
+  args:
+  - history
+  - --no-trunc
+  - '{{image}}'
+  timeout: 5s
+  parameters:
+  - name: image
+    type: string
+    required: true
+    default: alpine:latest
+    pattern: ^[a-zA-Z0-9._/:-]+$
+    description: Image name or ID

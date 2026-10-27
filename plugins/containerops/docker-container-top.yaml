@@ -1,0 +1,22 @@
+id: docker-container-top
+name: Running Processes Inside Docker Container
+version: 1.0.0
+category: ContainerOps
+description: Inspect active user and system processes executing inside a specific
+  container PID namespace.
+os_family: any
+actions:
+- name: container_processes
+  description: List running processes inside container
+  command: docker
+  args:
+  - top
+  - '{{container}}'
+  timeout: 5s
+  parameters:
+  - name: container
+    type: string
+    required: true
+    default: api-executor
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Container name or ID

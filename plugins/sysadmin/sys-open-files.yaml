@@ -1,0 +1,14 @@
+id: sys-open-files
+name: Open File Descriptors & Socket Handles Auditor
+version: 1.0.0
+category: SysAdmin
+description: Enumerate open file descriptors, disk file handles, and network sockets
+  across running processes.
+os_family: linux
+actions:
+- name: list_open_files
+  description: Audit open files without IP address resolution via lsof
+  command: lsof
+  args:
+  - -n
+  timeout: 5s

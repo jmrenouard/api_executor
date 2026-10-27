@@ -1,0 +1,26 @@
+id: k8s-pod-list
+name: Kubernetes Pods Enumerator & Node Placements (Wide)
+version: 1.0.0
+category: Kubernetes
+description: Enumerate pods in namespace with status, restarts, age, pod IP, and assigned
+  node.
+os_family: any
+actions:
+- name: list_pods_in_namespace
+  description: List pods in namespace with extended node and IP attributes
+  command: kubectl
+  args:
+  - get
+  - pods
+  - -n
+  - '{{namespace}}'
+  - -o
+  - wide
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

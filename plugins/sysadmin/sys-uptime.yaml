@@ -1,0 +1,13 @@
+id: sys-uptime
+name: System Uptime & Load Average Monitor
+version: 1.0.0
+category: SysAdmin
+description: Retrieve system uptime duration, active logged-in user counts, and 1/5/15
+  minute load averages.
+os_family: linux
+actions:
+- name: query_uptime
+  description: Execute uptime command to inspect uptime and system load
+  command: uptime
+  args: []
+  timeout: 5s

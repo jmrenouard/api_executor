@@ -1,0 +1,16 @@
+id: sys-io-stats
+name: Storage Device I/O Throughput & Wait Latency
+version: 1.0.0
+category: SysAdmin
+description: Report block device read/write throughput, transactions per second, and
+  wait latency via iostat.
+os_family: linux
+actions:
+- name: storage_iostats
+  description: Collect storage device I/O statistics and CPU utilization snapshot
+  command: iostat
+  args:
+  - -xz
+  - '1'
+  - '1'
+  timeout: 5s

@@ -1,0 +1,31 @@
+id: sys-journal-recent
+name: Systemd Journal Log Tail & Priority Filter
+version: 1.0.0
+category: SysAdmin
+description: Retrieve recent systemd journal entries filtered by log priority and
+  line count.
+os_family: linux
+actions:
+- name: recent_logs
+  description: Tail recent journald system logs with priority filtering
+  command: journalctl
+  args:
+  - -n
+  - '{{lines}}'
+  - -p
+  - '{{priority}}'
+  timeout: 5s
+  parameters:
+  - name: lines
+    type: string
+    required: false
+    default: '50'
+    pattern: ^[0-9]+$
+    description: Number of recent log lines to retrieve
+  - name: priority
+    type: string
+    required: false
+    default: warning
+    pattern: ^[a-z]+$
+    description: Journal priority level (emerg, alert, crit, err, warning, notice,
+      info, debug)

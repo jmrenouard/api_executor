@@ -1,0 +1,15 @@
+id: sys-systemd-units
+name: Systemd Service Units & Target Enumerator
+version: 1.0.0
+category: SysAdmin
+description: Enumerate active, loaded, and inactive systemd service units and targets.
+os_family: linux
+actions:
+- name: list_services
+  description: List all systemd service units with active execution status
+  command: systemctl
+  args:
+  - list-units
+  - --type=service
+  - --all
+  timeout: 5s

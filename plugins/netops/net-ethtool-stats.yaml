@@ -1,0 +1,21 @@
+id: net-ethtool-stats
+name: NIC Hardware Driver Settings & Link Capabilities
+version: 1.0.0
+category: NetOps
+description: Query network interface link speed, duplex mode, auto-negotiation, and
+  driver capabilities via ethtool.
+os_family: linux
+actions:
+- name: interface_driver_settings
+  description: Query link parameters and speed for specified interface
+  command: ethtool
+  args:
+  - '{{interface}}'
+  timeout: 5s
+  parameters:
+  - name: interface
+    type: string
+    required: true
+    default: eth0
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target network interface name

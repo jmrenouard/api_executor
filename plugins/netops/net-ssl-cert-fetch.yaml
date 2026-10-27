@@ -1,0 +1,30 @@
+id: net-ssl-cert-fetch
+name: Remote TLS Certificate Chain Downloader
+version: 1.0.0
+category: NetOps
+description: Connect to remote SSL/TLS server port and download presented X.509 certificate
+  chain via OpenSSL.
+os_family: linux
+actions:
+- name: fetch_certificate_chain
+  description: Download certificate chain presented by remote endpoint
+  command: openssl
+  args:
+  - s_client
+  - -connect
+  - '{{host}}:{{port}}'
+  - -showcerts
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: true
+    default: localhost
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Destination hostname or IP address
+  - name: port
+    type: string
+    required: false
+    default: '443'
+    pattern: ^[0-9]+$
+    description: Destination TCP port

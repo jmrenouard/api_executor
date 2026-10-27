@@ -1,0 +1,16 @@
+id: sec-login-defs
+name: Password Aging, Minimum Days & UMASK Policy
+version: 1.0.0
+category: SecOps
+description: Audit password expiration policies, minimum days, max days, and default
+  UMASK in /etc/login.defs.
+os_family: linux
+actions:
+- name: password_aging_defs
+  description: Search /etc/login.defs for PASS_ and UMASK directives
+  command: grep
+  args:
+  - -E
+  - ^(PASS_|UMASK)
+  - /etc/login.defs
+  timeout: 5s

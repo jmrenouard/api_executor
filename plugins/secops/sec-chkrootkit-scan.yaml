@@ -1,0 +1,14 @@
+id: sec-chkrootkit-scan
+name: Chkrootkit Rootkit & System Anomaly Scanner
+version: 1.0.0
+category: SecOps
+description: Run chkrootkit system scanner in quiet mode to detect known rootkits
+  and promiscuous interfaces.
+os_family: linux
+actions:
+- name: run_chkrootkit
+  description: Execute chkrootkit scanning for system anomalies
+  command: chkrootkit
+  args:
+  - -q
+  timeout: 5s

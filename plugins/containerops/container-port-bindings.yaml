@@ -1,0 +1,15 @@
+id: container-port-bindings
+name: Container Public Port Bindings Map
+version: 1.0.0
+category: ContainerOps
+description: Map all published host network port forwardings across active containers.
+os_family: any
+actions:
+- name: map_port_bindings
+  description: Display container names and published port bindings
+  command: docker
+  args:
+  - ps
+  - --format
+  - "table {{.Names}}\t{{.Ports}}"
+  timeout: 5s

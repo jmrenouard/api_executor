@@ -1,0 +1,13 @@
+id: sec-apparmor-status
+name: AppArmor Mandatory Access Control Profiles Status
+version: 1.0.0
+category: SecOps
+description: Inspect AppArmor security module enforcement profiles, complain mode
+  profiles, and confined processes.
+os_family: linux
+actions:
+- name: apparmor_profiles
+  description: Display status of AppArmor profiles and confined processes
+  command: apparmor_status
+  args: []
+  timeout: 5s

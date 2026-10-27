@@ -1,0 +1,22 @@
+id: docker-inspect-container
+name: Docker Container Low-Level JSON Inspector
+version: 1.0.0
+category: ContainerOps
+description: Retrieve low-level JSON configuration details, volume mounts, network
+  settings, and state of a container.
+os_family: any
+actions:
+- name: inspect_container
+  description: Inspect container configuration and runtime state
+  command: docker
+  args:
+  - inspect
+  - '{{container}}'
+  timeout: 5s
+  parameters:
+  - name: container
+    type: string
+    required: true
+    default: api-executor
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Container name or ID

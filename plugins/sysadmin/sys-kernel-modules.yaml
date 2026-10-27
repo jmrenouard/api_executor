@@ -1,0 +1,13 @@
+id: sys-kernel-modules
+name: Loaded Kernel Modules & Dependency Auditor
+version: 1.0.0
+category: SysAdmin
+description: Enumerate actively loaded Linux kernel modules, memory footprint, and
+  module dependencies.
+os_family: linux
+actions:
+- name: loaded_modules
+  description: List loaded kernel modules with size and dependent module usage
+  command: lsmod
+  args: []
+  timeout: 5s

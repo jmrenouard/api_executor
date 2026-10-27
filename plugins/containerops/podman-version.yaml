@@ -1,0 +1,14 @@
+id: podman-version
+name: Podman Daemonless Engine Release & Build Info
+version: 1.0.0
+category: ContainerOps
+description: Display Podman container engine version, API version, Go runtime, and
+  rootless configuration.
+os_family: linux
+actions:
+- name: podman_version_info
+  description: Display Podman version and build details
+  command: podman
+  args:
+  - version
+  timeout: 5s

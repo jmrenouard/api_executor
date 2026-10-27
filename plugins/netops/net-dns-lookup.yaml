@@ -1,0 +1,22 @@
+id: net-dns-lookup
+name: Forward DNS A Record Resolution
+version: 1.0.0
+category: NetOps
+description: Query DNS servers for forward IPv4 A address records of a domain name.
+os_family: linux
+actions:
+- name: resolve_a_record
+  description: Perform short DNS A record query using dig
+  command: dig
+  args:
+  - +short
+  - '{{target}}'
+  - A
+  timeout: 5s
+  parameters:
+  - name: target
+    type: string
+    required: true
+    default: localhost
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Domain name to resolve

@@ -1,0 +1,14 @@
+id: sys-process-tree
+name: Hierarchical Process Tree & Parentage Inspector
+version: 1.0.0
+category: SysAdmin
+description: Render hierarchical parent-child process relationship tree with Process
+  IDs.
+os_family: linux
+actions:
+- name: process_hierarchy
+  description: Display process tree showing ancestry and process identifiers
+  command: pstree
+  args:
+  - -p
+  timeout: 5s

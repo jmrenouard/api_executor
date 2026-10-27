@@ -178,6 +178,17 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   - Verified by `TestRegistry_ListFiltered_InvalidTypeDropsAll`, `TestHTTPLatencyProbe_MalformedURLs`, and `TestJWTTokenInspector_ValidationAndMalformedPayloads` in `internal/plugins/plugins_test.go`, and `TestPluginDeclarativeRegisterHandlerMetadataCompleteness` in `internal/api/plugin_handlers_test.go`; 199 unit tests and 65 E2E tests passing 100% (`internal/plugins` 86.3%, `internal/api` 89.9%).
 
+### `RCA-017` — Compilation Failure on `a.Command` When Asserting Public `PluginAction` Metadata
+- **Date**: `2026-10-27`
+- **Observed Symptom**:
+  - `plugins_test.go: a.Command undefined (type PluginAction has no field or method Command)` occurred while verifying loaded declarative action fields.
+- **Root Cause Analysis**:
+  - `PluginAction` in `internal/plugins/plugin.go` is the public API contract exposed by plugins and purposefully exposes only `Name`, `Description`, `Timeout`, and `Parameters`. Direct process execution mechanics (`Command`, `Args`) are encapsulated within `DeclarativeActionSpec` in `internal/plugins/declarative.go` by design to prevent leaking underlying OS binary invocation paths.
+- **Applied Change / Fix**:
+  - Updated `TestLoadDeclarativeDirectory_AllDeclarativePlugins` in `internal/plugins/plugins_test.go` to validate non-empty `a.Name` and `a.Description`.
+- **Result & Non-Regression Test**:
+  - Verified by `TestLoadDeclarativeDirectory_AllDeclarativePlugins` passing 100% across all 141 declarative plugins (140 new + 1 baseline).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -213,7 +224,8 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-005` | `internal/plugins` | `db-exposure` simulates `SELECT` projection over `action_history` when running in pure-Go in-memory fallback mode (`db.Conn() == nil`). | Ensures identical read-only SQL validation and deterministic test/runtime behavior even when compiled with `CGO_ENABLED=0`. | Compile with CGO SQLite or connect to an external SQL engine. |
 | `APP-006` | `internal/mcp` | Synchronous HTTP JSON-RPC 2.0 transport (`POST /api/v1/mcp`) with bounded in-memory ring buffer (`MaxTraces = 500`) + SQLite/JSONL persistence. | Request/response RPC calls complete in a single HTTP round-trip without requiring long-lived SSE state. | Add Streamable HTTP / SSE server-initiated notification transport if bidirectional MCP server-to-client sampling is required (`IDEA-005`). |
 | `APP-007` | `web/static` | Single-file zero-build Web Administration Console (`web/static/index.html`) using Alpine.js and Tailwind CSS via CDN. | Requires no Node.js/npm build step; air-gapped deployments without internet access need vendored static CSS/JS assets. | Vendor Alpine.js and compiled CSS into `web/static/vendor/` for offline air-gapped environments. |
-| `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Automatically replaced by declarative YAML files once M2 and M3 packs are committed. |
+| `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Partially fulfilled by Milestone 2 (140 declarative plugins added across 5 domains); fully replaced once Milestone 3 adds remaining 140 declarative plugins. |
+
 
 ---
 

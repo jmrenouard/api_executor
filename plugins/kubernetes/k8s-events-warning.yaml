@@ -1,0 +1,18 @@
+id: k8s-events-warning
+name: Cluster-Wide Warning & Error Events Stream
+version: 1.0.0
+category: Kubernetes
+description: Query recent warning events across all cluster namespaces to troubleshoot
+  scheduling and crash issues.
+os_family: any
+actions:
+- name: recent_cluster_warnings
+  description: Query Warning events across all namespaces
+  command: kubectl
+  args:
+  - get
+  - events
+  - -A
+  - --field-selector
+  - type=Warning
+  timeout: 5s

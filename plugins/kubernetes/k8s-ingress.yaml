@@ -1,0 +1,24 @@
+id: k8s-ingress
+name: Kubernetes Ingress Controllers & Routing Rules
+version: 1.0.0
+category: Kubernetes
+description: List Ingress resources, host routing rules, paths, backend services,
+  and TLS secret bindings.
+os_family: any
+actions:
+- name: list_ingress_routes
+  description: List Ingress resources and routing hosts
+  command: kubectl
+  args:
+  - get
+  - ingress
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

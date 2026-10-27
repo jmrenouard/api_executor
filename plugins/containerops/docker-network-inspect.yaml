@@ -1,0 +1,23 @@
+id: docker-network-inspect
+name: Docker Network IPAM & Connected Containers Inspector
+version: 1.0.0
+category: ContainerOps
+description: Inspect subnet IPAM configuration, gateway IP, and connected container
+  IP allocations of a Docker network.
+os_family: any
+actions:
+- name: inspect_network
+  description: Inspect network configuration and attached container endpoints
+  command: docker
+  args:
+  - network
+  - inspect
+  - '{{network}}'
+  timeout: 5s
+  parameters:
+  - name: network
+    type: string
+    required: true
+    default: bridge
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Network name or ID

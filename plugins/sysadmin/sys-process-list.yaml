@@ -1,0 +1,14 @@
+id: sys-process-list
+name: Top Running Processes Snapshot
+version: 1.0.0
+category: SysAdmin
+description: Inspect active user and system processes sorted by CPU and memory consumption.
+os_family: linux
+actions:
+- name: top_processes
+  description: List top running processes sorted by CPU utilization
+  command: ps
+  args:
+  - aux
+  - --sort=-%cpu
+  timeout: 5s

@@ -1,0 +1,15 @@
+id: net-route-table
+name: Kernel IP Routing Table & Gateway Paths
+version: 1.0.0
+category: NetOps
+description: Inspect active kernel IP routing table, default gateway routes, and interface
+  metrics.
+os_family: linux
+actions:
+- name: kernel_routing_table
+  description: Display IP routing table entries via ip route
+  command: ip
+  args:
+  - route
+  - show
+  timeout: 5s

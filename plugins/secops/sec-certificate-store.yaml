@@ -1,0 +1,14 @@
+id: sec-certificate-store
+name: System Trusted CA Certificates Store Auditor
+version: 1.0.0
+category: SecOps
+description: Enumerate trusted Certificate Authority (CA) root certificates installed
+  in system SSL trust store.
+os_family: linux
+actions:
+- name: trusted_ca_certs
+  description: List root certificates in /etc/ssl/certs
+  command: ls
+  args:
+  - /etc/ssl/certs
+  timeout: 5s

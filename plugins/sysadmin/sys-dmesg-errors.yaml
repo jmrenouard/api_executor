@@ -1,0 +1,14 @@
+id: sys-dmesg-errors
+name: Kernel Ring Buffer Errors & Hardware Warnings
+version: 1.0.0
+category: SysAdmin
+description: Scan kernel ring buffer messages for device driver errors, hardware faults,
+  and kernel alerts.
+os_family: linux
+actions:
+- name: kernel_ring_errors
+  description: Display kernel messages filtered by error and warning log levels
+  command: dmesg
+  args:
+  - --level=err,warn
+  timeout: 5s

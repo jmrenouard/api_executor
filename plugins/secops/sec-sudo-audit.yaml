@@ -1,0 +1,15 @@
+id: sec-sudo-audit
+name: Privileged Sudo Execution & Command History
+version: 1.0.0
+category: SecOps
+description: Audit authentication logs for sudo command invocations and privileged
+  user role transitions.
+os_family: linux
+actions:
+- name: audit_sudo_commands
+  description: Extract sudo execution log entries from /var/log/auth.log
+  command: grep
+  args:
+  - 'sudo:'
+  - /var/log/auth.log
+  timeout: 5s

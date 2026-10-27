@@ -1,0 +1,24 @@
+id: container-security-opts
+name: Container Privileges & Security Profile Auditor
+version: 1.0.0
+category: ContainerOps
+description: Audit container security profile options including Privileged mode, AppArmor,
+  Seccomp, and CapAdd.
+os_family: any
+actions:
+- name: audit_security_profiles
+  description: Inspect privileged and security options of a container
+  command: docker
+  args:
+  - inspect
+  - --format
+  - '{{.Name}}: Privileged={{.HostConfig.Privileged}}, SecurityOpt={{.HostConfig.SecurityOpt}}'
+  - '{{container}}'
+  timeout: 5s
+  parameters:
+  - name: container
+    type: string
+    required: true
+    default: api-executor
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Container name or ID

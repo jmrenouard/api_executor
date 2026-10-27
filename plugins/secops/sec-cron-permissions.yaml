@@ -1,0 +1,17 @@
+id: sec-cron-permissions
+name: System Cron Directories & Drop-in Permissions
+version: 1.0.0
+category: SecOps
+description: Audit ownership and write permissions on system cron job directories
+  (/etc/cron.d, /etc/cron.daily).
+os_family: linux
+actions:
+- name: cron_dir_permissions
+  description: Inspect directory ownership and permissions of cron drop-in folders
+  command: ls
+  args:
+  - -ld
+  - /etc/cron.d
+  - /etc/cron.daily
+  - /etc/cron.hourly
+  timeout: 5s

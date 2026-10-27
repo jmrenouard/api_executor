@@ -1,0 +1,14 @@
+id: sys-ulimits
+name: Process Resource Limits & Shell Quotas Inspector
+version: 1.0.0
+category: SysAdmin
+description: Inspect process limits on open file descriptors, maximum processes, stack
+  size, and memory locking.
+os_family: linux
+actions:
+- name: resource_limits
+  description: Display all shell and process resource limits via ulimit
+  command: ulimit
+  args:
+  - -a
+  timeout: 5s

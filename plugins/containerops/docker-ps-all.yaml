@@ -1,0 +1,23 @@
+id: docker-ps-all
+name: All Docker Containers (Active & Exited)
+version: 1.0.0
+category: ContainerOps
+description: List all Docker containers including paused, exited, and stopped instances.
+os_family: any
+actions:
+- name: all_containers
+  description: List all containers across all states
+  command: docker
+  args:
+  - ps
+  - -a
+  - --format
+  - '{{format}}'
+  timeout: 5s
+  parameters:
+  - name: format
+    type: string
+    required: false
+    default: "table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}"
+    pattern: "^[a-zA-Z0-9. _\t-{}]+$"
+    description: Format template string

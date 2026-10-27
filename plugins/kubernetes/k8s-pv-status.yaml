@@ -1,0 +1,15 @@
+id: k8s-pv-status
+name: PersistentVolumes (PV) Capacity & Reclaim Policies
+version: 1.0.0
+category: Kubernetes
+description: Inspect cluster-wide PersistentVolumes, storage capacity, access modes,
+  and reclaim policies.
+os_family: any
+actions:
+- name: list_persistent_volumes
+  description: List PersistentVolumes and storage capacities
+  command: kubectl
+  args:
+  - get
+  - pv
+  timeout: 5s
