@@ -44,7 +44,7 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 - **Result**:
   - Full test suite: 100% pass rate (`293 passed in 10 packages`), statement coverage >= 80% on all packages (`api`: 90.7%, `audit`: 95.5%, `auth`: 94.3%, `core`: 88.2%, `database`: 96.2%, `mcp`: 94.2%, `plugins`: 86.3%).
   - Full E2E test suite: 100% pass rate (`65 passed in 1 packages`).
-  - Playwright browser test: 100% verified (306 plugins, all 10 domain filters 100% match, search, type toggles, pagination, dynamic form & execution validated).
+  - Playwright browser test: 100% verified (306 plugins, all 10 domain filters 100% match, search, type toggles, pagination, dynamic form & execution validated). Merged to `main` in PR [#47](https://github.com/jmrenouard/api_executor/pull/47) (commit `a93013f`).
 
 ### `ACT-022` — Web Console Tab 5 Catalog Search, Filtering, Pagination, Dynamic Parameter Forms, and MCP Verification
 - **Timestamp (UTC)**: `2026-10-27T03:32:00Z`
