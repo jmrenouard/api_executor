@@ -435,71 +435,330 @@
         </section>
 
         <!-- TAB 5: EXTENSIBLE PLUGINS & READ-ONLY DATABASE EXPOSURE -->
-        <section x-show="activeTab === 'plugins'" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Plugin Runner & Declarative Registration -->
-            <div class="surface-card rounded-xl p-6 space-y-5">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Modular Architecture</span>
-                        <h2 class="text-lg font-semibold text-white heading-tight">Declarative &amp; Native Plugin Runner</h2>
-                    </div>
-                    <button @click="loadPlugins()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Refresh</button>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Plugin Module</label>
-                        <select x-model="selectedPluginID" @change="syncPluginActions()" class="w-full surface-inset rounded-lg px-3 py-2 text-xs font-mono text-white">
-                            <template x-for="p in plugins" :key="p.id">
-                                <option :value="p.id" x-text="p.id + ' [' + p.kind + ']'"></option>
-                            </template>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Plugin Action</label>
-                        <select x-model="selectedPluginAction" class="w-full surface-inset rounded-lg px-3 py-2 text-xs font-mono text-white">
-                            <template x-for="act in currentPluginActions()" :key="act.name">
-                                <option :value="act.name" x-text="act.name"></option>
-                            </template>
-                        </select>
-                    </div>
-                </div>
-
+        <section x-show="activeTab === 'plugins'" class="space-y-6">
+            <!-- Tab 5 Sub-view navigation bar -->
+            <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
                 <div>
-                    <label class="block text-xs text-slate-400 mb-1">Action Parameters (JSON Object)</label>
-                    <input type="text" x-model="pluginParamsJSON" placeholder='{"target": "localhost"}' class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Plugin Ecosystem &amp; Storage</span>
+                        <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 tabular-nums" x-text="plugins.length + ' Plugins Loaded'"></span>
+                    </div>
+                    <h2 class="text-xl font-semibold text-white heading-tight">300+ Modular Plugins &amp; SQL Explorer</h2>
                 </div>
 
-                <button @click="executePlugin()" class="tactile-btn px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
-                    Execute Plugin Action
-                </button>
-
-                <pre x-show="pluginOutput" class="surface-inset rounded-lg p-3.5 text-xs font-mono text-emerald-300 max-h-60 overflow-y-auto whitespace-pre-wrap" x-text="pluginOutput"></pre>
-
-                <div class="border-t border-white/10 pt-4 space-y-2.5">
-                    <span class="text-[11px] font-mono text-sky-400 kicker-caps">Dynamic Extension</span>
-                    <h3 class="text-sm font-semibold text-white heading-tight">Register Declarative Plugin Module (<code class="text-xs">/api/v1/plugins/declarative</code>)</h3>
-                    <textarea x-model="declarativeSpecJSON" rows="4" class="w-full surface-inset rounded-lg p-3 text-xs font-mono text-white"></textarea>
-                    <button @click="registerDeclarativePlugin()" class="tactile-btn px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold">
-                        Register Declarative Plugin
+                <div class="flex flex-wrap items-center gap-2">
+                    <button @click="pluginSubTab = 'catalog'"
+                            class="tactile-btn px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border"
+                            :class="pluginSubTab === 'catalog' ? 'bg-emerald-600/25 border-emerald-500/50 text-emerald-300 font-semibold shadow-sm' : 'surface-inset border-transparent text-slate-400 hover:text-white'">
+                        <span>Plugin Catalog &amp; Runner</span>
+                        <span class="font-mono text-[10px] px-1.5 py-0.2 rounded bg-white/10 text-slate-200 tabular-nums" x-text="filteredPlugins().length"></span>
+                    </button>
+                    <button @click="pluginSubTab = 'sql'"
+                            class="tactile-btn px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border"
+                            :class="pluginSubTab === 'sql' ? 'bg-sky-600/25 border-sky-500/50 text-sky-300 font-semibold shadow-sm' : 'surface-inset border-transparent text-slate-400 hover:text-white'">
+                        <span>Read-Only SQL Explorer</span>
+                        <span class="font-mono text-[10px] px-1.5 py-0.2 rounded bg-white/10 text-slate-200">db-exposure</span>
+                    </button>
+                    <button @click="pluginSubTab = 'declarative'"
+                            class="tactile-btn px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border"
+                            :class="pluginSubTab === 'declarative' ? 'bg-indigo-600/25 border-indigo-500/50 text-indigo-300 font-semibold shadow-sm' : 'surface-inset border-transparent text-slate-400 hover:text-white'">
+                        <span>Register Declarative Spec</span>
+                    </button>
+                    <button @click="loadPlugins()" class="tactile-btn px-3 py-1.5 rounded-lg surface-inset text-xs text-slate-300 hover:border-white/20">
+                        Refresh
                     </button>
                 </div>
             </div>
 
-            <!-- Read-Only SQLite Database Explorer (db-exposure) -->
-            <div class="surface-card rounded-xl p-6 space-y-5">
-                <div class="flex items-center justify-between">
+            <!-- SUB-VIEW 1: MASTER-DETAIL PLUGIN CATALOG & DYNAMIC RUNNER -->
+            <div x-show="pluginSubTab === 'catalog'" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Master Column: Search, Category Pills, Type Filter, Paginated List -->
+                <div class="lg:col-span-5 surface-card rounded-xl p-5 space-y-4 flex flex-col">
+                    <!-- Search Input Bar -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="text-xs font-medium text-slate-300">Instant Plugin Search</label>
+                            <span class="text-[11px] font-mono text-emerald-400 tabular-nums" x-text="filteredPlugins().length + ' matches'"></span>
+                        </div>
+                        <div class="relative">
+                            <input type="text"
+                                   x-model="pluginSearchQuery"
+                                   @input="onSearchInput()"
+                                   placeholder="Filter by ID, name, domain, action, keyword..."
+                                   class="w-full surface-inset rounded-lg pl-9 pr-8 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50">
+                            <svg class="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            <button x-show="pluginSearchQuery" @click="pluginSearchQuery = ''; onSearchInput()" class="absolute right-2.5 top-2.5 text-slate-400 hover:text-white text-xs">&times;</button>
+                        </div>
+                    </div>
+
+                    <!-- Category Filter Pills (10 Domains + All) -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="text-[11px] font-mono text-slate-400 kicker-caps">Domain Filter</label>
+                            <span class="text-[10px] text-slate-500 font-mono" x-text="pluginCategoryFilter === 'All' ? 'All 10 Domains' : pluginCategoryFilter"></span>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5">
+                            <template x-for="cat in pluginCategories" :key="cat">
+                                <button @click="setPluginCategory(cat)"
+                                        class="tactile-btn px-2.5 py-1 rounded-md text-[11px] font-mono transition-colors flex items-center gap-1.5 border"
+                                        :class="pluginCategoryFilter === cat
+                                            ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50 font-semibold shadow-sm'
+                                            : 'surface-inset text-slate-400 hover:text-slate-200 border-transparent hover:border-white/10'">
+                                    <span x-text="cat"></span>
+                                    <span class="text-[9px] px-1 py-0.2 rounded bg-white/10 tabular-nums" x-text="categoryCount(cat)"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Type Filter Toggle -->
+                    <div class="flex items-center justify-between border-t border-white/5 pt-3">
+                        <div class="flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-white/5 text-xs">
+                            <button @click="setPluginType('all')"
+                                    class="tactile-btn px-2.5 py-1 rounded-md text-[11px] font-medium"
+                                    :class="pluginTypeFilter === 'all' ? 'bg-white/10 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'">
+                                All
+                            </button>
+                            <button @click="setPluginType('native')"
+                                    class="tactile-btn px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1"
+                                    :class="pluginTypeFilter === 'native' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'">
+                                <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                                Native
+                            </button>
+                            <button @click="setPluginType('declarative')"
+                                    class="tactile-btn px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1"
+                                    :class="pluginTypeFilter === 'declarative' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                Declarative
+                            </button>
+                        </div>
+                        <div class="text-[11px] font-mono text-slate-400 tabular-nums" x-text="paginationSummary()"></div>
+                    </div>
+
+                    <!-- Paginated Plugin List -->
+                    <div class="space-y-2 flex-1 overflow-y-auto max-h-[520px] pr-1">
+                        <template x-for="p in paginatedPlugins()" :key="p.id">
+                            <div @click="selectPlugin(p)"
+                                 class="tactile-btn cursor-pointer p-3 rounded-lg border transition-all space-y-1.5"
+                                 :class="selectedPluginID === p.id
+                                     ? 'bg-emerald-500/10 border-emerald-500/50 shadow-sm'
+                                     : 'surface-inset border-transparent hover:border-white/10 hover:bg-white/[0.02]'">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-xs font-mono font-semibold text-white truncate" x-text="p.id"></span>
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                                              :class="p.type === 'native' || p.kind === 'advanced' ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'"
+                                              x-text="p.type === 'native' || p.kind === 'advanced' ? 'Native' : 'Declarative'"></span>
+                                        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/5" x-text="p.category"></span>
+                                    </div>
+                                </div>
+                                <div class="text-xs text-slate-300 font-medium truncate" x-text="p.name"></div>
+                                <div class="text-[11px] text-slate-400 line-clamp-1 truncate" x-text="p.description"></div>
+                                <div class="text-[10px] font-mono text-slate-500 flex items-center justify-between pt-1">
+                                    <span x-text="(p.actions || []).length + ' action' + ((p.actions || []).length !== 1 ? 's' : '')"></span>
+                                    <span x-text="'v' + (p.version || '1.0.0')"></span>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="filteredPlugins().length === 0" class="text-center py-12 text-slate-500 font-mono text-xs">
+                            No plugins match the current filters or search query.
+                        </div>
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div class="border-t border-white/10 pt-3 flex items-center justify-between text-xs font-mono tabular-nums">
+                        <button @click="prevPluginPage()"
+                                :disabled="pluginPage <= 1"
+                                class="tactile-btn px-2.5 py-1 rounded surface-inset hover:border-white/20 disabled:opacity-30 disabled:pointer-events-none text-slate-300">
+                            &larr; Prev
+                        </button>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-slate-400">Page</span>
+                            <span class="text-white font-semibold" x-text="pluginPage"></span>
+                            <span class="text-slate-400">of</span>
+                            <span class="text-slate-200" x-text="totalPluginPages()"></span>
+                        </div>
+                        <button @click="nextPluginPage()"
+                                :disabled="pluginPage >= totalPluginPages()"
+                                class="tactile-btn px-2.5 py-1 rounded surface-inset hover:border-white/20 disabled:opacity-30 disabled:pointer-events-none text-slate-300">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Detail Column: Selected Plugin Metadata, Action Selector, Dynamic Parameter Form, Execution, Output -->
+                <div class="lg:col-span-7 surface-card rounded-xl p-6 space-y-5">
+                    <!-- Plugin Metadata Header -->
+                    <div class="border-b border-white/10 pb-4 space-y-2" x-show="currentPlugin()">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-base font-semibold text-white heading-tight" x-text="currentPlugin() ? currentPlugin().name : 'Select a Plugin'"></h3>
+                                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10" x-text="'v' + (currentPlugin() ? currentPlugin().version : '1.0.0')"></span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-mono px-2 py-0.5 rounded"
+                                      :class="(currentPlugin() && (currentPlugin().type === 'native' || currentPlugin().kind === 'advanced')) ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'"
+                                      x-text="currentPlugin() ? ((currentPlugin().type === 'native' || currentPlugin().kind === 'advanced') ? 'Native Go Plugin' : 'Declarative Plugin') : ''"></span>
+                                <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/10" x-text="currentPlugin() ? currentPlugin().category : ''"></span>
+                            </div>
+                        </div>
+                        <div class="text-xs font-mono text-emerald-400" x-text="'ID: ' + (currentPlugin() ? currentPlugin().id : '')"></div>
+                        <p class="text-xs text-slate-300" x-text="currentPlugin() ? currentPlugin().description : ''"></p>
+                    </div>
+
+                    <!-- Action Selector -->
+                    <div class="space-y-2" x-show="currentPlugin()">
+                        <div class="flex items-center justify-between">
+                            <label class="text-xs font-medium text-slate-300">Action to Execute</label>
+                            <span class="text-[11px] font-mono text-slate-400 tabular-nums" x-text="'Timeout: ' + (currentAction() && currentAction().timeout ? currentAction().timeout : '30s')"></span>
+                        </div>
+                        <select x-model="selectedPluginAction" @change="onActionChange()" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                            <template x-for="act in currentPluginActions()" :key="act.name">
+                                <option :value="act.name" x-text="act.name + (act.description ? ' — ' + act.description : '')"></option>
+                            </template>
+                        </select>
+                        <div class="text-[11px] text-slate-400" x-show="currentAction() && currentAction().description" x-text="currentAction() ? currentAction().description : ''"></div>
+                    </div>
+
+                    <!-- Dynamic Parameter Form Generator -->
+                    <div class="space-y-3" x-show="currentPlugin()">
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-semibold text-slate-200">Action Parameters</span>
+                                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 tabular-nums" x-text="currentActionParameters().length + ' defined'"></span>
+                            </div>
+                            <div class="flex items-center gap-1 bg-[#080b11] p-0.5 rounded border border-white/10 text-[11px]">
+                                <button @click="toggleParamMode('form')"
+                                        class="tactile-btn px-2.5 py-0.5 rounded text-[10px] font-mono"
+                                        :class="paramInputMode === 'form' ? 'bg-emerald-600/30 text-emerald-300 font-semibold' : 'text-slate-400 hover:text-white'">
+                                    Dynamic Form
+                                </button>
+                                <button @click="toggleParamMode('json')"
+                                        class="tactile-btn px-2.5 py-0.5 rounded text-[10px] font-mono"
+                                        :class="paramInputMode === 'json' ? 'bg-emerald-600/30 text-emerald-300 font-semibold' : 'text-slate-400 hover:text-white'">
+                                    Raw JSON
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Form Mode -->
+                        <div x-show="paramInputMode === 'form'" class="space-y-3">
+                            <template x-for="param in currentActionParameters()" :key="param.name">
+                                <div class="space-y-1 surface-inset p-3 rounded-lg border border-white/5">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-xs font-mono font-semibold text-white" x-text="param.name"></span>
+                                            <span x-show="param.required" class="text-[10px] font-mono text-rose-400" title="Required">*required</span>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/5 text-slate-400" x-text="param.type"></span>
+                                            <span x-show="param.pattern" class="text-[10px] font-mono text-amber-400/80 truncate max-w-[140px]" :title="'Pattern: ' + param.pattern" x-text="'/' + param.pattern + '/'"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Boolean Parameter Control -->
+                                    <div x-show="param.type === 'bool' || param.type === 'boolean'" class="flex items-center gap-2 pt-1">
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" x-model="actionParamValues[param.name]" @change="syncParamsToJSON()" class="sr-only peer">
+                                            <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                                            <span class="ml-2 text-xs font-mono text-slate-300" x-text="actionParamValues[param.name] ? 'true' : 'false'"></span>
+                                        </label>
+                                    </div>
+
+                                    <!-- Integer/Number Parameter Control -->
+                                    <div x-show="param.type === 'int' || param.type === 'integer' || param.type === 'number'" class="pt-1">
+                                        <input type="number"
+                                               x-model.number="actionParamValues[param.name]"
+                                               @input="syncParamsToJSON()"
+                                               :placeholder="param.default !== undefined ? String(param.default) : '0'"
+                                               class="w-full bg-[#0d131f] rounded px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50 border border-white/10">
+                                    </div>
+
+                                    <!-- String / Default Parameter Control -->
+                                    <div x-show="param.type !== 'bool' && param.type !== 'boolean' && param.type !== 'int' && param.type !== 'integer' && param.type !== 'number'" class="pt-1">
+                                        <input type="text"
+                                               x-model="actionParamValues[param.name]"
+                                               @input="syncParamsToJSON()"
+                                               :placeholder="param.default ? String(param.default) : (param.required ? 'Enter value...' : 'Optional')"
+                                               class="w-full bg-[#0d131f] rounded px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50 border border-white/10">
+                                    </div>
+
+                                    <div class="text-[11px] text-slate-400" x-show="param.description" x-text="param.description"></div>
+                                </div>
+                            </template>
+
+                            <div x-show="currentActionParameters().length === 0" class="surface-inset p-3 rounded-lg text-xs text-slate-400 font-mono">
+                                This action does not declare required parameters. You can switch to Raw JSON mode to pass custom parameters.
+                            </div>
+                        </div>
+
+                        <!-- Raw JSON Mode -->
+                        <div x-show="paramInputMode === 'json'" class="space-y-1.5">
+                            <textarea x-model="pluginParamsJSON"
+                                      @input="syncJSONToParams()"
+                                      rows="5"
+                                      placeholder='{"param_name": "value"}'
+                                      class="w-full surface-inset rounded-lg p-3 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50"></textarea>
+                            <div class="text-[11px] text-slate-500 font-mono">Valid JSON object passed to <code class="text-slate-400">/api/v1/plugins/execute</code>.</div>
+                        </div>
+                    </div>
+
+                    <!-- Execution Trigger -->
+                    <div class="flex items-center justify-between pt-2 border-t border-white/10" x-show="currentPlugin()">
+                        <div class="text-xs text-slate-400 font-mono">
+                            Endpoint: <code class="text-slate-200">POST /api/v1/plugins/execute</code>
+                        </div>
+                        <button @click="executePlugin()"
+                                :disabled="!selectedPluginID || !selectedPluginAction || pluginExecuting"
+                                class="tactile-btn px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-2">
+                            <span x-show="pluginExecuting" class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                            <span x-text="pluginExecuting ? 'Executing Action...' : 'Execute Plugin Action'"></span>
+                        </button>
+                    </div>
+
+                    <!-- Execution Result Output Viewer -->
+                    <div class="surface-inset rounded-lg p-4 space-y-3 font-mono text-xs">
+                        <div class="flex items-center justify-between text-[11px] border-b border-white/5 pb-2 tabular-nums">
+                            <div class="flex items-center gap-2">
+                                <span class="text-slate-400 kicker-caps">EXECUTION TELEMETRY</span>
+                                <template x-if="pluginExecResult">
+                                    <span class="px-2 py-0.5 rounded font-semibold text-[10px]"
+                                          :class="pluginExecResult.status === 'ok' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'"
+                                          x-text="(pluginExecResult.status || 'unknown').toUpperCase()"></span>
+                                </template>
+                            </div>
+                            <div class="flex items-center gap-3 text-slate-400" x-show="pluginExecResult">
+                                <span x-show="pluginExecResult && pluginExecResult.duration_ms !== undefined" x-text="pluginExecResult.duration_ms + ' ms'"></span>
+                                <span x-show="pluginExecResult && pluginExecResult.timed_out" class="text-amber-400">TIMED OUT</span>
+                            </div>
+                        </div>
+
+                        <!-- Structured and Formatted Output -->
+                        <div x-show="pluginExecResult && pluginExecResult.error" class="bg-rose-500/10 border border-rose-500/30 rounded p-2.5 text-rose-300 text-xs whitespace-pre-wrap" x-text="pluginExecResult.error"></div>
+                        <pre x-show="pluginExecResult && pluginExecResult.output" class="whitespace-pre-wrap text-emerald-300 max-h-72 overflow-y-auto leading-relaxed" x-text="pluginExecResult.output"></pre>
+                        <pre x-show="!pluginExecResult && pluginOutput" class="whitespace-pre-wrap text-slate-200 max-h-72 overflow-y-auto" x-text="pluginOutput"></pre>
+                        <p x-show="!pluginExecResult && !pluginOutput" class="text-slate-500">Select a plugin action and click Execute to inspect live formatted execution telemetry.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-VIEW 2: READ-ONLY SQL EXPLORER (db-exposure) -->
+            <div x-show="pluginSubTab === 'sql'" class="surface-card rounded-xl p-6 space-y-5">
+                <div class="flex items-center justify-between border-b border-white/10 pb-4">
                     <div>
                         <span class="text-[11px] font-mono text-sky-400 kicker-caps">Guarded Database Exposure</span>
-                        <h2 class="text-lg font-semibold text-white heading-tight">Read-Only SQL Explorer (<code class="text-sm">db-exposure</code>)</h2>
+                        <h3 class="text-lg font-semibold text-white heading-tight">Read-Only SQL Explorer (<code class="text-sm">db-exposure</code>)</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Executes read-only SQL queries guarded against DDL, DML, and PRAGMA injections.</p>
                     </div>
-                    <button @click="loadDBTables()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Inspect Tables</button>
+                    <button @click="loadDBTables()" class="tactile-btn px-3 py-1.5 rounded surface-inset text-xs text-slate-300 hover:border-white/20">
+                        Inspect Tables
+                    </button>
                 </div>
 
                 <div class="space-y-2">
                     <label class="block text-xs text-slate-400">Read-Only SQL SELECT Statement (DDL/DML/PRAGMA blocked)</label>
                     <div class="flex gap-2">
-                        <input type="text" x-model="dbSQLQuery" class="flex-1 surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white">
+                        <input type="text" x-model="dbSQLQuery" class="flex-1 surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500/50">
                         <button @click="runDBQuery()" class="tactile-btn px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold">
                             Run SELECT
                         </button>
@@ -507,6 +766,23 @@
                 </div>
 
                 <pre class="surface-inset rounded-lg p-3.5 text-xs font-mono text-slate-200 max-h-72 overflow-y-auto whitespace-pre-wrap" x-text="dbQueryOutput || 'Click Run SELECT or Inspect Tables to view database records.'"></pre>
+            </div>
+
+            <!-- SUB-VIEW 3: REGISTER DECLARATIVE MODULE SPEC -->
+            <div x-show="pluginSubTab === 'declarative'" class="surface-card rounded-xl p-6 space-y-4">
+                <div class="flex items-center justify-between border-b border-white/10 pb-4">
+                    <div>
+                        <span class="text-[11px] font-mono text-indigo-400 kicker-caps">Dynamic Extension</span>
+                        <h3 class="text-lg font-semibold text-white heading-tight">Register Declarative Plugin Module (<code class="text-xs">/api/v1/plugins/declarative</code>)</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Submit a YAML or JSON specification to dynamically extend the plugin ecosystem at runtime.</p>
+                    </div>
+                </div>
+
+                <textarea x-model="declarativeSpecJSON" rows="8" class="w-full surface-inset rounded-lg p-3 text-xs font-mono text-white focus:outline-none focus:border-indigo-500/50"></textarea>
+                <button @click="registerDeclarativePlugin()" class="tactile-btn px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
+                    Register Declarative Plugin
+                </button>
+                <pre x-show="pluginOutput" class="surface-inset rounded-lg p-3.5 text-xs font-mono text-emerald-300 max-h-60 overflow-y-auto whitespace-pre-wrap" x-text="pluginOutput"></pre>
             </div>
         </section>
 
@@ -712,6 +988,17 @@
                 selectedPluginAction: '',
                 pluginParamsJSON: '{"target": "localhost"}',
                 pluginOutput: '',
+                pluginSearchQuery: '',
+                pluginCategoryFilter: 'All',
+                pluginTypeFilter: 'all',
+                pluginPage: 1,
+                pluginPageSize: 10,
+                pluginSubTab: 'catalog',
+                paramInputMode: 'form',
+                actionParamValues: {},
+                pluginExecuting: false,
+                pluginExecResult: null,
+                pluginCategories: ['All', 'SysAdmin', 'NetOps', 'SecOps', 'ContainerOps', 'Kubernetes', 'DataOps', 'DevOps', 'SRE', 'AIOps', 'WebUtils'],
                 declarativeSpecJSON: JSON.stringify({
                     id: 'custom-ops',
                     name: 'Custom Ops Plugin',
@@ -1010,49 +1297,253 @@
                         const r = await fetch('/api/v1/plugins', { headers: this.headers() });
                         if (r.ok) {
                             this.plugins = (await r.json()).plugins || [];
-                            if (this.plugins.length > 0 && !this.selectedPluginID) {
-                                this.selectedPluginID = this.plugins[0].id;
-                                this.syncPluginActions();
+                            if (this.plugins.length > 0) {
+                                if (!this.selectedPluginID || !this.plugins.some(p => p.id === this.selectedPluginID)) {
+                                    this.selectedPluginID = this.plugins[0].id;
+                                    this.syncPluginActions();
+                                } else if (Object.keys(this.actionParamValues).length === 0) {
+                                    this.initActionParams();
+                                }
                             }
                         }
                     } catch (_) {}
                 },
 
+                setPluginCategory(cat) {
+                    this.pluginCategoryFilter = cat;
+                    this.pluginPage = 1;
+                },
+
+                setPluginType(t) {
+                    this.pluginTypeFilter = t;
+                    this.pluginPage = 1;
+                },
+
+                onSearchInput() {
+                    this.pluginPage = 1;
+                },
+
+                filteredPlugins() {
+                    const q = (this.pluginSearchQuery || '').trim().toLowerCase();
+                    const cat = this.pluginCategoryFilter;
+                    const ptype = this.pluginTypeFilter;
+
+                    return this.plugins.filter(p => {
+                        // Type filter: All, Native, Declarative
+                        if (ptype !== 'all') {
+                            const actualType = (p.type || p.kind || '').toLowerCase();
+                            if (ptype === 'native' && actualType !== 'native' && actualType !== 'advanced') return false;
+                            if (ptype === 'declarative' && actualType !== 'declarative') return false;
+                        }
+
+                        // Category filter
+                        if (cat && cat !== 'All') {
+                            if ((p.category || '').toLowerCase() !== cat.toLowerCase()) return false;
+                        }
+
+                        // Search query: ID, Name, Description, Category, Action names/descriptions
+                        if (q) {
+                            const inId = (p.id || '').toLowerCase().includes(q);
+                            const inName = (p.name || '').toLowerCase().includes(q);
+                            const inDesc = (p.description || '').toLowerCase().includes(q);
+                            const inCat = (p.category || '').toLowerCase().includes(q);
+                            const inActions = (p.actions || []).some(a => 
+                                (a.name || '').toLowerCase().includes(q) || 
+                                (a.description || '').toLowerCase().includes(q)
+                            );
+                            if (!inId && !inName && !inDesc && !inCat && !inActions) return false;
+                        }
+
+                        return true;
+                    });
+                },
+
+                categoryCount(cat) {
+                    if (cat === 'All') return this.plugins.length;
+                    return this.plugins.filter(p => (p.category || '').toLowerCase() === cat.toLowerCase()).length;
+                },
+
+                totalPluginPages() {
+                    const total = this.filteredPlugins().length;
+                    return Math.max(1, Math.ceil(total / this.pluginPageSize));
+                },
+
+                paginatedPlugins() {
+                    const filtered = this.filteredPlugins();
+                    const totalPages = Math.max(1, Math.ceil(filtered.length / this.pluginPageSize));
+                    if (this.pluginPage > totalPages) {
+                        this.pluginPage = totalPages;
+                    }
+                    const start = (this.pluginPage - 1) * this.pluginPageSize;
+                    return filtered.slice(start, start + this.pluginPageSize);
+                },
+
+                prevPluginPage() {
+                    if (this.pluginPage > 1) this.pluginPage--;
+                },
+
+                nextPluginPage() {
+                    if (this.pluginPage < this.totalPluginPages()) this.pluginPage++;
+                },
+
+                setPluginPage(n) {
+                    if (n >= 1 && n <= this.totalPluginPages()) this.pluginPage = n;
+                },
+
+                paginationSummary() {
+                    const total = this.filteredPlugins().length;
+                    if (total === 0) return 'Showing 0 of 0 plugins';
+                    const start = (this.pluginPage - 1) * this.pluginPageSize + 1;
+                    const end = Math.min(this.pluginPage * this.pluginPageSize, total);
+                    return `Showing ${start}-${end} of ${total} plugins`;
+                },
+
+                selectPlugin(p) {
+                    this.selectedPluginID = p.id;
+                    this.syncPluginActions();
+                },
+
+                currentPlugin() {
+                    return this.plugins.find(p => p.id === this.selectedPluginID) || null;
+                },
+
                 currentPluginActions() {
-                    const found = this.plugins.find(p => p.id === this.selectedPluginID);
+                    const found = this.currentPlugin();
                     return found ? (found.actions || []) : [];
+                },
+
+                currentAction() {
+                    const actions = this.currentPluginActions();
+                    return actions.find(a => a.name === this.selectedPluginAction) || (actions.length > 0 ? actions[0] : null);
+                },
+
+                currentActionParameters() {
+                    const act = this.currentAction();
+                    return act && act.parameters ? act.parameters : [];
                 },
 
                 syncPluginActions() {
                     const acts = this.currentPluginActions();
                     this.selectedPluginAction = acts.length > 0 ? acts[0].name : '';
+                    this.initActionParams();
+                },
+
+                onActionChange() {
+                    this.initActionParams();
+                },
+
+                initActionParams() {
+                    const params = this.currentActionParameters();
+                    const values = {};
+                    params.forEach(p => {
+                        if (p.default !== undefined && p.default !== null && p.default !== '') {
+                            if (p.type === 'bool' || p.type === 'boolean') {
+                                values[p.name] = (String(p.default).toLowerCase() === 'true');
+                            } else if (p.type === 'int' || p.type === 'integer' || p.type === 'number') {
+                                const num = Number(p.default);
+                                values[p.name] = isNaN(num) ? 0 : num;
+                            } else {
+                                values[p.name] = String(p.default);
+                            }
+                        } else {
+                            if (p.type === 'bool' || p.type === 'boolean') {
+                                values[p.name] = false;
+                            } else if (p.type === 'int' || p.type === 'integer' || p.type === 'number') {
+                                values[p.name] = 0;
+                            } else {
+                                values[p.name] = '';
+                            }
+                        }
+                    });
+                    this.actionParamValues = values;
+                    this.syncParamsToJSON();
+                },
+
+                syncParamsToJSON() {
+                    this.pluginParamsJSON = JSON.stringify(this.actionParamValues, null, 2);
+                },
+
+                syncJSONToParams() {
+                    try {
+                        const parsed = JSON.parse(this.pluginParamsJSON);
+                        if (typeof parsed === 'object' && parsed !== null) {
+                            this.actionParamValues = parsed;
+                        }
+                    } catch (_) {}
+                },
+
+                toggleParamMode(mode) {
+                    if (mode === 'json') {
+                        this.syncParamsToJSON();
+                    } else {
+                        this.syncJSONToParams();
+                    }
+                    this.paramInputMode = mode;
                 },
 
                 async executePlugin() {
+                    this.pluginExecuting = true;
                     let parsedParams = {};
-                    try {
-                        parsedParams = this.pluginParamsJSON ? JSON.parse(this.pluginParamsJSON) : {};
-                    } catch (e) {
-                        this.pluginOutput = 'Invalid JSON parameters: ' + e;
-                        return;
-                    }
-                    const r = await fetch('/api/v1/plugins/execute', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: JSON.stringify({
-                            plugin_id: this.selectedPluginID,
-                            action: this.selectedPluginAction,
-                            params: parsedParams
-                        })
-                    });
-                    const d = await r.json();
-                    this.pluginOutput = JSON.stringify(d, null, 2);
-                    if (r.ok) {
-                        this.statusBanner = 'Executed plugin ' + this.selectedPluginID + ':' + this.selectedPluginAction;
+                    if (this.paramInputMode === 'form') {
+                        this.syncParamsToJSON();
+                        const paramsMeta = this.currentActionParameters();
+                        const copy = { ...this.actionParamValues };
+                        paramsMeta.forEach(pm => {
+                            if (pm.name in copy) {
+                                if ((pm.type === 'int' || pm.type === 'integer' || pm.type === 'number') && typeof copy[pm.name] === 'string') {
+                                    const n = Number(copy[pm.name]);
+                                    if (!isNaN(n)) copy[pm.name] = n;
+                                }
+                                if ((pm.type === 'bool' || pm.type === 'boolean') && typeof copy[pm.name] === 'string') {
+                                    copy[pm.name] = copy[pm.name].toLowerCase() === 'true';
+                                }
+                            }
+                        });
+                        parsedParams = copy;
                     } else {
-                        this.statusBanner = d.error || 'Plugin execution failed';
+                        try {
+                            parsedParams = this.pluginParamsJSON ? JSON.parse(this.pluginParamsJSON) : {};
+                        } catch (e) {
+                            this.pluginOutput = 'Invalid JSON parameters: ' + e;
+                            this.pluginExecResult = { status: 'error', error: 'Invalid JSON parameters: ' + e };
+                            this.pluginExecuting = false;
+                            return;
+                        }
                     }
-                    await this.loadAuditAndLogs();
+
+                    try {
+                        const r = await fetch('/api/v1/plugins/execute', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify({
+                                plugin_id: this.selectedPluginID,
+                                action: this.selectedPluginAction,
+                                params: parsedParams
+                            })
+                        });
+                        const d = await r.json();
+                        this.pluginExecResult = {
+                            status: d.status || (r.ok ? 'ok' : 'error'),
+                            duration_ms: d.duration_ms,
+                            output: d.output || '',
+                            error: d.error || '',
+                            timed_out: !!d.timed_out,
+                            data: d.data,
+                            raw: d
+                        };
+                        this.pluginOutput = JSON.stringify(d, null, 2);
+                        if (r.ok) {
+                            this.statusBanner = 'Executed plugin ' + this.selectedPluginID + ':' + this.selectedPluginAction;
+                        } else {
+                            this.statusBanner = d.error || 'Plugin execution failed';
+                        }
+                        await this.loadAuditAndLogs();
+                    } catch (err) {
+                        this.pluginExecResult = { status: 'error', error: String(err) };
+                        this.pluginOutput = String(err);
+                    } finally {
+                        this.pluginExecuting = false;
+                    }
                 },
 
                 async registerDeclarativePlugin() {

@@ -195,8 +195,15 @@ This living governance register records all errors encountered, technical dead-e
 - **Root Cause Analysis**: Regex patterns without an anchored leading root slash allowed relative directory traversing tokens (`../` and `..\`), which caused subprocesses to execute on invalid traversal paths instead of halting early during parameter security validation.
 - **Applied Change / Fix**:
   1. Enforced strict path traversal rejection in `internal/plugins/declarative.go` (`strings.Contains(rawVal, "../") || strings.Contains(rawVal, "..\\")`).
-  2. Tightened parameter validation patterns and defaults in the affected manifests under `plugins/devops/` to enforce leading slashes (`^/[a-zA-Z0-9._/-]+$`) or exact package prefixes (`^(\./\.\.\.|/[a-zA-Z0-9._/-]+)$`).
-- **Result & Non-Regression Test**: Verified by `TestM2Adversarial_AllParameters_PathTraversalRejection` in `internal/plugins/m2_adversarial_security_test.go` rejecting 100% of path traversal payloads with status `error`.
+### `RCA-019` — Dynamic Form Parameter Synchronization and Type Coercion for Boolean and Integer Inputs in Web Console Tab 5
+- **Date**: `2026-10-27`
+- **Observed Symptom**: When dynamically generating parameter form fields for actions declaring integer (`int`) or boolean (`bool`) parameters, standard HTML `<input>` elements bind values as strings (e.g. `"10"` or `"true"`), causing strict JSON parameter validators in declarative plugin runners to reject requests or fail type regex assertions.
+- **Root Cause Analysis**: HTML input elements inherently treat values as strings unless explicit numerical/boolean parsing and reactive two-way synchronization between the form state (`actionParamValues`) and the JSON payload (`pluginParamsJSON`) are performed before submission.
+- **Applied Change / Fix**:
+  1. Implemented typed input controls in `web/static/index.html` with explicit `.number` bindings and checkbox boolean states.
+  2. Implemented pre-execution type coercion in `executePlugin()` that iterates `currentActionParameters()` and casts numeric/boolean strings to native JavaScript numbers and booleans.
+  3. Added bi-directional synchronization helpers (`syncParamsToJSON()` and `syncJSONToParams()`) allowing seamless switching between Dynamic Form and Raw JSON modes.
+- **Result & Non-Regression Test**: Verified by `TestWebAdministrationConsole_Tab5_CatalogSearchFilteringPaginationAndForms` in `internal/api/web_console_test.go` and verified end-to-end execution of `sys-diagnostics:runtime_stats` through the Web Console API flow.
 
 ---
 
@@ -247,3 +254,4 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-003` | `P3` | `internal/audit` | Remote syslog / OpenTelemetry OTLP sink for audit events. |
 | `IDEA-004` | `P3` | `internal/plugins` | Out-of-process gRPC / WebAssembly (WASI) plugin sandboxing for untrusted third-party modules. |
 | `IDEA-005` | `P3` | `internal/mcp` | Streamable HTTP / SSE notification stream and stdio CLI bridge for local desktop MCP hosts. |
+| `IDEA-006` | `P3` | `web/static` | Virtualized catalog scrolling / infinite scroll for Web Console Tab 5 when plugin ecosystem scales beyond 1,000 plugins. |
