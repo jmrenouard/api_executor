@@ -30,9 +30,16 @@ func (env *APIEnv) PluginsListHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	category := r.URL.Query().Get("category")
+	if category == "" {
+		category = r.URL.Query().Get("domain")
+	}
+	query := r.URL.Query().Get("q")
+	pluginType := r.URL.Query().Get("type")
+
 	var list []plugins.PluginInfo
 	if env.PluginRegistry != nil {
-		list = env.PluginRegistry.List()
+		list = env.PluginRegistry.ListFiltered(category, query, pluginType)
 	} else {
 		list = []plugins.PluginInfo{}
 	}

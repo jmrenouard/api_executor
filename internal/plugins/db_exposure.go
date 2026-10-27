@@ -67,6 +67,8 @@ func (p *DatabaseExposurePlugin) ID() string          { return "db-exposure" }
 func (p *DatabaseExposurePlugin) Name() string        { return "Database Exposure & Read-Only SQL Explorer" }
 func (p *DatabaseExposurePlugin) Version() string     { return "2.0.0" }
 func (p *DatabaseExposurePlugin) Kind() PluginKind    { return KindAdvanced }
+func (p *DatabaseExposurePlugin) Type() string        { return "native" }
+func (p *DatabaseExposurePlugin) Category() string    { return "DataOps" }
 func (p *DatabaseExposurePlugin) Description() string {
 	return "Advanced native plugin exposing database table discovery, schema inspection, paginated sampling, telemetry stats, and guarded read-only SELECT queries."
 }

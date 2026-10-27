@@ -24,6 +24,8 @@ func (p *SystemDiagnosticsPlugin) ID() string          { return "sys-diagnostics
 func (p *SystemDiagnosticsPlugin) Name() string        { return "System Telemetry & Host Diagnostics" }
 func (p *SystemDiagnosticsPlugin) Version() string     { return "2.0.0" }
 func (p *SystemDiagnosticsPlugin) Kind() PluginKind    { return KindAdvanced }
+func (p *SystemDiagnosticsPlugin) Type() string        { return "native" }
+func (p *SystemDiagnosticsPlugin) Category() string    { return "SysAdmin" }
 func (p *SystemDiagnosticsPlugin) Description() string {
 	return "Native Go diagnostics plugin providing host OS detection, memory/goroutine telemetry, network interface inspection, and sanitized environment auditing."
 }
