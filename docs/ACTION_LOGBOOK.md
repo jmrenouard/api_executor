@@ -15,6 +15,18 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-018` — Author Comprehensive E2E Opaque-Box Test Suite (Tiers 1-4) and Test Infrastructure
+- **Timestamp (UTC)**: `2026-10-27T01:05:00Z`
+- **GitHub Issue**: [#35](https://github.com/jmrenouard/api_executor/issues/35)
+- **Branch**: `test/issue-35-e2e-testing-track`
+- **Request**:
+  - Design E2E test infrastructure and document it in `TEST_INFRA.md` following the 4-tier methodology (Tier 1: Feature Coverage >= 5 tests/feat; Tier 2: Boundary & Corner Cases; Tier 3: Cross-Feature Combinations; Tier 4: Real-World Application Scenarios), author comprehensive opaque-box test suites in `tests/e2e/` testing through public HTTP endpoints (`GET /api/v1/plugins`, `POST /api/v1/plugins/execute`, `POST /api/v1/mcp`, `/api/v1/audit/*`, `/metrics`), verify with `go test -v ./tests/e2e/...`, and publish `TEST_READY.md`.
+- **Changes**:
+  - Added [`TEST_INFRA.md`](../TEST_INFRA.md), [`TEST_READY.md`](../TEST_READY.md), [`tests/e2e/setup_test.go`](../tests/e2e/setup_test.go), [`tests/e2e/tier1_feature_test.go`](../tests/e2e/tier1_feature_test.go), [`tests/e2e/tier2_boundary_test.go`](../tests/e2e/tier2_boundary_test.go), [`tests/e2e/tier3_cross_feature_test.go`](../tests/e2e/tier3_cross_feature_test.go), and [`tests/e2e/tier4_real_world_test.go`](../tests/e2e/tier4_real_world_test.go).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - 65/65 E2E opaque-box tests passing 100% across all 4 tiers (`go test -v ./tests/e2e/...`); full repository test suite passing 138/138 tests across 10 packages (`go test -count=1 -cover ./...`).
+
 ### `ACT-016` — Audit All RBAC Credential Mutations, Surface `401`/`403` Feedback in Web Console, and Raise `cmd/server` Coverage Above 80%
 - **Timestamp (UTC)**: `2026-10-26T22:42:00Z`
 - **GitHub Issue**: [#32](https://github.com/jmrenouard/api_executor/issues/32)
