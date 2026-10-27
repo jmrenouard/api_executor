@@ -1,0 +1,17 @@
+id: k8s-node-summary
+name: Cluster Nodes Status, Roles & Versions (Wide)
+version: 1.0.0
+category: Kubernetes
+description: Enumerate cluster worker and control plane nodes with status, roles,
+  age, version, and OS images.
+os_family: any
+actions:
+- name: list_nodes_wide
+  description: List all cluster nodes with extended details
+  command: kubectl
+  args:
+  - get
+  - nodes
+  - -o
+  - wide
+  timeout: 5s

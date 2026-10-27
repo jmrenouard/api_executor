@@ -1,0 +1,24 @@
+id: k8s-statefulsets
+name: Kubernetes StatefulSets & Volume Claim Templates
+version: 1.0.0
+category: Kubernetes
+description: Enumerate StatefulSets, ready replica counts, and volume claim templates
+  in a namespace.
+os_family: any
+actions:
+- name: list_statefulsets
+  description: List StatefulSets and replica readiness
+  command: kubectl
+  args:
+  - get
+  - statefulsets
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

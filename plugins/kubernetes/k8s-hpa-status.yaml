@@ -1,0 +1,24 @@
+id: k8s-hpa-status
+name: Horizontal Pod Autoscalers (HPA) Metrics & Scaling
+version: 1.0.0
+category: Kubernetes
+description: Inspect Horizontal Pod Autoscalers (HPA), target metrics, min/max pod
+  limits, and current replicas.
+os_family: any
+actions:
+- name: horizontal_pod_autoscalers
+  description: List HPA resources and metric targets in namespace
+  command: kubectl
+  args:
+  - get
+  - hpa
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

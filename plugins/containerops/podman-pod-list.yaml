@@ -1,0 +1,15 @@
+id: podman-pod-list
+name: Podman Pods & Associated Containers Enumerator
+version: 1.0.0
+category: ContainerOps
+description: Enumerate Podman pods, pod IDs, status, number of containers, and shared
+  namespaces.
+os_family: linux
+actions:
+- name: list_podman_pods
+  description: List Podman pods via podman pod ps
+  command: podman
+  args:
+  - pod
+  - ps
+  timeout: 5s

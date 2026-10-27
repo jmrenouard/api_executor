@@ -1,0 +1,14 @@
+id: sec-listening-exposure
+name: Exposed Network Services & Privilege Auditor
+version: 1.0.0
+category: SecOps
+description: Audit listening network ports and services running with root privilege
+  or wildcards.
+os_family: linux
+actions:
+- name: audit_listening_processes
+  description: List listening TCP/UDP ports with processes via ss
+  command: ss
+  args:
+  - -tulpn
+  timeout: 5s

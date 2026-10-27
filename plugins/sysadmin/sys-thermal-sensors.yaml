@@ -1,0 +1,13 @@
+id: sys-thermal-sensors
+name: Hardware Thermal Sensors & Fan Speed Telemetry
+version: 1.0.0
+category: SysAdmin
+description: Query hardware thermal sensors, CPU core temperatures, motherboard voltage,
+  and cooling fan speeds.
+os_family: linux
+actions:
+- name: hardware_temperatures
+  description: Read hardware thermal and voltage sensors via lm-sensors
+  command: sensors
+  args: []
+  timeout: 5s

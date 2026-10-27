@@ -1,0 +1,14 @@
+id: containerd-crictl-stats
+name: Containerd CRI Container Resource Telemetry
+version: 1.0.0
+category: ContainerOps
+description: Query CPU and memory usage statistics reported directly by the containerd
+  CRI runtime.
+os_family: linux
+actions:
+- name: containerd_stats
+  description: Display container resource stats via crictl stats
+  command: crictl
+  args:
+  - stats
+  timeout: 5s

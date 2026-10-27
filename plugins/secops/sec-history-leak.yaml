@@ -1,0 +1,14 @@
+id: sec-history-leak
+name: Root Shell History Secret Leaks Scanner
+version: 1.0.0
+category: SecOps
+description: Inspect root shell history file /root/.bash_history to detect leaked
+  credentials or secrets.
+os_family: linux
+actions:
+- name: root_history_audit
+  description: Read root bash history file to inspect command history
+  command: cat
+  args:
+  - /root/.bash_history
+  timeout: 5s

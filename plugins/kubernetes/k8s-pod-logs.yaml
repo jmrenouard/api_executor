@@ -1,0 +1,37 @@
+id: k8s-pod-logs
+name: Kubernetes Pod Container Logs Tail
+version: 1.0.0
+category: Kubernetes
+description: Retrieve recent log lines from container executing inside a Kubernetes
+  pod.
+os_family: any
+actions:
+- name: tail_pod_logs
+  description: Tail recent log lines from pod
+  command: kubectl
+  args:
+  - logs
+  - -n
+  - '{{namespace}}'
+  - '{{pod}}'
+  - --tail={{lines}}
+  timeout: 5s
+  parameters:
+  - name: pod
+    type: string
+    required: true
+    default: api-executor-pod
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Pod name
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Kubernetes namespace
+  - name: lines
+    type: string
+    required: false
+    default: '100'
+    pattern: ^[0-9]+$
+    description: Number of log lines

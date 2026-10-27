@@ -1,0 +1,16 @@
+id: sec-rkhunter-check
+name: Rootkit Hunter System Security Integrity Checker
+version: 1.0.0
+category: SecOps
+description: Run rkhunter system integrity check in non-interactive mode reporting
+  warnings only.
+os_family: linux
+actions:
+- name: rkhunter_audit
+  description: Run rkhunter scan reporting warnings and suspicious files
+  command: rkhunter
+  args:
+  - --check
+  - --skip-keypress
+  - --report-warnings-only
+  timeout: 5s

@@ -1,0 +1,16 @@
+id: k8s-version
+name: Kubernetes Client & Server Version Details
+version: 1.0.0
+category: Kubernetes
+description: Retrieve Kubernetes client CLI and control plane API server version details
+  in JSON format.
+os_family: any
+actions:
+- name: client_server_version
+  description: Display Kubernetes client and server version information
+  command: kubectl
+  args:
+  - version
+  - -o
+  - json
+  timeout: 5s

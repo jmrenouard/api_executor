@@ -1,0 +1,14 @@
+id: sys-time-sync
+name: NTP Time Synchronization & Clock Drift Inspector
+version: 1.0.0
+category: SysAdmin
+description: Inspect system clock synchronization status, active NTP daemon, time
+  zone, and RTC clock.
+os_family: linux
+actions:
+- name: time_sync_status
+  description: Query time synchronization status via timedatectl
+  command: timedatectl
+  args:
+  - status
+  timeout: 5s

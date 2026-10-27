@@ -1,0 +1,26 @@
+id: k8s-services
+name: Kubernetes Services & ClusterIP / NodePort Endpoints
+version: 1.0.0
+category: Kubernetes
+description: List Kubernetes services, service types, cluster IPs, external IPs, and
+  selector labels.
+os_family: any
+actions:
+- name: list_services
+  description: List Kubernetes services with cluster IPs and ports
+  command: kubectl
+  args:
+  - get
+  - services
+  - -n
+  - '{{namespace}}'
+  - -o
+  - wide
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

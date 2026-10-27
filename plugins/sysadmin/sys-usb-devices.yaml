@@ -1,0 +1,12 @@
+id: sys-usb-devices
+name: USB Controllers & Connected Peripherals Auditor
+version: 1.0.0
+category: SysAdmin
+description: Enumerate USB host controllers, hubs, and attached hardware peripherals.
+os_family: linux
+actions:
+- name: usb_bus_list
+  description: List connected USB buses, devices, and vendor/product IDs
+  command: lsusb
+  args: []
+  timeout: 5s

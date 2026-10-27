@@ -1,0 +1,30 @@
+id: helm-release-status
+name: Helm Release Detailed Status & Deployed Resources
+version: 1.0.0
+category: Kubernetes
+description: Query runtime status, release notes, and deployed Kubernetes resources
+  of a Helm release.
+os_family: any
+actions:
+- name: helm_release_details
+  description: Display status and notes of a Helm release
+  command: helm
+  args:
+  - status
+  - '{{release}}'
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: release
+    type: string
+    required: true
+    default: api-executor
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Helm release name
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Kubernetes namespace

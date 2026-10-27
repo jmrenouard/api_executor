@@ -1,0 +1,15 @@
+id: net-arp-cache
+name: ARP & Neighbour Discovery Cache Inspector
+version: 1.0.0
+category: NetOps
+description: Query Address Resolution Protocol (ARP) table and IPv6 neighbour discovery
+  cache.
+os_family: linux
+actions:
+- name: neighbour_table
+  description: Display ARP and neighbour table via ip neigh
+  command: ip
+  args:
+  - neigh
+  - show
+  timeout: 5s

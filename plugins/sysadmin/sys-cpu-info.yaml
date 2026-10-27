@@ -1,0 +1,13 @@
+id: sys-cpu-info
+name: CPU Architecture & Core Topology Inspector
+version: 1.0.0
+category: SysAdmin
+description: Query CPU architecture, core counts, socket layout, thread topology,
+  and hardware cache specs.
+os_family: linux
+actions:
+- name: cpu_topology
+  description: Gather detailed CPU hardware and virtualization flags via lscpu
+  command: lscpu
+  args: []
+  timeout: 5s

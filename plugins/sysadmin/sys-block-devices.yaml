@@ -1,0 +1,14 @@
+id: sys-block-devices
+name: Block Storage Topology & Partition Scanner
+version: 1.0.0
+category: SysAdmin
+description: Enumerate block storage devices, disk partitions, filesystem types, and
+  mount points.
+os_family: linux
+actions:
+- name: list_block_devices
+  description: Display block storage hierarchy and filesystem labels via lsblk
+  command: lsblk
+  args:
+  - -f
+  timeout: 5s

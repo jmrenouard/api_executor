@@ -1,0 +1,21 @@
+id: net-whois-query
+name: Domain WHOIS Registration & Registrar Audit
+version: 1.0.0
+category: NetOps
+description: Retrieve WHOIS domain registration details, registrar name, nameservers,
+  and expiration dates.
+os_family: linux
+actions:
+- name: domain_whois
+  description: Query WHOIS database for domain registration information
+  command: whois
+  args:
+  - '{{domain}}'
+  timeout: 5s
+  parameters:
+  - name: domain
+    type: string
+    required: true
+    default: example.com
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Domain name to query in WHOIS

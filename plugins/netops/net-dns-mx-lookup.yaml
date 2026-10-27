@@ -1,0 +1,23 @@
+id: net-dns-mx-lookup
+name: Mail Exchanger (MX) DNS Records Query
+version: 1.0.0
+category: NetOps
+description: Query DNS servers for Mail Exchanger (MX) routing records and priority
+  weights.
+os_family: linux
+actions:
+- name: resolve_mx_record
+  description: Perform DNS MX record lookup using dig
+  command: dig
+  args:
+  - '{{target}}'
+  - MX
+  - +short
+  timeout: 5s
+  parameters:
+  - name: target
+    type: string
+    required: true
+    default: localhost
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Domain name for MX query

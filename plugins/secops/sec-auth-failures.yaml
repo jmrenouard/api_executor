@@ -1,0 +1,16 @@
+id: sec-auth-failures
+name: Authentication Failures & Failed Password Auditor
+version: 1.0.0
+category: SecOps
+description: Scan system authentication logs for failed password attempts and unauthorized
+  access patterns.
+os_family: linux
+actions:
+- name: find_auth_failures
+  description: Search /var/log/auth.log for failed authentication events
+  command: grep
+  args:
+  - -E
+  - Failed password|authentication failure
+  - /var/log/auth.log
+  timeout: 5s

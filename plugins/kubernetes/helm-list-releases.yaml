@@ -1,0 +1,17 @@
+id: helm-list-releases
+name: Helm Deployed Releases & Chart Revisions List
+version: 1.0.0
+category: Kubernetes
+description: Enumerate deployed Helm releases across all namespaces with release names,
+  chart versions, and status.
+os_family: any
+actions:
+- name: list_helm_releases
+  description: List all deployed Helm releases in JSON format
+  command: helm
+  args:
+  - list
+  - -A
+  - -o
+  - json
+  timeout: 5s

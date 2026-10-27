@@ -1,0 +1,24 @@
+id: docker-volume-list
+name: Docker Persistent Storage Volumes Enumerator
+version: 1.0.0
+category: ContainerOps
+description: Enumerate Docker persistent volumes, storage volume names, and backing
+  driver types.
+os_family: any
+actions:
+- name: list_volumes
+  description: List Docker persistent volumes
+  command: docker
+  args:
+  - volume
+  - ls
+  - --format
+  - '{{format}}'
+  timeout: 5s
+  parameters:
+  - name: format
+    type: string
+    required: false
+    default: "table {{.Driver}}\t{{.Name}}"
+    pattern: "^[a-zA-Z0-9. _\t-{}]+$"
+    description: Format template string

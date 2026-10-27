@@ -1,0 +1,22 @@
+id: sys-disk-usage
+name: Filesystem Disk Capacity & Inode Inspector
+version: 1.0.0
+category: SysAdmin
+description: Inspect disk storage capacity, mount points, and available space in human-readable
+  units.
+os_family: linux
+actions:
+- name: disk_capacity
+  description: Check disk space usage for a given mount path or root
+  command: df
+  args:
+  - -h
+  - '{{path}}'
+  timeout: 5s
+  parameters:
+  - name: path
+    type: string
+    required: false
+    default: /
+    pattern: ^/[a-zA-Z0-9._/-]*$
+    description: Filesystem mount path or directory

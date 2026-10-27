@@ -1,0 +1,14 @@
+id: k8s-cluster-info
+name: Kubernetes Control Plane Endpoints & CoreDNS Status
+version: 1.0.0
+category: Kubernetes
+description: Display Kubernetes API server control plane endpoint, CoreDNS service,
+  and cluster components.
+os_family: any
+actions:
+- name: cluster_endpoints
+  description: Retrieve Kubernetes cluster control plane information
+  command: kubectl
+  args:
+  - cluster-info
+  timeout: 5s

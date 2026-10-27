@@ -1,0 +1,15 @@
+id: docker-compose-ps
+name: Docker Compose Stack Services Status
+version: 1.0.0
+category: ContainerOps
+description: List running container services, replica health, and port bindings for
+  active Compose stack.
+os_family: any
+actions:
+- name: compose_service_status
+  description: Query status of services in Docker Compose project
+  command: docker
+  args:
+  - compose
+  - ps
+  timeout: 5s

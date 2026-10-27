@@ -1,0 +1,31 @@
+id: net-curl-head
+name: HTTP/HTTPS Response Headers & Status Line Inspector
+version: 1.0.0
+category: NetOps
+description: Retrieve HTTP response headers, status codes, and server banner from
+  remote endpoint via HEAD request.
+os_family: any
+actions:
+- name: http_head_headers
+  description: Fetch HTTP/HTTPS response headers from remote URL
+  command: curl
+  args:
+  - -I
+  - -s
+  - -m
+  - '{{timeout}}'
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: true
+    default: http://127.0.0.1:8080
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: Target HTTP or HTTPS URL
+  - name: timeout
+    type: string
+    required: false
+    default: '5'
+    pattern: ^[0-9]+$
+    description: Request timeout in seconds

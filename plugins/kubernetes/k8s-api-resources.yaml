@@ -1,0 +1,14 @@
+id: k8s-api-resources
+name: Kubernetes API Server Resources & Verbs Directory
+version: 1.0.0
+category: Kubernetes
+description: List all Kubernetes API resource kinds, shortnames, API groups, and supported
+  verbs.
+os_family: any
+actions:
+- name: available_api_resources
+  description: Display supported API resources via kubectl api-resources
+  command: kubectl
+  args:
+  - api-resources
+  timeout: 5s

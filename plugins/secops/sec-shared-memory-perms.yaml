@@ -1,0 +1,13 @@
+id: sec-shared-memory-perms
+name: Shared Memory & Temporary Mount Options Auditor
+version: 1.0.0
+category: SecOps
+description: Verify secure mount options (noexec, nosuid, nodev) configured on /dev/shm
+  and /tmp filesystems.
+os_family: linux
+actions:
+- name: shared_memory_mounts
+  description: List mount options on filesystems to verify security flags
+  command: mount
+  args: []
+  timeout: 5s

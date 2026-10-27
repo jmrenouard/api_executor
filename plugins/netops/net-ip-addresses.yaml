@@ -1,0 +1,15 @@
+id: net-ip-addresses
+name: Network Interface IPv4 & IPv6 Address Assignments
+version: 1.0.0
+category: NetOps
+description: Retrieve brief summary of IPv4 and IPv6 addresses configured across network
+  interfaces.
+os_family: linux
+actions:
+- name: brief_ip_addresses
+  description: Show brief network interface address table via ip addr
+  command: ip
+  args:
+  - -br
+  - addr
+  timeout: 5s

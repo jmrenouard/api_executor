@@ -1,0 +1,18 @@
+id: sec-unowned-files
+name: Orphaned Unowned Files & Groups Detector
+version: 1.0.0
+category: SecOps
+description: Detect files and directories without valid user or group owners in temporary
+  filesystems.
+os_family: linux
+actions:
+- name: find_unowned_files
+  description: Scan for files with no matching UID or GID
+  command: find
+  args:
+  - /tmp
+  - -xdev
+  - -nouser
+  - -o
+  - -nogroup
+  timeout: 5s

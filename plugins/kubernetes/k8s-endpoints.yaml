@@ -1,0 +1,24 @@
+id: k8s-endpoints
+name: Active Service Network IP Endpoints
+version: 1.0.0
+category: Kubernetes
+description: Inspect active network IP endpoints assigned to Kubernetes services to
+  verify backend pod binding.
+os_family: any
+actions:
+- name: list_service_endpoints
+  description: List service endpoints and target pod IPs
+  command: kubectl
+  args:
+  - get
+  - endpoints
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

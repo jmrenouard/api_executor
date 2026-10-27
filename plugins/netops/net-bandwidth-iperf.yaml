@@ -1,0 +1,31 @@
+id: net-bandwidth-iperf
+name: Network Bandwidth & TCP Throughput Benchmark
+version: 1.0.0
+category: NetOps
+description: Run network throughput and bandwidth performance test against target
+  iperf3 server in JSON format.
+os_family: linux
+actions:
+- name: iperf3_bandwidth_test
+  description: Benchmark bandwidth against iperf3 server
+  command: iperf3
+  args:
+  - -c
+  - '{{target}}'
+  - -t
+  - '{{duration}}'
+  - -J
+  timeout: 5s
+  parameters:
+  - name: target
+    type: string
+    required: true
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Target iperf3 server host
+  - name: duration
+    type: string
+    required: false
+    default: '5'
+    pattern: ^[0-9]+$
+    description: Test duration in seconds

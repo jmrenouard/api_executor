@@ -1,0 +1,29 @@
+id: net-curl-timing
+name: HTTP Latency Waterfall (DNS, Connect, TLS, TTFB)
+version: 1.0.0
+category: NetOps
+description: Benchmark fine-grained latency breakdown for DNS lookup, TCP connect,
+  TLS handshake, and TTFB.
+os_family: any
+actions:
+- name: http_request_timing
+  description: Benchmark network connection and transfer timings for URL
+  command: curl
+  args:
+  - -o
+  - /dev/null
+  - -s
+  - -w
+  - 'time_namelookup=%{time_namelookup} time_connect=%{time_connect} time_appconnect=%{time_appconnect}
+    time_starttransfer=%{time_starttransfer} time_total=%{time_total}
+
+    '
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: true
+    default: http://127.0.0.1:8080
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: Target HTTP or HTTPS URL

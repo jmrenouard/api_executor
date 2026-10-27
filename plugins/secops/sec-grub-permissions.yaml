@@ -1,0 +1,15 @@
+id: sec-grub-permissions
+name: GRUB Bootloader Configuration File Permissions
+version: 1.0.0
+category: SecOps
+description: Verify bootloader configuration /boot/grub/grub.cfg permissions to prevent
+  unauthorized kernel parameter edits.
+os_family: linux
+actions:
+- name: grub_config_permissions
+  description: Inspect permissions and ownership of /boot/grub/grub.cfg
+  command: ls
+  args:
+  - -l
+  - /boot/grub/grub.cfg
+  timeout: 5s

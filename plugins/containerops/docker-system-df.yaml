@@ -1,0 +1,15 @@
+id: docker-system-df
+name: Docker Storage Disk Usage & Reclaimable Space
+version: 1.0.0
+category: ContainerOps
+description: Analyze disk utilization across container images, containers, local volumes,
+  and build cache.
+os_family: any
+actions:
+- name: disk_usage_summary
+  description: Display Docker disk consumption breakdown via docker system df
+  command: docker
+  args:
+  - system
+  - df
+  timeout: 5s

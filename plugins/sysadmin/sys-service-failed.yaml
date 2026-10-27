@@ -1,0 +1,14 @@
+id: sys-service-failed
+name: Failed Systemd Services & Activation Error Reporter
+version: 1.0.0
+category: SysAdmin
+description: Report all failed, degraded, or crashing system services and activation
+  errors.
+os_family: linux
+actions:
+- name: failed_units
+  description: List all failed systemd units across all unit types
+  command: systemctl
+  args:
+  - --failed
+  timeout: 5s

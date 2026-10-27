@@ -1,0 +1,26 @@
+id: k8s-deployments
+name: Kubernetes Deployments & Replicas Status (Wide)
+version: 1.0.0
+category: Kubernetes
+description: Enumerate deployments, ready replicas, up-to-date counts, update strategies,
+  and container images.
+os_family: any
+actions:
+- name: list_deployments
+  description: List deployments with replica counts and image tags
+  command: kubectl
+  args:
+  - get
+  - deployments
+  - -n
+  - '{{namespace}}'
+  - -o
+  - wide
+  timeout: 5s
+  parameters:
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes namespace

@@ -1,0 +1,16 @@
+id: container-dangling-images
+name: Dangling & Untagged Container Images Scanner
+version: 1.0.0
+category: ContainerOps
+description: Detect untagged dangling images consuming storage that are candidates
+  for pruning.
+os_family: any
+actions:
+- name: list_dangling_images
+  description: List untagged dangling image IDs
+  command: docker
+  args:
+  - images
+  - -f
+  - dangling=true
+  timeout: 5s

@@ -1,0 +1,23 @@
+id: k8s-node-describe
+name: Kubernetes Node Allocatable Resources & Taints
+version: 1.0.0
+category: Kubernetes
+description: Inspect node allocatable CPU/memory, conditions, taints, capacity, and
+  allocated pods.
+os_family: any
+actions:
+- name: describe_node_details
+  description: Describe conditions and allocatable resources of a node
+  command: kubectl
+  args:
+  - describe
+  - node
+  - '{{node}}'
+  timeout: 5s
+  parameters:
+  - name: node
+    type: string
+    required: true
+    default: minikube
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Target Kubernetes node name

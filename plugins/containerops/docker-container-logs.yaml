@@ -1,0 +1,30 @@
+id: docker-container-logs
+name: Docker Container Stdout & Stderr Logs Tail
+version: 1.0.0
+category: ContainerOps
+description: Tail recent stdout and stderr output log streams from a specific Docker
+  container.
+os_family: any
+actions:
+- name: tail_logs
+  description: Retrieve recent log lines from container
+  command: docker
+  args:
+  - logs
+  - --tail
+  - '{{lines}}'
+  - '{{container}}'
+  timeout: 5s
+  parameters:
+  - name: container
+    type: string
+    required: true
+    default: api-executor
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Container name or ID
+  - name: lines
+    type: string
+    required: false
+    default: '100'
+    pattern: ^[0-9]+$
+    description: Number of log lines from end

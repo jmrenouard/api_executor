@@ -1,0 +1,14 @@
+id: net-firewalld-zones
+name: Firewalld Active Zones & Service Bindings
+version: 1.0.0
+category: NetOps
+description: Inspect RedHat/CentOS firewalld active zones, open ports, rich rules,
+  and allowed services.
+os_family: linux
+actions:
+- name: firewalld_active_zones
+  description: Display firewalld zone configuration and open ports
+  command: firewall-cmd
+  args:
+  - --list-all
+  timeout: 5s

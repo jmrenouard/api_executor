@@ -1,0 +1,17 @@
+id: container-restart-audit
+name: Crash-Looping & Restarting Containers Auditor
+version: 1.0.0
+category: ContainerOps
+description: Filter and identify containers currently in restarting status indicative
+  of crash loops.
+os_family: any
+actions:
+- name: audit_crashlooping_containers
+  description: List containers with status=restarting
+  command: docker
+  args:
+  - ps
+  - -a
+  - --filter
+  - status=restarting
+  timeout: 5s

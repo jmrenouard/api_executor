@@ -1,0 +1,14 @@
+id: sys-entropy-check
+name: Cryptographic System Entropy Pool Availability
+version: 1.0.0
+category: SysAdmin
+description: Check available entropy pool bits in the Linux kernel for secure random
+  number generation.
+os_family: linux
+actions:
+- name: entropy_available
+  description: Read available random entropy bits from /proc/sys/kernel/random/entropy_avail
+  command: cat
+  args:
+  - /proc/sys/kernel/random/entropy_avail
+  timeout: 5s

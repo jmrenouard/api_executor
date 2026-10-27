@@ -1,0 +1,15 @@
+id: net-ufw-status
+name: Ubuntu UFW Firewall Status & Port Rules
+version: 1.0.0
+category: NetOps
+description: Check Ubuntu Uncomplicated Firewall (UFW) active status, default policies,
+  and allowed ports.
+os_family: linux
+actions:
+- name: ufw_firewall_status
+  description: Query UFW firewall status in verbose mode
+  command: ufw
+  args:
+  - status
+  - verbose
+  timeout: 5s

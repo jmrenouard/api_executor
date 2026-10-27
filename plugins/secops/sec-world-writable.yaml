@@ -1,0 +1,22 @@
+id: sec-world-writable
+name: World-Writable Directories (No Sticky Bit) Scanner
+version: 1.0.0
+category: SecOps
+description: Find world-writable directories lacking the sticky bit (+t) to prevent
+  unprivileged file deletion.
+os_family: linux
+actions:
+- name: find_world_writable_dirs
+  description: Search directories for world-writable permissions without sticky bit
+  command: find
+  args:
+  - /var
+  - -xdev
+  - -type
+  - d
+  - -perm
+  - '-0002'
+  - '!'
+  - -perm
+  - '-1000'
+  timeout: 5s

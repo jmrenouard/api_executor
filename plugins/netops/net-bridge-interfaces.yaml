@@ -1,0 +1,15 @@
+id: net-bridge-interfaces
+name: Linux Network Bridge Topology & STP Status
+version: 1.0.0
+category: NetOps
+description: Inspect Linux network software bridges, attached member ports, and Spanning
+  Tree Protocol (STP) state.
+os_family: linux
+actions:
+- name: bridge_ports
+  description: Display network bridge links and attached ports via bridge link
+  command: bridge
+  args:
+  - link
+  - show
+  timeout: 5s

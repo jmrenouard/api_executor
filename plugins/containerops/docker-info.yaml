@@ -1,0 +1,23 @@
+id: docker-info
+name: Docker Daemon System Information & Storage Driver
+version: 1.0.0
+category: ContainerOps
+description: Query Docker daemon version, storage driver, cgroup driver, container
+  counts, and server plugins.
+os_family: any
+actions:
+- name: system_info
+  description: Display Docker system information in formatted output
+  command: docker
+  args:
+  - info
+  - --format
+  - '{{format}}'
+  timeout: 5s
+  parameters:
+  - name: format
+    type: string
+    required: false
+    default: '{{json .}}'
+    pattern: ^[a-zA-Z0-9. _-{}]+$
+    description: Output template format

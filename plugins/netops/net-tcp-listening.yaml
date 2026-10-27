@@ -1,0 +1,14 @@
+id: net-tcp-listening
+name: TCP & UDP Listening Ports & Process Auditor
+version: 1.0.0
+category: NetOps
+description: List all listening TCP and UDP ports with binding IP addresses, PIDs,
+  and process names.
+os_family: linux
+actions:
+- name: listening_ports
+  description: List listening sockets with process identifiers via ss
+  command: ss
+  args:
+  - -tulpn
+  timeout: 5s

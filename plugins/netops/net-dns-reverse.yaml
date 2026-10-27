@@ -1,0 +1,23 @@
+id: net-dns-reverse
+name: Reverse DNS PTR Record Lookup
+version: 1.0.0
+category: NetOps
+description: Perform reverse DNS lookup to find domain name associated with an IPv4
+  or IPv6 address.
+os_family: linux
+actions:
+- name: reverse_ptr_lookup
+  description: Resolve PTR record for target IP address using dig
+  command: dig
+  args:
+  - -x
+  - '{{ip}}'
+  - +short
+  timeout: 5s
+  parameters:
+  - name: ip
+    type: string
+    required: true
+    default: 127.0.0.1
+    pattern: ^[0-9a-fA-F.:]+$
+    description: IPv4 or IPv6 address for reverse lookup

@@ -1,0 +1,14 @@
+id: sys-pci-devices
+name: PCI Bus Hardware Devices & Controller Tree
+version: 1.0.0
+category: SysAdmin
+description: Enumerate PCI bus devices, graphics adapters, network interfaces, and
+  storage controllers.
+os_family: linux
+actions:
+- name: pci_bus_tree
+  description: Display PCI buses and attached hardware controllers in tree layout
+  command: lspci
+  args:
+  - -tv
+  timeout: 5s

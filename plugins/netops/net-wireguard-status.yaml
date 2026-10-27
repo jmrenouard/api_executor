@@ -1,0 +1,14 @@
+id: net-wireguard-status
+name: WireGuard VPN Tunnels & Peer Transfer Monitor
+version: 1.0.0
+category: NetOps
+description: Inspect WireGuard VPN interfaces, peer public keys, endpoint IPs, handshakes,
+  and transfer bytes.
+os_family: linux
+actions:
+- name: wireguard_peer_status
+  description: Display WireGuard tunnel interface and peer connection metrics
+  command: wg
+  args:
+  - show
+  timeout: 5s

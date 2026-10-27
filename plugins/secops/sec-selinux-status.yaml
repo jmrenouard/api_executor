@@ -1,0 +1,13 @@
+id: sec-selinux-status
+name: SELinux Enforcement Mode & Policy State
+version: 1.0.0
+category: SecOps
+description: Display SELinux status, current enforcement mode (Enforcing, Permissive,
+  Disabled), and loaded policy.
+os_family: linux
+actions:
+- name: selinux_mode
+  description: Query SELinux status and active policy name via sestatus
+  command: sestatus
+  args: []
+  timeout: 5s

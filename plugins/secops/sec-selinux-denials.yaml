@@ -1,0 +1,16 @@
+id: sec-selinux-denials
+name: Recent SELinux AVC Access Denials Query
+version: 1.0.0
+category: SecOps
+description: Query Linux audit log for recent SELinux Access Vector Cache (AVC) denials.
+os_family: linux
+actions:
+- name: recent_avc_denials
+  description: Search audit logs for recent AVC denial messages
+  command: ausearch
+  args:
+  - -m
+  - avc
+  - -ts
+  - recent
+  timeout: 5s

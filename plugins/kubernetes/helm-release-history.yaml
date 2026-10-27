@@ -1,0 +1,30 @@
+id: helm-release-history
+name: Helm Release Revision History & Rollback Targets
+version: 1.0.0
+category: Kubernetes
+description: Inspect revision change history, deployment timestamps, chart versions,
+  and descriptions for Helm release.
+os_family: any
+actions:
+- name: helm_revision_history
+  description: Display revision history of a Helm release
+  command: helm
+  args:
+  - history
+  - '{{release}}'
+  - -n
+  - '{{namespace}}'
+  timeout: 5s
+  parameters:
+  - name: release
+    type: string
+    required: true
+    default: api-executor
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Helm release name
+  - name: namespace
+    type: string
+    required: false
+    default: default
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Kubernetes namespace

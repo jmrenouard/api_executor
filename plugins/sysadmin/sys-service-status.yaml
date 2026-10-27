@@ -1,0 +1,22 @@
+id: sys-service-status
+name: Systemd Service Runtime Status & Recent Logs
+version: 1.0.0
+category: SysAdmin
+description: Query execution state, main PID, memory footprint, and recent journal
+  log entries for a service.
+os_family: linux
+actions:
+- name: query_service
+  description: Query status and recent logs for specified service unit
+  command: systemctl
+  args:
+  - status
+  - '{{service}}'
+  timeout: 5s
+  parameters:
+  - name: service
+    type: string
+    required: true
+    default: systemd-journald
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Systemd service unit name

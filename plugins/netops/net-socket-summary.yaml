@@ -1,0 +1,14 @@
+id: net-socket-summary
+name: Protocol Socket Allocation Summary
+version: 1.0.0
+category: NetOps
+description: Display summary of active sockets by protocol family (TCP, UDP, RAW,
+  UNIX) via ss.
+os_family: linux
+actions:
+- name: socket_statistics
+  description: Collect socket summary statistics across all protocols
+  command: ss
+  args:
+  - -s
+  timeout: 5s

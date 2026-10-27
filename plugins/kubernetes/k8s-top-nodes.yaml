@@ -1,0 +1,15 @@
+id: k8s-top-nodes
+name: Node CPU & Memory Resource Utilization Metrics
+version: 1.0.0
+category: Kubernetes
+description: Display CPU cores and memory consumption metrics for cluster nodes via
+  Metrics Server.
+os_family: any
+actions:
+- name: node_resource_metrics
+  description: Query CPU and memory metrics per node
+  command: kubectl
+  args:
+  - top
+  - nodes
+  timeout: 5s

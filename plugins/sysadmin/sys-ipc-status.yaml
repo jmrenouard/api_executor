@@ -1,0 +1,14 @@
+id: sys-ipc-status
+name: IPC Facilities (Shared Memory & Semaphores)
+version: 1.0.0
+category: SysAdmin
+description: Inspect inter-process communication resources including shared memory
+  segments, semaphores, and message queues.
+os_family: linux
+actions:
+- name: ipc_facilities
+  description: Audit all active system IPC facilities via ipcs
+  command: ipcs
+  args:
+  - -a
+  timeout: 5s

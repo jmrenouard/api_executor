@@ -1,0 +1,23 @@
+id: docker-volume-inspect
+name: Docker Persistent Storage Volume Low-Level Details
+version: 1.0.0
+category: ContainerOps
+description: Inspect host filesystem mountpoint, volume options, labels, and driver
+  for a specific Docker volume.
+os_family: any
+actions:
+- name: inspect_volume
+  description: Inspect volume metadata and mountpoint path
+  command: docker
+  args:
+  - volume
+  - inspect
+  - '{{volume}}'
+  timeout: 5s
+  parameters:
+  - name: volume
+    type: string
+    required: true
+    default: app_data
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: Volume name

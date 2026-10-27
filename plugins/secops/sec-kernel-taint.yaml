@@ -1,0 +1,14 @@
+id: sec-kernel-taint
+name: Linux Kernel Taint Flags & Out-of-Tree Modules
+version: 1.0.0
+category: SecOps
+description: Check if Linux kernel has been tainted by proprietary, out-of-tree, or
+  unsigned kernel modules.
+os_family: linux
+actions:
+- name: check_tainted_kernel
+  description: Read kernel taint bitmask from /proc/sys/kernel/tainted
+  command: cat
+  args:
+  - /proc/sys/kernel/tainted
+  timeout: 5s

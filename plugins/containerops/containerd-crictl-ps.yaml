@@ -1,0 +1,14 @@
+id: containerd-crictl-ps
+name: Containerd CRI Managed Containers Auditor
+version: 1.0.0
+category: ContainerOps
+description: List active and stopped containers managed directly by containerd through
+  the CRI plugin.
+os_family: linux
+actions:
+- name: list_crictl_containers
+  description: List containers via crictl ps
+  command: crictl
+  args:
+  - ps
+  timeout: 5s

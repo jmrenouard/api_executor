@@ -1,0 +1,17 @@
+id: sec-lynis-audit
+name: Lynis System Security & Hardening Index Auditor
+version: 1.0.0
+category: SecOps
+description: Execute Lynis automated security auditing tool in quick mode reporting
+  warnings and hardening findings.
+os_family: linux
+actions:
+- name: lynis_system_audit
+  description: Run Lynis audit in quick mode for warnings
+  command: lynis
+  args:
+  - audit
+  - system
+  - --quick
+  - --warnings-only
+  timeout: 5s

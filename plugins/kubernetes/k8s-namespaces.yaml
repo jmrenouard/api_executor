@@ -1,0 +1,15 @@
+id: k8s-namespaces
+name: Kubernetes Namespaces & Lifecycle Status
+version: 1.0.0
+category: Kubernetes
+description: Enumerate all cluster namespaces and their active or terminating lifecycle
+  status.
+os_family: any
+actions:
+- name: list_all_namespaces
+  description: List all namespaces in cluster
+  command: kubectl
+  args:
+  - get
+  - namespaces
+  timeout: 5s

@@ -1,0 +1,22 @@
+id: net-traceroute
+name: Network Packet Route & Hop Latency Tracer
+version: 1.0.0
+category: NetOps
+description: Trace route hops and per-hop round-trip latencies toward destination
+  host.
+os_family: linux
+actions:
+- name: trace_route_hops
+  description: Trace network hop path to destination without DNS resolution
+  command: traceroute
+  args:
+  - -m
+  - '{{max_hops}}'
+  timeout: 5s
+  parameters:
+  - name: max_hops
+    type: string
+    required: false
+    default: '15'
+    pattern: ^[0-9]+$
+    description: Maximum number of network hops

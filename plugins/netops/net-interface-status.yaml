@@ -1,0 +1,15 @@
+id: net-interface-status
+name: Network Interface Link State & Packet Stats
+version: 1.0.0
+category: NetOps
+description: Display network interface link status, MTU, operational state, and packet
+  error counters.
+os_family: linux
+actions:
+- name: interface_statistics
+  description: Display detailed statistics for all network interfaces via ip link
+  command: ip
+  args:
+  - -s
+  - link
+  timeout: 5s

@@ -1403,3 +1403,56 @@ func TestJWTTokenInspector_ValidationAndMalformedPayloads(t *testing.T) {
 		t.Errorf("expected valid=false when nbf is in future, got: %+v", data)
 	}
 }
+
+// TestLoadDeclarativeDirectory_AllDeclarativePlugins verifies that LoadDeclarativeDirectory loads all 141 declarative plugins
+// across 5 infrastructure domains with 0 duplicate IDs and valid metadata.
+func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
+	pluginsDir := "plugins"
+	if _, err := os.Stat(pluginsDir); err != nil && os.IsNotExist(err) {
+		pluginsDir = "../../plugins"
+	}
+
+	reg := NewRegistry()
+	loaded, err := reg.LoadDeclarativeDirectory(pluginsDir)
+	if err != nil {
+		t.Fatalf("LoadDeclarativeDirectory failed on %s: %v", pluginsDir, err)
+	}
+	if loaded != 141 {
+		t.Fatalf("expected exactly 141 declarative plugins loaded, got %d", loaded)
+	}
+
+	list := reg.ListFiltered("", "", "declarative")
+	if len(list) != 141 {
+		t.Fatalf("expected 141 declarative plugins in registry, got %d", len(list))
+	}
+
+	seen := make(map[string]bool)
+	categoryCounts := make(map[string]int)
+	for _, p := range list {
+		if seen[p.ID] {
+			t.Errorf("duplicate plugin ID found: %s", p.ID)
+		}
+		seen[p.ID] = true
+
+		if p.Description == "" {
+			t.Errorf("plugin %s has empty description", p.ID)
+		}
+		if len(p.Actions) == 0 {
+			t.Errorf("plugin %s has no actions", p.ID)
+		}
+		for _, a := range p.Actions {
+			if a.Name == "" || a.Description == "" {
+				t.Errorf("plugin %s action has empty name or description", p.ID)
+			}
+		}
+		categoryCounts[p.Category]++
+	}
+
+	expectedCategories := []string{"SysAdmin", "NetOps", "SecOps", "ContainerOps", "Kubernetes"}
+	for _, cat := range expectedCategories {
+		if count := categoryCounts[cat]; count < 28 {
+			t.Errorf("expected at least 28 plugins in category %q, got %d", cat, count)
+		}
+	}
+}
+

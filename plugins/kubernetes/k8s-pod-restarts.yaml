@@ -1,0 +1,17 @@
+id: k8s-pod-restarts
+name: Crash-Looping Pods Ranked by Restart Count
+version: 1.0.0
+category: Kubernetes
+description: List pods across all namespaces sorted by container restart count to
+  identify crash-looping services.
+os_family: any
+actions:
+- name: pods_sorted_by_restarts
+  description: List pods across all namespaces sorted by restart count
+  command: kubectl
+  args:
+  - get
+  - pods
+  - -A
+  - --sort-by=.status.containerStatuses[0].restartCount
+  timeout: 5s

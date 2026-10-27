@@ -1,0 +1,14 @@
+id: sys-os-release
+name: OS Release & Distribution Inspector
+version: 1.0.0
+category: SysAdmin
+description: Inspect Linux distribution release metadata, system version, and OS build
+  details.
+os_family: linux
+actions:
+- name: inspect_os_release
+  description: Read and display operating system release variables from /etc/os-release
+  command: cat
+  args:
+  - /etc/os-release
+  timeout: 5s

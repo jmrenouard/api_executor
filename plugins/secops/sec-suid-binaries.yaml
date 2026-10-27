@@ -1,0 +1,18 @@
+id: sec-suid-binaries
+name: SUID & SGID Executable Binaries Scanner
+version: 1.0.0
+category: SecOps
+description: Scan system executable directories for binaries configured with SUID
+  or SGID permission bits.
+os_family: linux
+actions:
+- name: scan_suid_sgid
+  description: Search /usr tree for executable files with setuid/setgid bits
+  command: find
+  args:
+  - /usr
+  - -perm
+  - /6000
+  - -type
+  - f
+  timeout: 5s

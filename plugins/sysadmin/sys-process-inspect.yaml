@@ -1,0 +1,21 @@
+id: sys-process-inspect
+name: PID Kernel Status & Memory Limit Inspector
+version: 1.0.0
+category: SysAdmin
+description: Inspect detailed kernel status, VmPeak, VmSize, and thread states of
+  a specific process ID.
+os_family: linux
+actions:
+- name: inspect_proc_status
+  description: Read kernel status variables from /proc/[pid]/status
+  command: cat
+  args:
+  - /proc/{{pid}}/status
+  timeout: 5s
+  parameters:
+  - name: pid
+    type: string
+    required: true
+    default: '1'
+    pattern: ^[0-9]+$
+    description: Target Process ID (PID)

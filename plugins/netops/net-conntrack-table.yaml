@@ -1,0 +1,14 @@
+id: net-conntrack-table
+name: Kernel Connection Tracking Table Metrics
+version: 1.0.0
+category: NetOps
+description: Inspect Linux netfilter connection tracking table size and active flow
+  session counts.
+os_family: linux
+actions:
+- name: conntrack_count
+  description: Display count of active connection tracking entries
+  command: conntrack
+  args:
+  - -C
+  timeout: 5s
