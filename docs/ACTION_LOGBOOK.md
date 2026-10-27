@@ -15,6 +15,35 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-022` — Web Console Tab 5 Catalog Search, Filtering, Pagination, Dynamic Parameter Forms, and MCP Verification
+- **Timestamp (UTC)**: `2026-10-27T03:32:00Z`
+- **GitHub Issue**: [#44](https://github.com/jmrenouard/api_executor/issues/44)
+- **Branch**: `feat/issue-44-web-console-tab5-catalog`
+- **Request**:
+  - Upgrade Tab 5 (`Plugins & SQL Explorer`) of the Pure Web Administration Console in `web/static/index.html` to handle 300+ plugins with instant client-side search, 10 domain category pills, type filter, pagination (10-12 per page), dynamic parameter forms with typed input controls and raw JSON toggle, execution telemetry viewer, and preserved read-only SQL Explorer and declarative spec registration subviews.
+  - Verify MCP server resource `executor://plugins/catalog` exposure and `execute_plugin` meta-tool execution with 300+ plugins.
+  - Add comprehensive unit and integration tests across `internal/api/` and `internal/mcp/` asserting Web UI and MCP catalog capabilities.
+- **Changes**:
+  - Updated [`web/static/index.html`](../web/static/index.html):
+    - Redesigned Tab 5 into a responsive Master-Detail layout with top-level subview navigation (`Plugin Catalog & Runner`, `Read-Only SQL Explorer`, `Register Declarative Spec`).
+    - Added instant client-side search input bar (`x-model="pluginSearchQuery"`) matching ID, Name, Description, Category, and Action names.
+    - Added category filter pills for all 10 operational domains (`SysAdmin`, `NetOps`, `SecOps`, `ContainerOps`, `Kubernetes`, `DataOps`, `DevOps`, `SRE`, `AIOps`, `WebUtils`) plus `All` with active pill styling and per-domain plugin count badges.
+    - Added plugin type toggle filter (`All`, `Native`, `Declarative`) with active badges.
+    - Implemented client-side pagination (10 plugins/page) with Prev/Next buttons, page indicators, and total count display (`Showing X-Y of Z plugins`).
+    - Built selected plugin detail view displaying ID, Name, Category badge, Type badge, Version, and Description.
+    - Implemented Dynamic Parameter Form Generator: dynamically renders typed input fields for booleans (switch toggle), integers (number input), and strings with default value placeholders, parameter descriptions, and validation pattern hints; included toggle for Raw JSON input mode with two-way reactive state sync.
+    - Added execute button calling `executePlugin()` via `POST /api/v1/plugins/execute` with bearer token authentication.
+    - Added formatted execution telemetry result viewer displaying uppercase status badge, duration in milliseconds, timed-out warning, formatted output, and error diagnostics.
+    - Preserved guarded read-only SQL Explorer (`db-exposure`) and runtime declarative spec registration (`/api/v1/plugins/declarative`) in dedicated subviews.
+  - Updated [`internal/api/web_console_test.go`](../internal/api/web_console_test.go):
+    - Added `TestWebAdministrationConsole_Tab5_CatalogSearchFilteringPaginationAndForms` validating all Tab 5 reactive state bindings, layout markers, category pills, dynamic form elements, and end-to-end plugin execution via API token.
+  - Updated [`internal/mcp/server_test.go`](../internal/mcp/server_test.go):
+    - Added `TestMCPServer_ResourcePluginsCatalog_300PlusPlugins` asserting that `executor://plugins/catalog` resource returns `>= 300` plugins across all 10 domains with `>= 28` plugins per domain, and validating `execute_plugin` meta-tool execution for native and database plugins, error handling for unknown plugins/actions, and RBAC authorization denial.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-019` (dynamic form parameter type coercion and two-way sync) and `IDEA-006` (virtualized catalog scrolling for >1,000 plugins).
+- **Result**:
+  - 100% test pass rate across all 10 packages (`227 passed in 10 packages`, `65 passed in 1 packages` for E2E tests); statement coverage: `internal/api` at 89.9%, `internal/mcp` at 94.2%, `internal/plugins` at 86.3%.
+
+
 ### `ACT-021` — Applications, Data, and AIOps Declarative Plugin Packs (140 Plugins Across 5 Domains)
 - **Timestamp (UTC)**: `2026-10-27T02:35:00Z`
 - **GitHub Issue**: [#42](https://github.com/jmrenouard/api_executor/issues/42)

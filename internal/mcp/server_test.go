@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -417,5 +419,227 @@ func TestMCPServerToolsResourcesPromptsAndErrorBranches(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPServer_ResourcePluginsCatalog_300PlusPlugins(t *testing.T) {
+	pluginsDir := "plugins"
+	if _, err := os.Stat(pluginsDir); err != nil && os.IsNotExist(err) {
+		pluginsDir = "../../plugins"
+	}
+
+	reg := plugins.NewRegistry()
+	loaded, err := reg.LoadDeclarativeDirectory(pluginsDir)
+	if err != nil {
+		t.Fatalf("failed to load declarative plugins from %s: %v", pluginsDir, err)
+	}
+	if loaded < 280 {
+		t.Fatalf("expected at least 280 declarative plugins, loaded %d", loaded)
+	}
+
+	allPlugins := reg.List()
+	if len(allPlugins) < 300 {
+		t.Fatalf("expected at least 300 total plugins in registry, got %d", len(allPlugins))
+	}
+
+	tmpDir := t.TempDir()
+	db, err := database.NewDB(filepath.Join(tmpDir, "mcp_300_test.db"))
+	if err != nil {
+		t.Fatalf("NewDB failed: %v", err)
+	}
+	defer db.Close()
+	_ = db.Init()
+	_ = reg.Register(plugins.NewDatabaseExposurePlugin(db, 100))
+
+	auditLogger, err := audit.NewAuditLogger(core.AuditConfig{Enabled: true, MaxMemoryLog: 100}, db, nil)
+	if err != nil {
+		t.Fatalf("NewAuditLogger failed: %v", err)
+	}
+
+	var recordedActions []string
+	srv, err := NewServer(
+		core.MCPConfig{
+			Enabled:       true,
+			ServerName:    "api-executor-mcp",
+			ServerVersion: "2.0.0",
+			RetainTraces:  true,
+			MaxTraces:     100,
+		},
+		core.DefaultConfig(),
+		db,
+		nil,
+		reg,
+		auditLogger,
+		nil,
+		func(action, outcome string, _ bool, _ time.Duration) {
+			recordedActions = append(recordedActions, action+":"+outcome)
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// 1. Verify executor://plugins/catalog is declared in Resources()
+	resList := srv.Resources()
+	foundCatalogResource := false
+	for _, r := range resList {
+		if r.URI == "executor://plugins/catalog" {
+			foundCatalogResource = true
+			if r.MimeType != "application/json" {
+				t.Errorf("expected application/json mimeType, got %s", r.MimeType)
+			}
+			break
+		}
+	}
+	if !foundCatalogResource {
+		t.Fatalf("executor://plugins/catalog resource not found in MCP server resources")
+	}
+
+	// 2. Read executor://plugins/catalog resource via JSON-RPC
+	readReq, _ := json.Marshal(map[string]any{"uri": "executor://plugins/catalog"})
+	readResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      100,
+		Method:  "resources/read",
+		Params:  readReq,
+	}, "sess-catalog", "llm-agent")
+	if readResp.Error != nil {
+		t.Fatalf("resources/read returned error: %+v", readResp.Error)
+	}
+
+	resultMap, ok := readResp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected result structure: %+v", readResp.Result)
+	}
+	contentsList, ok := resultMap["contents"].([]map[string]any)
+	if !ok || len(contentsList) == 0 {
+		t.Fatalf("missing contents in resources/read response: %+v", resultMap)
+	}
+	catalogJSON, ok := contentsList[0]["text"].(string)
+	if !ok || len(catalogJSON) == 0 {
+		t.Fatalf("empty catalog text in resources/read")
+	}
+
+	var catalog []plugins.PluginInfo
+	if err := json.Unmarshal([]byte(catalogJSON), &catalog); err != nil {
+		t.Fatalf("failed to unmarshal catalog JSON: %v", err)
+	}
+	if len(catalog) < 300 {
+		t.Fatalf("expected >= 300 plugins in MCP resource catalog, got %d", len(catalog))
+	}
+
+	// Verify all 10 domain categories are present with at least 28 plugins each
+	requiredCategories := []string{
+		"SysAdmin", "NetOps", "SecOps", "ContainerOps", "Kubernetes",
+		"DataOps", "DevOps", "SRE", "AIOps", "WebUtils",
+	}
+	catCounts := make(map[string]int)
+	for _, p := range catalog {
+		catCounts[p.Category]++
+	}
+	for _, reqCat := range requiredCategories {
+		count := catCounts[reqCat]
+		if count < 28 {
+			t.Errorf("category %q has %d plugins in MCP catalog, expected >= 28", reqCat, count)
+		}
+	}
+
+	// 3. Test execute_plugin meta-tool on Native Go plugin (sys-diagnostics:runtime_stats)
+	nativeExecReq, _ := json.Marshal(map[string]any{
+		"name": "execute_plugin",
+		"arguments": map[string]any{
+			"plugin_id": "sys-diagnostics",
+			"action":    "runtime_stats",
+		},
+	})
+	nativeExecResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      101,
+		Method:  "tools/call",
+		Params:  nativeExecReq,
+	}, "sess-exec", "llm-agent")
+	if nativeExecResp.Error != nil {
+		t.Fatalf("execute_plugin native returned JSON-RPC error: %+v", nativeExecResp.Error)
+	}
+	nativeCallRes, ok := nativeExecResp.Result.(MCPCallToolResult)
+	if !ok {
+		t.Fatalf("unexpected call result type: %+v", nativeExecResp.Result)
+	}
+	if nativeCallRes.IsError {
+		t.Errorf("expected native plugin execution to succeed, got error result: %+v", nativeCallRes)
+	}
+	if len(nativeCallRes.Content) == 0 || len(nativeCallRes.Content[0].Text) == 0 {
+		t.Errorf("expected non-empty output text from sys-diagnostics:runtime_stats")
+	}
+
+	// 4. Test execute_plugin meta-tool on db-exposure (list_tables)
+	dbExecReq, _ := json.Marshal(map[string]any{
+		"name": "execute_plugin",
+		"arguments": map[string]any{
+			"plugin_id": "db-exposure",
+			"action":    "list_tables",
+		},
+	})
+	dbExecResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      102,
+		Method:  "tools/call",
+		Params:  dbExecReq,
+	}, "sess-exec", "llm-agent")
+	if dbExecResp.Error != nil {
+		t.Fatalf("execute_plugin db-exposure returned error: %+v", dbExecResp.Error)
+	}
+	dbCallRes := dbExecResp.Result.(MCPCallToolResult)
+	if dbCallRes.IsError {
+		t.Errorf("expected db-exposure:list_tables to succeed, got error: %+v", dbCallRes)
+	}
+
+	// 5. Test execute_plugin error paths
+	// 5a. Missing plugin_id
+	badArgs1, _ := json.Marshal(map[string]any{
+		"name":      "execute_plugin",
+		"arguments": map[string]any{"action": "test"},
+	})
+	badResp1 := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      103,
+		Method:  "tools/call",
+		Params:  badArgs1,
+	}, "sess-err", "llm-agent")
+	if res, ok := badResp1.Result.(MCPCallToolResult); !ok || !res.IsError {
+		t.Errorf("expected IsError=true for missing plugin_id")
+	}
+
+	// 5b. Non-existent plugin ID
+	badArgs2, _ := json.Marshal(map[string]any{
+		"name": "execute_plugin",
+		"arguments": map[string]any{
+			"plugin_id": "nonexistent-plugin-xyz",
+			"action":    "some_action",
+		},
+	})
+	badResp2 := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      104,
+		Method:  "tools/call",
+		Params:  badArgs2,
+	}, "sess-err", "llm-agent")
+	if res, ok := badResp2.Result.(MCPCallToolResult); !ok || !res.IsError {
+		t.Errorf("expected IsError=true for nonexistent plugin ID")
+	}
+
+	// 6. Test RBAC denial with authorizer
+	denyAuthorizer := func(scope, action string) error {
+		return errors.New("insufficient permission")
+	}
+	denyResp := srv.HandleJSONRPCWithAuthorizer(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      105,
+		Method:  "tools/call",
+		Params:  nativeExecReq,
+	}, "sess-deny", "restricted-agent", denyAuthorizer)
+	if res, ok := denyResp.Result.(MCPCallToolResult); !ok || !res.IsError {
+		t.Errorf("expected IsError=true when authorizer denies execute_plugin")
+	}
+}
+
 
 

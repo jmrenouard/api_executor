@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWebAdministrationConsoleServed(t *testing.T) {
@@ -217,5 +218,136 @@ func TestWebAdministrationConsoleEndToEndWorkflows(t *testing.T) {
 		t.Fatalf("expected valid audit chain with >= 3 events, got valid=%v total=%d", verifyResp.Valid, verifyResp.TotalEvents)
 	}
 }
+
+func TestWebAdministrationConsole_Tab5_CatalogSearchFilteringPaginationAndForms(t *testing.T) {
+	logger, err := core.NewLogger(core.LoggingConfig{Level: "info"})
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+
+	db, err := database.NewDB(filepath.Join(t.TempDir(), "web_tab5_test.db"))
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer db.Close()
+	_ = db.Init()
+
+	auditLogger, err := audit.NewAuditLogger(cfg.Audit, db, logger)
+	if err != nil {
+		t.Fatalf("failed to init audit logger: %v", err)
+	}
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to init auth manager: %v", err)
+	}
+	reg := plugins.NewRegistry()
+	_ = reg.Register(plugins.NewDatabaseExposurePlugin(db, 50))
+
+	env := &APIEnv{
+		Config:         cfg,
+		Logger:         logger,
+		DB:             db,
+		AuditLogger:    auditLogger,
+		AuthManager:    authMgr,
+		PluginRegistry: reg,
+	}
+	router := NewRouter(env)
+
+	// 1. Fetch web console HTML
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// 2. Validate all Tab 5 reactive state bindings and layout markers
+	expectedMarkers := []string{
+		"300+ Modular Plugins &amp; SQL Explorer",
+		"pluginSearchQuery",
+		"pluginCategoryFilter",
+		"pluginTypeFilter",
+		"pluginPage",
+		"pluginPageSize",
+		"pluginSubTab",
+		"paramInputMode",
+		"actionParamValues",
+		"pluginExecuting",
+		"pluginExecResult",
+		"filteredPlugins",
+		"paginatedPlugins",
+		"categoryCount",
+		"totalPluginPages",
+		"paginationSummary",
+		"currentActionParameters",
+		"toggleParamMode",
+		"Execute Plugin Action",
+		"All 10 Domains",
+		"SysAdmin",
+		"NetOps",
+		"SecOps",
+		"ContainerOps",
+		"Kubernetes",
+		"DataOps",
+		"DevOps",
+		"SRE",
+		"AIOps",
+		"WebUtils",
+		"db-exposure",
+		"Register Declarative Spec",
+		"x-model=\"pluginSearchQuery\"",
+		"x-model=\"actionParamValues[param.name]\"",
+		"x-model=\"dbSQLQuery\"",
+		"x-model=\"declarativeSpecJSON\"",
+	}
+
+	for _, marker := range expectedMarkers {
+		if !strings.Contains(body, marker) {
+			t.Errorf("expected web administration console to contain Tab 5 marker %q", marker)
+		}
+	}
+
+	// 3. Test plugin execution API endpoint used by Tab 5 Execute button
+	_, token, err := authMgr.CreateToken("admin", "web-tab5-tester", []string{"*"}, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to create PAT: %v", err)
+	}
+
+	execBody, _ := json.Marshal(map[string]any{
+		"plugin_id": "sys-diagnostics",
+		"action":    "runtime_stats",
+		"params":    map[string]any{},
+	})
+	execReq := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/execute", bytes.NewReader(execBody))
+	execReq.Header.Set("Authorization", "Bearer "+token)
+	execReq.Header.Set("Content-Type", "application/json")
+	execRec := httptest.NewRecorder()
+	router.ServeHTTP(execRec, execReq)
+
+	if execRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from plugin execution, got %d: %s", execRec.Code, execRec.Body.String())
+	}
+
+	var execResp struct {
+		PluginID   string `json:"plugin_id"`
+		Action     string `json:"action"`
+		Status     string `json:"status"`
+		Output     string `json:"output"`
+		DurationMs int64  `json:"duration_ms"`
+	}
+	if err := json.Unmarshal(execRec.Body.Bytes(), &execResp); err != nil {
+		t.Fatalf("failed to decode plugin execute response: %v", err)
+	}
+	if execResp.PluginID != "sys-diagnostics" || execResp.Action != "runtime_stats" || execResp.Status != "ok" {
+		t.Fatalf("unexpected plugin execution result: %+v", execResp)
+	}
+	if !strings.Contains(execResp.Output, "num_goroutine") {
+		t.Errorf("expected runtime stats output to contain telemetry data, got %q", execResp.Output)
+	}
+}
+
 
 
