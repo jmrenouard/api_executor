@@ -32,7 +32,7 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
   - Updated [`internal/plugins/m2_adversarial_security_test.go`](../internal/plugins/m2_adversarial_security_test.go), [`internal/plugins/m2_stress_challenge_test.go`](../internal/plugins/m2_stress_challenge_test.go), and [`internal/api/m2_stress_challenge_test.go`](../internal/api/m2_stress_challenge_test.go) to support growing declarative catalog beyond 141 plugins.
   - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
 - **Result**:
-  - 100% test pass rate across all 10 packages (`200 passed in 10 packages`, `65 passed in 1 packages` for E2E tests); `internal/plugins` statement coverage at 86.3%; exactly 281 declarative plugins loaded with 0 duplicate IDs; 0 unsafe shell interpolations.
+  - 100% test pass rate across all 10 packages (`213 passed in 10 packages`, `65 passed in 1 packages` for E2E tests); `internal/plugins` statement coverage at 86.3%; exactly 281 declarative plugins loaded with 0 duplicate IDs; 0 unsafe shell interpolations. Merged to `main` in PR [#43](https://github.com/jmrenouard/api_executor/pull/43) (commit `643a1e8`).
 
 
 ### `ACT-020` — Infrastructure and Systems Declarative Plugin Packs (140 Plugins Across 5 Domains)
