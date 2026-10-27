@@ -138,6 +138,13 @@ This living governance register records all errors encountered, technical dead-e
   - Extracted `runServer(configPath, serveFn)` in `cmd/server/main.go` and expanded `cmd/server/main_test.go` (`66.0%` -> `82.4%` statement coverage).
 - **Result & Non-Regression Test**: Verified by `TestAuthTokensPrivilegeEscalationPrevention` (`internal/api/auth_test.go`), `TestWebAdministrationConsoleServed` (`internal/api/web_console_test.go`), `TestResolveConfigPathAndInitializeServerEnv` (`cmd/server/main_test.go`), and live MCP Playwright E2E verification across all 8 tabs.
 
+### `RCA-014` — Windows Declarative Subprocess Execution Failure for `echo` Builtin
+- **Date**: `2026-10-27`
+- **Observed Symptom**: When declarative command actions configured with `command: "echo"` were invoked on Windows, `exec.CommandContext` failed with `exec: "echo": executable file not found in %PATH%`, returning status `error` (HTTP 400).
+- **Root Cause Analysis**: On Windows, `echo` is a built-in command of `cmd.exe` rather than an independent binary executable in `%PATH%`. Direct argv subprocess execution (`exec.CommandContext` without a shell) requires invoking `cmd` with `["/C", "echo", ...]` on Windows.
+- **Applied Change / Fix**: Implemented a cross-platform helper `crossPlatformEcho()` in test harnesses checking `runtime.GOOS == "windows"` and using `cmd /C echo` on Windows while using `echo` on Linux/POSIX, mirroring `DefaultDeclarativeOpsPlugin()`.
+- **Result & Non-Regression Test**: Verified by `TestTier1_F4_DeclarativePlugin_DynamicRegistrationAndExecution`, `TestTier3_Combination_APIFilterAndExecuteWorkflow`, and `TestTier4_Scenario_DynamicOpsRemediationAndAuditLifecycle` passing 100% on both Windows and Linux.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -173,6 +180,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-005` | `internal/plugins` | `db-exposure` simulates `SELECT` projection over `action_history` when running in pure-Go in-memory fallback mode (`db.Conn() == nil`). | Ensures identical read-only SQL validation and deterministic test/runtime behavior even when compiled with `CGO_ENABLED=0`. | Compile with CGO SQLite or connect to an external SQL engine. |
 | `APP-006` | `internal/mcp` | Synchronous HTTP JSON-RPC 2.0 transport (`POST /api/v1/mcp`) with bounded in-memory ring buffer (`MaxTraces = 500`) + SQLite/JSONL persistence. | Request/response RPC calls complete in a single HTTP round-trip without requiring long-lived SSE state. | Add Streamable HTTP / SSE server-initiated notification transport if bidirectional MCP server-to-client sampling is required (`IDEA-005`). |
 | `APP-007` | `web/static` | Single-file zero-build Web Administration Console (`web/static/index.html`) using Alpine.js and Tailwind CSS via CDN. | Requires no Node.js/npm build step; air-gapped deployments without internet access need vendored static CSS/JS assets. | Vendor Alpine.js and compiled CSS into `web/static/vendor/` for offline air-gapped environments. |
+| `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Automatically replaced by declarative YAML files once M2 and M3 packs are committed. |
 
 ---
 
