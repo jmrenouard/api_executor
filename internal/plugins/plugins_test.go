@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -1261,5 +1262,144 @@ func TestNativePluginsDeepExecutionAndEdgeCases(t *testing.T) {
 		if err != nil || res.Status != "ok" {
 			t.Errorf("redis-protocol-probe redis_key_type failed: %v (%+v)", err, res)
 		}
+	}
+}
+
+func TestRegistry_ListFiltered_InvalidTypeDropsAll(t *testing.T) {
+	reg := NewRegistry()
+	if ops, err := DefaultDeclarativeOpsPlugin(); err == nil {
+		_ = reg.Register(ops)
+	}
+
+	all := reg.List()
+	if len(all) == 0 {
+		t.Fatalf("expected non-empty registry")
+	}
+
+	// Unrecognized / bogus types must return 0 results (no fail-open)
+	for _, invalidType := range []string{"invalid", "bogus-type", "unknown", "script", "xyz"} {
+		res := reg.ListFiltered("", "", invalidType)
+		if len(res) != 0 {
+			t.Errorf("ListFiltered with invalid type %q returned %d plugins, expected 0", invalidType, len(res))
+		}
+	}
+
+	// Valid native filter
+	nativeOnly := reg.ListFiltered("", "", "native")
+	if len(nativeOnly) == 0 {
+		t.Fatalf("expected native plugins to be returned")
+	}
+	for _, p := range nativeOnly {
+		if p.Type != "native" {
+			t.Errorf("expected type 'native', got %q for plugin %s", p.Type, p.ID)
+		}
+	}
+
+	// Valid declarative filter
+	declOnly := reg.ListFiltered("", "", "declarative")
+	if len(declOnly) == 0 {
+		t.Fatalf("expected declarative plugins to be returned")
+	}
+	for _, p := range declOnly {
+		if p.Type != "declarative" {
+			t.Errorf("expected type 'declarative', got %q for plugin %s", p.Type, p.ID)
+		}
+	}
+
+	// Empty and "all" return all plugins
+	if len(reg.ListFiltered("", "", "")) != len(all) {
+		t.Errorf("expected empty type filter to return all %d plugins, got %d", len(all), len(reg.ListFiltered("", "", "")))
+	}
+	if len(reg.ListFiltered("", "", "all")) != len(all) {
+		t.Errorf("expected 'all' type filter to return all %d plugins, got %d", len(all), len(reg.ListFiltered("", "", "all")))
+	}
+}
+
+func TestHTTPLatencyProbe_MalformedURLs(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+
+	// Non-regression: Verify zero panics and graceful error handling on malformed URLs
+	for _, malformed := range []string{"://invalid-url", "ht tp://bad", "http://[::1"} {
+		for _, action := range []string{"probe_endpoint", "inspect_headers", "ssl_redirect_check"} {
+			res, err := reg.Execute(ctx, "http-latency-probe", action, map[string]any{"url": malformed}, 5*time.Second)
+			if err == nil {
+				t.Errorf("http-latency-probe %s with %q expected non-nil error, got nil", action, malformed)
+			}
+			if res.Status != "error" {
+				t.Errorf("http-latency-probe %s with %q expected status 'error', got %q", action, malformed, res.Status)
+			}
+			if res.Error == "" {
+				t.Errorf("http-latency-probe %s with %q expected non-empty Error string", action, malformed)
+			}
+		}
+	}
+}
+
+func TestJWTTokenInspector_ValidationAndMalformedPayloads(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+
+	// 1. Valid token: expiration in future
+	validJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjE5OTk5OTk5OTl9.4S8884_f-H"
+	res, err := reg.Execute(ctx, "jwt-token-inspector", "verify_validity", map[string]any{"token": validJWT}, 5*time.Second)
+	if err != nil || res.Status != "ok" {
+		t.Fatalf("verify_validity on valid token failed: %v (%+v)", err, res)
+	}
+	data, ok := res.Data.(map[string]any)
+	if !ok || data["valid"] != true || data["is_expired"] != false {
+		t.Errorf("expected valid=true, is_expired=false, got: %+v", data)
+	}
+
+	// 2. Adversarial case: non-JSON payload token "eyJhbGciOiJIUzI1NiJ9.YQ.sig" (payload is "a")
+	badPayloadToken := "eyJhbGciOiJIUzI1NiJ9.YQ.sig"
+	res, err = reg.Execute(ctx, "jwt-token-inspector", "verify_validity", map[string]any{"token": badPayloadToken}, 5*time.Second)
+	if err == nil || res.Status != "error" {
+		t.Errorf("expected verify_validity on non-JSON payload to fail with status: 'error', got status=%s, err=%v", res.Status, err)
+	}
+	res, err = reg.Execute(ctx, "jwt-token-inspector", "decode_claims", map[string]any{"token": badPayloadToken}, 5*time.Second)
+	if err == nil || res.Status != "error" {
+		t.Errorf("expected decode_claims on non-JSON payload to fail with status: 'error', got status=%s, err=%v", res.Status, err)
+	}
+
+	// 3. Empty segments ".."
+	for _, action := range []string{"inspect_header", "decode_claims", "verify_validity"} {
+		res, err = reg.Execute(ctx, "jwt-token-inspector", action, map[string]any{"token": ".."}, 5*time.Second)
+		if err == nil || res.Status != "error" {
+			t.Errorf("expected %s on '..' to fail with status: 'error', got status=%s, err=%v", action, res.Status, err)
+		}
+	}
+
+	// 4. JSON null payload "eyJhbGciOiJIUzI1NiJ9.bnVsbA.sig" (payload is "null")
+	nullPayloadToken := "eyJhbGciOiJIUzI1NiJ9.bnVsbA.sig"
+	res, err = reg.Execute(ctx, "jwt-token-inspector", "verify_validity", map[string]any{"token": nullPayloadToken}, 5*time.Second)
+	if err == nil || res.Status != "error" {
+		t.Errorf("expected verify_validity on null payload to return error, got status=%s, err=%v", res.Status, err)
+	}
+
+	// 5. Expired token: syntax valid, but exp in past
+	expiredJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJleHAiOjEwMDAwMDAwMDB9.sig"
+	res, err = reg.Execute(ctx, "jwt-token-inspector", "verify_validity", map[string]any{"token": expiredJWT}, 5*time.Second)
+	if err != nil || res.Status != "ok" {
+		t.Fatalf("expected verify_validity on expired token to return ok status, got err=%v, res=%+v", err, res)
+	}
+	data, ok = res.Data.(map[string]any)
+	if !ok || data["valid"] != false || data["is_expired"] != true {
+		t.Errorf("expected valid=false, is_expired=true, got: %+v", data)
+	}
+
+	// 6. Token with not-before (nbf) in the future: syntax valid, exp in future, but nbf not reached -> valid=false
+	futureNbf := time.Now().Add(1 * time.Hour).Unix()
+	futureNbfPayload := fmt.Sprintf(`{"sub":"123","exp":1999999999,"nbf":%d}`, futureNbf)
+	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(futureNbfPayload))
+	futureNbfJWT := fmt.Sprintf("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.%s.sig", encodedPayload)
+
+	res, err = reg.Execute(ctx, "jwt-token-inspector", "verify_validity", map[string]any{"token": futureNbfJWT}, 5*time.Second)
+	if err != nil || res.Status != "ok" {
+		t.Fatalf("expected verify_validity on future nbf to return status ok, got: %v (%+v)", err, res)
+	}
+	data, ok = res.Data.(map[string]any)
+	if !ok || data["valid"] != false {
+		t.Errorf("expected valid=false when nbf is in future, got: %+v", data)
 	}
 }

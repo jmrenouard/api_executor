@@ -158,6 +158,26 @@ This living governance register records all errors encountered, technical dead-e
   2. Added `NewEmptyRegistry()` in `internal/plugins/plugin.go` for isolated test scenarios and updated legacy assertions in `internal/plugins/plugins_test.go`.
 - **Result & Non-Regression Test**: Verified by `TestAll24NativePluginsActions` and `TestRegistryEmptyAndDuplicate` in `internal/plugins/plugins_test.go` (100% test pass rate across 145 tests, 85.9% plugin coverage).
 
+### `RCA-016` — Fail-Open on Unrecognized Plugin Types, Omitted Metadata on Declarative Registration, and Unhandled Errors in Native HTTP/JWT Plugins
+- **Date**: `2026-10-27`
+- **Observed Symptom**:
+  1. `Registry.ListFiltered` with an unrecognized or non-existent type query (e.g. `?type=bogus-type`) returned all 25 registered plugins instead of an empty slice.
+  2. `POST /api/v1/plugins/declarative` returned `PluginInfo` with empty `type: ""` and `category: ""` in JSON response.
+  3. `http-latency-probe` actions `inspect_headers` and `ssl_redirect_check` triggered a runtime panic (`nil pointer dereference`) when supplied with a malformed URL like `"://invalid-url"`.
+  4. `jwt-token-inspector` discarded `json.Unmarshal` errors with `_`, causing non-JSON payloads (`"eyJhbGciOiJIUzI1NiJ9.YQ.sig"` where payload is `"a"`) and empty segments (`".."`) to return `status: "ok"` and `valid: true`.
+- **Root Cause Analysis**:
+  1. `ListFiltered` used cascading positive `if` checks for `"native"`, `"advanced"`, and `"declarative"` without a default drop case, allowing any unknown type string to fall through without hitting `continue`.
+  2. `PluginDeclarativeRegisterHandler` constructed `PluginInfo` without setting the `Type` and `Category` fields introduced during Milestone 1 metadata enrichment.
+  3. `inspect_headers` and `ssl_redirect_check` discarded the error from `http.NewRequestWithContext(ctx, method, targetURL, nil)` using `_`, passing `req == nil` to `client.Do(req)`.
+  4. `jwt-token-inspector` discarded errors from `json.Unmarshal(payloadBytes, &claims)`, leaving `claims` as `nil` so `claims["exp"]` was absent, `isExpired` remained `false`, and `valid` evaluated to `!isExpired` (`true`); also omitted `nbf` validation.
+- **Applied Change / Fix**:
+  1. Replaced cascading `if` checks in `internal/plugins/plugin.go` with `switch pluginType` featuring `default: continue`.
+  2. Populated `Type: declPlugin.Type()` and `Category: declPlugin.Category()` in `internal/api/plugin_handlers.go`.
+  3. Added error checking on `http.NewRequestWithContext` returning `Status: "error"` in `internal/plugins/native_crypto.go`.
+  4. Added explicit `json.Unmarshal` error handling and non-nil map checks in `internal/plugins/native_crypto.go`, and evaluated `nbf` constraint.
+- **Result & Non-Regression Test**:
+  - Verified by `TestRegistry_ListFiltered_InvalidTypeDropsAll`, `TestHTTPLatencyProbe_MalformedURLs`, and `TestJWTTokenInspector_ValidationAndMalformedPayloads` in `internal/plugins/plugins_test.go`, and `TestPluginDeclarativeRegisterHandlerMetadataCompleteness` in `internal/api/plugin_handlers_test.go`; 199 unit tests and 65 E2E tests passing 100% (`internal/plugins` 86.3%, `internal/api` 89.9%).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

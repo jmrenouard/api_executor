@@ -15,6 +15,23 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-019` — Harden Plugin Type Filtering, Declarative Register Metadata, and Native Crypto Error Handling
+- **Timestamp (UTC)**: `2026-10-27T01:18:00Z`
+- **GitHub Issue**: [#38](https://github.com/jmrenouard/api_executor/issues/38)
+- **Branch**: `fix/issue-38-m1-remediation`
+- **Request**:
+  - Apply fixes for ListFiltered type fail-open on unrecognized types, declarative register handler metadata omission, http-latency-probe nil pointer check on malformed URLs, and jwt-token-inspector JSON unmarshal validation and nbf constraint evaluation.
+- **Changes**:
+  - Updated [`internal/plugins/plugin.go`](../internal/plugins/plugin.go): replaced cascading `if` checks with `switch pluginType` and `default: continue` to drop plugins when an unrecognized or invalid type is queried.
+  - Updated [`internal/api/plugin_handlers.go`](../internal/api/plugin_handlers.go): populated `Type: declPlugin.Type()` and `Category: declPlugin.Category()` on returned `PluginInfo` in `PluginDeclarativeRegisterHandler`.
+  - Updated [`internal/plugins/native_crypto.go`](../internal/plugins/native_crypto.go): added `http.NewRequestWithContext` error checking in `inspect_headers` and `ssl_redirect_check` in `http-latency-probe` returning `status: "error"` gracefully; added explicit `json.Unmarshal` error checks and null guards in `inspect_header`, `decode_claims`, and `verify_validity` in `jwt-token-inspector`, and evaluated `nbf` time constraint.
+  - Updated [`internal/plugins/plugins_test.go`](../internal/plugins/plugins_test.go): added non-regression unit tests `TestRegistry_ListFiltered_InvalidTypeDropsAll`, `TestHTTPLatencyProbe_MalformedURLs`, and `TestJWTTokenInspector_ValidationAndMalformedPayloads`.
+  - Updated [`internal/api/plugin_handlers_test.go`](../internal/api/plugin_handlers_test.go): added `type=bogus-type` empty result assertion and `TestPluginDeclarativeRegisterHandlerMetadataCompleteness`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - 100% test pass rate across all 10 packages (`199 passed in 10 packages`, `65 passed in 1 packages` for E2E tests); statement coverage: `internal/plugins` at 86.3% and `internal/api` at 89.9%; zero nil-pointer panics on malformed URLs; invalid filter types drop plugins correctly without failing open; declarative plugin registration returns complete type and category metadata; malformed JWT payloads rejected with status error.
+
+
 ### `ACT-017` — Core Recursive Plugin Engine, Category Metadata Filtering, and 24 Native Go Plugins
 - **Timestamp (UTC)**: `2026-10-27T00:15:00Z`
 - **GitHub Issue**: [#34](https://github.com/jmrenouard/api_executor/issues/34)

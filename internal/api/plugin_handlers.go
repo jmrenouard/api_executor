@@ -196,6 +196,8 @@ func (env *APIEnv) PluginDeclarativeRegisterHandler(w http.ResponseWriter, r *ht
 		Name:        declPlugin.Name(),
 		Version:     declPlugin.Version(),
 		Kind:        declPlugin.Kind(),
+		Type:        declPlugin.Type(),
+		Category:    declPlugin.Category(),
 		Description: declPlugin.Description(),
 		Actions:     declPlugin.Actions(),
 	}
