@@ -1,0 +1,27 @@
+id: crypto-x509-cert-info
+name: X.509 Certificate Subject, Issuer & Validity Inspector
+version: 1.0.0
+category: WebUtils
+description: Decode X.509 PEM certificate subject, issuer authority, and start/expiry
+  validity dates.
+os_family: any
+actions:
+- name: inspect_cert
+  description: Decode X.509 certificate subject, issuer, and dates via openssl
+  command: openssl
+  args:
+  - x509
+  - -in
+  - '{{cert_path}}'
+  - -noout
+  - -subject
+  - -issuer
+  - -dates
+  timeout: 5s
+  parameters:
+  - name: cert_path
+    type: string
+    required: false
+    default: /etc/ssl/certs/cert.pem
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to X.509 PEM certificate file

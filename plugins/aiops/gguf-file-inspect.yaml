@@ -1,0 +1,22 @@
+id: gguf-file-inspect
+name: GGUF Model File Magic Header & Architecture Inspector
+version: 1.0.0
+category: AIOps
+description: Inspect magic header and initial metadata bytes of a GGUF model file.
+os_family: any
+actions:
+- name: read_header
+  description: Read first 100 bytes of GGUF model file
+  command: head
+  args:
+  - -c
+  - '100'
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/model.gguf
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to GGUF model file

@@ -1,0 +1,21 @@
+id: sqlite-db-size
+name: SQLite Page Allocation & Database Size Telemetry
+version: 1.0.0
+category: DataOps
+description: Compute page count, page size, and total allocated bytes of SQLite database.
+os_family: any
+actions:
+- name: page_stats
+  description: Query page count and page size pragmas
+  command: sqlite3
+  args:
+  - '{{db_path}}'
+  - PRAGMA page_count; PRAGMA page_size;
+  timeout: 5s
+  parameters:
+  - name: db_path
+    type: string
+    required: false
+    default: /tmp/test.db
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to SQLite database file

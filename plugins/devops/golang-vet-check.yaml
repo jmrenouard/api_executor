@@ -1,0 +1,22 @@
+id: golang-vet-check
+name: Go Static Code Analysis & Vet Analyzer
+version: 1.0.0
+category: DevOps
+description: Run Go vet static code analyzer against packages to identify suspicious
+  constructs.
+os_family: any
+actions:
+- name: run_vet
+  description: Execute go vet against target package path
+  command: go
+  args:
+  - vet
+  - '{{package}}'
+  timeout: 5s
+  parameters:
+  - name: package
+    type: string
+    required: false
+    default: ./...
+    pattern: ^(\./\.\.\.|/[a-zA-Z0-9._/-]+)$
+    description: Go package path to analyze

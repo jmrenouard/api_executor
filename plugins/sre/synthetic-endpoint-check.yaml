@@ -1,0 +1,26 @@
+id: synthetic-endpoint-check
+name: Synthetic Multi-Phase HTTP Latency & DNS Probe
+version: 1.0.0
+category: SRE
+description: Multi-phase synthetic probe measuring HTTP status code, DNS lookup, TCP
+  connect, and total time.
+os_family: any
+actions:
+- name: synthetic_probe
+  description: Measure synthetic connection phases and latency via curl
+  command: curl
+  args:
+  - -s
+  - -w
+  - status=%{http_code} dns=%{time_namelookup} connect=%{time_connect} total=%{time_total}\n
+  - -o
+  - /dev/null
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: false
+    default: http://127.0.0.1:8080/health
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: Endpoint URL to probe

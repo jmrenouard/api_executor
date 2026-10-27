@@ -1,0 +1,23 @@
+id: shellcheck-script
+name: ShellCheck Bash & POSIX Script Static Analyzer
+version: 1.0.0
+category: DevOps
+description: Run ShellCheck static analysis on shell scripts to identify syntax bugs
+  and portability issues.
+os_family: any
+actions:
+- name: lint_script
+  description: Execute ShellCheck static analyzer in JSON format
+  command: shellcheck
+  args:
+  - -f
+  - json
+  - '{{script}}'
+  timeout: 5s
+  parameters:
+  - name: script
+    type: string
+    required: false
+    default: /tmp/script.sh
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to shell script to lint

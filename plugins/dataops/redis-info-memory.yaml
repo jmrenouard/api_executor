@@ -1,0 +1,32 @@
+id: redis-info-memory
+name: Redis Memory Consumption & Fragmentation Telemetry
+version: 1.0.0
+category: DataOps
+description: Inspect Redis used memory, RSS peak allocation, and memory fragmentation
+  ratio.
+os_family: any
+actions:
+- name: memory_info
+  description: Query Redis memory statistics and fragmentation ratio
+  command: redis-cli
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - info
+  - memory
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Redis host
+  - name: port
+    type: string
+    required: false
+    default: '6379'
+    pattern: ^[0-9]+$
+    description: Redis port

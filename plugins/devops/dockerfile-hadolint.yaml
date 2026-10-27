@@ -1,0 +1,23 @@
+id: dockerfile-hadolint
+name: Hadolint Dockerfile Best-Practice Rules Linter
+version: 1.0.0
+category: DevOps
+description: Lint Dockerfile using Hadolint best-practice security rules and style
+  recommendations.
+os_family: any
+actions:
+- name: lint_dockerfile
+  description: Analyze Dockerfile with Hadolint
+  command: hadolint
+  args:
+  - -f
+  - json
+  - '{{dockerfile}}'
+  timeout: 5s
+  parameters:
+  - name: dockerfile
+    type: string
+    required: false
+    default: /tmp/Dockerfile
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to Dockerfile

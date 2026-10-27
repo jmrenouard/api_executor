@@ -1,0 +1,14 @@
+id: maven-version
+name: Apache Maven Build Tool Release & Java Runtime
+version: 1.0.0
+category: DevOps
+description: Inspect Apache Maven build tool release version, JVM path, and vendor
+  details.
+os_family: any
+actions:
+- name: mvn_version
+  description: Display Maven and Java environment version
+  command: mvn
+  args:
+  - --version
+  timeout: 5s

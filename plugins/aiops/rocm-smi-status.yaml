@@ -1,0 +1,16 @@
+id: rocm-smi-status
+name: AMD ROCm GPU Core Clocks & Thermal Telemetry
+version: 1.0.0
+category: AIOps
+description: Collect AMD ROCm GPU telemetry, engine clocks, memory utilization, and
+  temperatures.
+os_family: linux
+actions:
+- name: rocm_status
+  description: Query AMD ROCm GPU metrics via rocm-smi
+  command: rocm-smi
+  args:
+  - --showid
+  - --showtemp
+  - --showuse
+  timeout: 5s

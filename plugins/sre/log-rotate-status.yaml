@@ -1,0 +1,21 @@
+id: log-rotate-status
+name: Logrotate Service Execution & State Inspector
+version: 1.0.0
+category: SRE
+description: Verify logrotate execution timestamps and last rotated status for log
+  files.
+os_family: linux
+actions:
+- name: logrotate_state
+  description: Display logrotate status file
+  command: cat
+  args:
+  - '{{status_file}}'
+  timeout: 5s
+  parameters:
+  - name: status_file
+    type: string
+    required: false
+    default: /var/lib/logrotate/status
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to logrotate status file

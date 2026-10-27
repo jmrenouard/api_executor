@@ -1,0 +1,19 @@
+id: rust-cargo-version
+name: Rustc Compiler & Cargo Package Manager Release
+version: 1.0.0
+category: DevOps
+description: Query installed Rust compiler and Cargo package manager toolchain versions.
+os_family: any
+actions:
+- name: rustc_version
+  description: Query Rust compiler version
+  command: rustc
+  args:
+  - --version
+  timeout: 5s
+- name: cargo_version
+  description: Query Cargo package manager version
+  command: cargo
+  args:
+  - --version
+  timeout: 5s

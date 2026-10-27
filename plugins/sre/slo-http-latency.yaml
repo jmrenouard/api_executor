@@ -1,0 +1,26 @@
+id: slo-http-latency
+name: SLO HTTP Latency & Response Code Probe
+version: 1.0.0
+category: SRE
+description: Benchmark HTTP service endpoint response latency and status code distribution
+  for SLO tracking.
+os_family: any
+actions:
+- name: probe_latency
+  description: Probe HTTP endpoint and format latency telemetry
+  command: curl
+  args:
+  - -o
+  - /dev/null
+  - -s
+  - -w
+  - http_code=%{http_code} time_total=%{time_total}\n
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: false
+    default: http://127.0.0.1:8080/health
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: Service URL to benchmark

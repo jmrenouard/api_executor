@@ -1,0 +1,14 @@
+id: golang-env
+name: Go Compilation Environment & Flags Inspector
+version: 1.0.0
+category: DevOps
+description: Print effective Go compilation environment variables (GOPATH, GOROOT,
+  CGO_ENABLED).
+os_family: any
+actions:
+- name: go_env
+  description: Display Go toolchain environment configuration
+  command: go
+  args:
+  - env
+  timeout: 5s

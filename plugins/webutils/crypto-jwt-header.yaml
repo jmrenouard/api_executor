@@ -1,0 +1,24 @@
+id: crypto-jwt-header
+name: JSON Web Token (JWT) Algorithm & Header Decoder
+version: 1.0.0
+category: WebUtils
+description: Decode and inspect base64url JSON Web Token (JWT) header parameters and
+  signing algorithm.
+os_family: any
+actions:
+- name: decode_header
+  description: Decode JWT header part into formatted JSON
+  command: python3
+  args:
+  - -c
+  - import sys, base64, json; h=sys.argv[1].split('.')[0]; h+= '=' * ((4 - len(h)
+    % 4) % 4); print(json.dumps(json.loads(base64.urlsafe_b64decode(h).decode())))
+  - '{{jwt}}'
+  timeout: 5s
+  parameters:
+  - name: jwt
+    type: string
+    required: false
+    default: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.signature
+    pattern: ^[a-zA-Z0-9._-]+$
+    description: JSON Web Token string

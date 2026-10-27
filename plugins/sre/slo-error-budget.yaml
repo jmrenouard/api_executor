@@ -1,0 +1,22 @@
+id: slo-error-budget
+name: SLO HTTP 5xx Error Budget Calculator via AWK
+version: 1.0.0
+category: SRE
+description: Calculate remaining error budget from 5xx server error counts in HTTP
+  access log file.
+os_family: any
+actions:
+- name: count_5xx
+  description: Aggregate 5xx status codes from access log
+  command: awk
+  args:
+  - $9 ~ /^5/ {c++} END {print c+0}
+  - '{{access_log}}'
+  timeout: 5s
+  parameters:
+  - name: access_log
+    type: string
+    required: false
+    default: /var/log/nginx/access.log
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to web server access log

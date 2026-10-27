@@ -1,0 +1,22 @@
+id: loki-query-labels
+name: Grafana Loki Log Stream Labels Discovery
+version: 1.0.0
+category: SRE
+description: Query Grafana Loki API for available log streams, indices, and label
+  dimensions.
+os_family: any
+actions:
+- name: loki_labels
+  description: Fetch Loki indexed labels list
+  command: curl
+  args:
+  - -s
+  - http://{{loki_host}}:3100/loki/api/v1/labels
+  timeout: 5s
+  parameters:
+  - name: loki_host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Grafana Loki host

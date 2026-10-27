@@ -1,0 +1,22 @@
+id: base64-decode-text
+name: Base64 String Decoder & Text Extractor
+version: 1.0.0
+category: WebUtils
+description: Decode a valid base64-encoded string into decoded plain text.
+os_family: any
+actions:
+- name: decode_text
+  description: Decode base64 string to plain text
+  command: python3
+  args:
+  - -c
+  - import sys, base64; print(base64.b64decode(sys.argv[1].encode()).decode())
+  - '{{b64}}'
+  timeout: 5s
+  parameters:
+  - name: b64
+    type: string
+    required: false
+    default: aGVsbG8td29ybGQ=
+    pattern: ^[a-zA-Z0-9+/=]+$
+    description: Base64 encoded string

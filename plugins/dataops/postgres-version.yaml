@@ -1,0 +1,40 @@
+id: postgres-version
+name: PostgreSQL Server Version & Compiler Release
+version: 1.0.0
+category: DataOps
+description: Retrieve PostgreSQL server release version, architecture, and compiler
+  details.
+os_family: any
+actions:
+- name: query_version
+  description: Query PostgreSQL server version string
+  command: psql
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - -U
+  - '{{user}}'
+  - -c
+  - SELECT version();
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: PostgreSQL server hostname or IP address
+  - name: port
+    type: string
+    required: false
+    default: '5432'
+    pattern: ^[0-9]+$
+    description: PostgreSQL server port
+  - name: user
+    type: string
+    required: false
+    default: postgres
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Database username

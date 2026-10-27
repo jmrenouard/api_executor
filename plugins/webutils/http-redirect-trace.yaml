@@ -1,0 +1,25 @@
+id: http-redirect-trace
+name: HTTP 301/302 Redirect Location Target Tracer
+version: 1.0.0
+category: WebUtils
+description: Trace HTTP 301/302 redirect location targets and terminal URL destination.
+os_family: any
+actions:
+- name: trace_redirect
+  description: Trace redirect destination URL via curl write-out
+  command: curl
+  args:
+  - -s
+  - -o
+  - /dev/null
+  - -w
+  - '%{redirect_url}\n'
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: false
+    default: http://127.0.0.1:8080
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: URL to trace redirects

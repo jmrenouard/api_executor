@@ -1,0 +1,39 @@
+id: redis-slowlog
+name: Redis Slow Query Execution Log Inspector
+version: 1.0.0
+category: DataOps
+description: Query Redis slow query log entries to identify latency bottlenecks and
+  expensive operations.
+os_family: any
+actions:
+- name: get_slowlog
+  description: Fetch slow query log entries
+  command: redis-cli
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - slowlog
+  - get
+  - '{{count}}'
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Redis host
+  - name: port
+    type: string
+    required: false
+    default: '6379'
+    pattern: ^[0-9]+$
+    description: Redis port
+  - name: count
+    type: string
+    required: false
+    default: '10'
+    pattern: ^[0-9]+$
+    description: Number of slow log entries to fetch

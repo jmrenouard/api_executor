@@ -1,0 +1,21 @@
+id: text-sort-unique
+name: Text File Deduplication & Lexicographical Sort
+version: 1.0.0
+category: WebUtils
+description: Sort and deduplicate lines of a text file using standard POSIX sort -u.
+os_family: any
+actions:
+- name: sort_unique
+  description: Deduplicate and sort lines
+  command: sort
+  args:
+  - -u
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/test.txt
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to text file

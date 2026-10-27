@@ -189,6 +189,15 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   - Verified by `TestLoadDeclarativeDirectory_AllDeclarativePlugins` passing 100% across all 141 declarative plugins (140 new + 1 baseline).
 
+### `RCA-018` — Relative Path Parameters in DevOps Manifests Allowed Unrooted Path Traversal Sequences
+- **Date**: `2026-10-27`
+- **Observed Symptom**: During adversarial security testing of the declarative catalog expansion, `TestM2Adversarial_AllParameters_PathTraversalRejection` detected that parameters with relative path regex `^[a-zA-Z0-9._/-]+$` (in `golang-vet-check`, `jsonlint-file`, `yamllint-file`, `shellcheck-script`, and `dockerfile-hadolint`) accepted unrooted path traversal strings (e.g. `../../../../etc/passwd` or `subdir/../../shadow`).
+- **Root Cause Analysis**: Regex patterns without an anchored leading root slash allowed relative directory traversing tokens (`../` and `..\`), which caused subprocesses to execute on invalid traversal paths instead of halting early during parameter security validation.
+- **Applied Change / Fix**:
+  1. Enforced strict path traversal rejection in `internal/plugins/declarative.go` (`strings.Contains(rawVal, "../") || strings.Contains(rawVal, "..\\")`).
+  2. Tightened parameter validation patterns and defaults in the affected manifests under `plugins/devops/` to enforce leading slashes (`^/[a-zA-Z0-9._/-]+$`) or exact package prefixes (`^(\./\.\.\.|/[a-zA-Z0-9._/-]+)$`).
+- **Result & Non-Regression Test**: Verified by `TestM2Adversarial_AllParameters_PathTraversalRejection` in `internal/plugins/m2_adversarial_security_test.go` rejecting 100% of path traversal payloads with status `error`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

@@ -1,0 +1,15 @@
+id: nvidia-smi-temp-power
+name: NVIDIA GPU Temperature & Power Draw Telemetry
+version: 1.0.0
+category: AIOps
+description: Collect GPU core temperature, power consumption in watts, and thermal
+  throttling limits.
+os_family: any
+actions:
+- name: temp_power
+  description: Query GPU temperature, power draw, and power limits
+  command: nvidia-smi
+  args:
+  - --query-gpu=temperature.gpu,power.draw,power.limit
+  - --format=csv,noheader
+  timeout: 5s

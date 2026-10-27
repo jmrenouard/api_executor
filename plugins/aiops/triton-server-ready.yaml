@@ -1,0 +1,31 @@
+id: triton-server-ready
+name: NVIDIA Triton Inference Server Readiness Probe
+version: 1.0.0
+category: AIOps
+description: Query NVIDIA Triton Inference Server v2 ready and live health probes.
+os_family: any
+actions:
+- name: check_ready
+  description: Query Triton v2/health/ready endpoint
+  command: curl
+  args:
+  - -s
+  - -o
+  - /dev/null
+  - -w
+  - '%{http_code}'
+  - http://{{host}}:{{port}}/v2/health/ready
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Triton server host
+  - name: port
+    type: string
+    required: false
+    default: '8000'
+    pattern: ^[0-9]+$
+    description: Triton server HTTP port

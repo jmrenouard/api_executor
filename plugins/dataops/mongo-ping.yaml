@@ -1,0 +1,32 @@
+id: mongo-ping
+name: MongoDB Deployment Reachability & Admin Ping
+version: 1.0.0
+category: DataOps
+description: Execute MongoDB admin ping command via mongosh utility to verify database
+  connectivity.
+os_family: any
+actions:
+- name: ping_mongo
+  description: Send ping command to MongoDB admin database
+  command: mongosh
+  args:
+  - --host
+  - '{{host}}'
+  - --port
+  - '{{port}}'
+  - --eval
+  - db.adminCommand('ping')
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MongoDB host
+  - name: port
+    type: string
+    required: false
+    default: '27017'
+    pattern: ^[0-9]+$
+    description: MongoDB port

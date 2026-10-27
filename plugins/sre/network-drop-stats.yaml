@@ -1,0 +1,14 @@
+id: network-drop-stats
+name: Network Interface Packet Drops & Buffer Overruns
+version: 1.0.0
+category: SRE
+description: Detect dropped network packets, buffer overruns, and interface error
+  counters via netstat.
+os_family: any
+actions:
+- name: netstat_stats
+  description: Query network protocol statistics via netstat
+  command: netstat
+  args:
+  - -s
+  timeout: 5s

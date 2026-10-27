@@ -1,0 +1,40 @@
+id: postgres-db-sizes
+name: PostgreSQL Database Storage & Tablespace Consumption
+version: 1.0.0
+category: DataOps
+description: Query disk consumption, table sizes, and allocated tablespace bytes across
+  databases.
+os_family: any
+actions:
+- name: list_db_sizes
+  description: Query database storage usage in human-readable units
+  command: psql
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - -U
+  - '{{user}}'
+  - -c
+  - SELECT datname, pg_size_pretty(pg_database_size(datname)) FROM pg_database;
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: PostgreSQL server hostname or IP address
+  - name: port
+    type: string
+    required: false
+    default: '5432'
+    pattern: ^[0-9]+$
+    description: PostgreSQL server port
+  - name: user
+    type: string
+    required: false
+    default: postgres
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Database username

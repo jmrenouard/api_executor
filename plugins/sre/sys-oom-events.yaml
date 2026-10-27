@@ -1,0 +1,15 @@
+id: sys-oom-events
+name: Kernel Out-Of-Memory (OOM) Killer Event Scanner
+version: 1.0.0
+category: SRE
+description: Scan kernel ring buffer messages for Out-Of-Memory (OOM) killer terminations
+  and invocations.
+os_family: linux
+actions:
+- name: scan_oom
+  description: Display kernel messages with timestamps
+  command: dmesg
+  args:
+  - -T
+  - --facility=kern
+  timeout: 5s

@@ -1,0 +1,40 @@
+id: postgres-lock-monitor
+name: PostgreSQL Transaction Locks & Contention Detector
+version: 1.0.0
+category: DataOps
+description: Detect blocking queries, lock types, and exclusive row/table locks in
+  PostgreSQL.
+os_family: any
+actions:
+- name: inspect_locks
+  description: Query pg_locks for active lock modes and granted states
+  command: psql
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - -U
+  - '{{user}}'
+  - -c
+  - SELECT locktype, mode, granted FROM pg_locks LIMIT 20;
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: PostgreSQL server host
+  - name: port
+    type: string
+    required: false
+    default: '5432'
+    pattern: ^[0-9]+$
+    description: PostgreSQL server port
+  - name: user
+    type: string
+    required: false
+    default: postgres
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Database username

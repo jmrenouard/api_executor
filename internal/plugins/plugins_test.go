@@ -1404,8 +1404,8 @@ func TestJWTTokenInspector_ValidationAndMalformedPayloads(t *testing.T) {
 	}
 }
 
-// TestLoadDeclarativeDirectory_AllDeclarativePlugins verifies that LoadDeclarativeDirectory loads all 141 declarative plugins
-// across 5 infrastructure domains with 0 duplicate IDs and valid metadata.
+// TestLoadDeclarativeDirectory_AllDeclarativePlugins verifies that LoadDeclarativeDirectory loads all 281 declarative plugins
+// across 10 operational domains with 0 duplicate IDs and valid metadata.
 func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
 	pluginsDir := "plugins"
 	if _, err := os.Stat(pluginsDir); err != nil && os.IsNotExist(err) {
@@ -1417,13 +1417,13 @@ func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDeclarativeDirectory failed on %s: %v", pluginsDir, err)
 	}
-	if loaded != 141 {
-		t.Fatalf("expected exactly 141 declarative plugins loaded, got %d", loaded)
+	if loaded != 281 {
+		t.Fatalf("expected exactly 281 declarative plugins loaded, got %d", loaded)
 	}
 
 	list := reg.ListFiltered("", "", "declarative")
-	if len(list) != 141 {
-		t.Fatalf("expected 141 declarative plugins in registry, got %d", len(list))
+	if len(list) != 281 {
+		t.Fatalf("expected 281 declarative plugins in registry, got %d", len(list))
 	}
 
 	seen := make(map[string]bool)
@@ -1448,10 +1448,22 @@ func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
 		categoryCounts[p.Category]++
 	}
 
-	expectedCategories := []string{"SysAdmin", "NetOps", "SecOps", "ContainerOps", "Kubernetes"}
-	for _, cat := range expectedCategories {
-		if count := categoryCounts[cat]; count < 28 {
-			t.Errorf("expected at least 28 plugins in category %q, got %d", cat, count)
+	expectedCategories := map[string]int{
+		"SysAdmin":     28,
+		"NetOps":       28,
+		"SecOps":       28,
+		"ContainerOps": 28,
+		"Kubernetes":   28,
+		"DataOps":      28,
+		"DevOps":       28,
+		"SRE":          28,
+		"AIOps":        28,
+		"WebUtils":     28,
+		"General":      1,
+	}
+	for cat, expectedCount := range expectedCategories {
+		if count := categoryCounts[cat]; count != expectedCount {
+			t.Errorf("expected %d plugins in category %q, got %d", expectedCount, cat, count)
 		}
 	}
 }

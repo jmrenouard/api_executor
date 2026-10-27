@@ -1,0 +1,15 @@
+id: npm-outdated-deps
+name: NPM Outdated Package Dependencies Inspector
+version: 1.0.0
+category: DevOps
+description: Identify outdated npm packages comparing current installed versions against
+  latest registry releases.
+os_family: any
+actions:
+- name: list_outdated
+  description: List outdated packages in JSON format
+  command: npm
+  args:
+  - outdated
+  - --json
+  timeout: 5s

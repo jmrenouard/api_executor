@@ -1,0 +1,14 @@
+id: nvidia-smi-summary
+name: NVIDIA GPU Hardware & Driver Summary Telemetry
+version: 1.0.0
+category: AIOps
+description: Query installed NVIDIA GPU models, driver versions, and total VRAM capacity.
+os_family: any
+actions:
+- name: gpu_summary
+  description: Query GPU names, driver versions, and total memory via nvidia-smi
+  command: nvidia-smi
+  args:
+  - --query-gpu=name,driver_version,memory.total
+  - --format=csv,noheader
+  timeout: 5s

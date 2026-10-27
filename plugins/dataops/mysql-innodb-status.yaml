@@ -1,0 +1,32 @@
+id: mysql-innodb-status
+name: MySQL InnoDB Engine Transaction & Buffer Telemetry
+version: 1.0.0
+category: DataOps
+description: Retrieve InnoDB storage engine transaction status, buffer pool telemetry,
+  and deadlock history.
+os_family: any
+actions:
+- name: engine_status
+  description: Display InnoDB engine operational and lock telemetry
+  command: mysql
+  args:
+  - -h
+  - '{{host}}'
+  - -P
+  - '{{port}}'
+  - -e
+  - SHOW ENGINE INNODB STATUS;
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MySQL host
+  - name: port
+    type: string
+    required: false
+    default: '3306'
+    pattern: ^[0-9]+$
+    description: MySQL port

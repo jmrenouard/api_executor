@@ -1,0 +1,27 @@
+id: weaviate-meta
+name: Weaviate Vector Database Metadata & Modules Inspector
+version: 1.0.0
+category: AIOps
+description: Inspect Weaviate vector engine server version, modules, and meta configuration.
+os_family: any
+actions:
+- name: query_meta
+  description: Query Weaviate /v1/meta endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/v1/meta
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Weaviate host
+  - name: port
+    type: string
+    required: false
+    default: '8080'
+    pattern: ^[0-9]+$
+    description: Weaviate HTTP port

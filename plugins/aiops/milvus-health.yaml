@@ -1,0 +1,28 @@
+id: milvus-health
+name: Milvus Vector Database Service Health Probe
+version: 1.0.0
+category: AIOps
+description: Check Milvus vector database coordinator and datanode health status via
+  HTTP.
+os_family: any
+actions:
+- name: check_health
+  description: Probe Milvus healthz endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/healthz
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Milvus host
+  - name: port
+    type: string
+    required: false
+    default: '9091'
+    pattern: ^[0-9]+$
+    description: Milvus HTTP port

@@ -1,0 +1,14 @@
+id: thread-exhaustion
+name: Operating System Thread Count & Exhaustion Monitor
+version: 1.0.0
+category: SRE
+description: Enumerate total active OS light-weight processes and threads to monitor
+  exhaustion.
+os_family: linux
+actions:
+- name: list_threads
+  description: Enumerate running threads across all processes
+  command: ps
+  args:
+  - -eLf
+  timeout: 5s

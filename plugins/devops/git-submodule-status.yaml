@@ -1,0 +1,15 @@
+id: git-submodule-status
+name: Git Submodule Commit Alignment & Status
+version: 1.0.0
+category: DevOps
+description: Verify submodule repository commit pointer alignment and initialization
+  state.
+os_family: any
+actions:
+- name: submodule_status
+  description: Check Git submodule commits and sync status
+  command: git
+  args:
+  - submodule
+  - status
+  timeout: 5s

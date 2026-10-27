@@ -1,0 +1,28 @@
+id: vllm-models-endpoint
+name: vLLM OpenAI-Compatible Models Catalog Inspector
+version: 1.0.0
+category: AIOps
+description: Enumerate active serving LLM models from vLLM OpenAI-compatible model
+  registry.
+os_family: any
+actions:
+- name: list_models
+  description: Query vLLM /v1/models endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/v1/models
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: vLLM server host
+  - name: port
+    type: string
+    required: false
+    default: '8000'
+    pattern: ^[0-9]+$
+    description: vLLM server port

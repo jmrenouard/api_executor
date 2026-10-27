@@ -1,0 +1,24 @@
+id: epoch-timestamp-convert
+name: Unix Epoch Seconds to ISO 8601 UTC Formatter
+version: 1.0.0
+category: WebUtils
+description: Convert integer Unix epoch seconds into human-readable ISO 8601 UTC date
+  string.
+os_family: any
+actions:
+- name: format_epoch
+  description: Convert epoch seconds to UTC date string
+  command: date
+  args:
+  - -u
+  - -d
+  - '@{{epoch}}'
+  - +%Y-%m-%dT%H:%M:%SZ
+  timeout: 5s
+  parameters:
+  - name: epoch
+    type: string
+    required: false
+    default: '1700000000'
+    pattern: ^[0-9]+$
+    description: Unix timestamp in epoch seconds

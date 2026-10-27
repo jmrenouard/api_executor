@@ -1,0 +1,20 @@
+id: text-wc-stats
+name: Text File Line, Word & Character Statistics
+version: 1.0.0
+category: WebUtils
+description: Count total lines, words, and character bytes of a target text document.
+os_family: any
+actions:
+- name: wc_stats
+  description: Compute line, word, and byte counts via wc
+  command: wc
+  args:
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/test.txt
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to text file

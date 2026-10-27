@@ -1,0 +1,15 @@
+id: nvidia-smi-utilization
+name: NVIDIA GPU Compute & Memory Core Utilization
+version: 1.0.0
+category: AIOps
+description: Collect real-time telemetry on GPU compute engine and memory bandwidth
+  utilization percentages.
+os_family: any
+actions:
+- name: gpu_utilization
+  description: Query GPU compute and memory utilization percentages
+  command: nvidia-smi
+  args:
+  - --query-gpu=utilization.gpu,utilization.memory
+  - --format=csv,noheader
+  timeout: 5s

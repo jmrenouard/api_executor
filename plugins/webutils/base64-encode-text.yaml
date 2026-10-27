@@ -1,0 +1,23 @@
+id: base64-encode-text
+name: Base64 Text String Encoder Utility
+version: 1.0.0
+category: WebUtils
+description: Encode arbitrary text string into standard base64 format without shell
+  pipes.
+os_family: any
+actions:
+- name: encode_text
+  description: Encode input text string into base64
+  command: python3
+  args:
+  - -c
+  - import sys, base64; print(base64.b64encode(sys.argv[1].encode()).decode())
+  - '{{text}}'
+  timeout: 5s
+  parameters:
+  - name: text
+    type: string
+    required: false
+    default: hello-world
+    pattern: ^[a-zA-Z0-9._ -]+$
+    description: Plain text string to encode

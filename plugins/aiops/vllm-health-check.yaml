@@ -1,0 +1,27 @@
+id: vllm-health-check
+name: vLLM Inference Engine Health & Readiness Probe
+version: 1.0.0
+category: AIOps
+description: Query vLLM high-throughput LLM serving engine health check endpoint.
+os_family: any
+actions:
+- name: check_health
+  description: Probe vLLM /health HTTP endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/health
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: vLLM server host
+  - name: port
+    type: string
+    required: false
+    default: '8000'
+    pattern: ^[0-9]+$
+    description: vLLM server port

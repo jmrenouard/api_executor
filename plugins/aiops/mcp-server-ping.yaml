@@ -1,0 +1,34 @@
+id: mcp-server-ping
+name: Model Context Protocol (MCP) JSON-RPC 2.0 Ping Probe
+version: 1.0.0
+category: AIOps
+description: Send JSON-RPC 2.0 initialize probe to Model Context Protocol (MCP) server
+  endpoint.
+os_family: any
+actions:
+- name: ping_mcp
+  description: Send JSON-RPC initialize request to MCP server
+  command: curl
+  args:
+  - -s
+  - -X
+  - POST
+  - http://{{host}}:{{port}}/api/v1/mcp
+  - -H
+  - 'Content-Type: application/json'
+  - -d
+  - '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MCP server host
+  - name: port
+    type: string
+    required: false
+    default: '8080'
+    pattern: ^[0-9]+$
+    description: MCP server port

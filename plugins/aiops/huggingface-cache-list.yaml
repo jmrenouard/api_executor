@@ -1,0 +1,22 @@
+id: huggingface-cache-list
+name: HuggingFace Local Hub Model Cache Auditor
+version: 1.0.0
+category: AIOps
+description: Audit locally cached HuggingFace models, weight files, and repository
+  snapshots.
+os_family: any
+actions:
+- name: list_cache
+  description: List files in HuggingFace cache directory
+  command: ls
+  args:
+  - -lh
+  - '{{cache_dir}}'
+  timeout: 5s
+  parameters:
+  - name: cache_dir
+    type: string
+    required: false
+    default: /root/.cache/huggingface/hub
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: HuggingFace hub cache directory

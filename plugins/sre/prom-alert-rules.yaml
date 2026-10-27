@@ -1,0 +1,22 @@
+id: prom-alert-rules
+name: Prometheus Alerting Rules & Firing Status
+version: 1.0.0
+category: SRE
+description: Inspect configured Prometheus alerting rules, recording groups, and firing
+  alert states.
+os_family: any
+actions:
+- name: alert_rules
+  description: Query Prometheus /api/v1/rules endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{prom_host}}:9090/api/v1/rules
+  timeout: 5s
+  parameters:
+  - name: prom_host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Prometheus server host

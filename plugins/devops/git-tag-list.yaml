@@ -1,0 +1,15 @@
+id: git-tag-list
+name: Git Release Tags Enumerator & Creator Sort
+version: 1.0.0
+category: DevOps
+description: Enumerate Git release tags ordered by creation timestamp or version.
+os_family: any
+actions:
+- name: list_tags
+  description: List repository release tags sorted by creator date
+  command: git
+  args:
+  - tag
+  - -l
+  - --sort=-creatordate
+  timeout: 5s

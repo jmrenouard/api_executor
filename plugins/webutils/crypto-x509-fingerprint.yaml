@@ -1,0 +1,26 @@
+id: crypto-x509-fingerprint
+name: X.509 Certificate SHA-256 Fingerprint Calculator
+version: 1.0.0
+category: WebUtils
+description: Compute SHA-256 fingerprint digest of a local X.509 certificate file
+  via openssl.
+os_family: any
+actions:
+- name: cert_fingerprint
+  description: Compute SHA-256 certificate fingerprint
+  command: openssl
+  args:
+  - x509
+  - -in
+  - '{{cert_path}}'
+  - -noout
+  - -fingerprint
+  - -sha256
+  timeout: 5s
+  parameters:
+  - name: cert_path
+    type: string
+    required: false
+    default: /etc/ssl/certs/cert.pem
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to X.509 PEM certificate file

@@ -1,0 +1,12 @@
+id: uuid-generate
+name: RFC 4122 Standard Version 4 UUID Generator
+version: 1.0.0
+category: WebUtils
+description: Generate a standard RFC 4122 version 4 random UUID string.
+os_family: any
+actions:
+- name: generate_uuid
+  description: Generate RFC 4122 v4 UUID
+  command: uuidgen
+  args: []
+  timeout: 5s

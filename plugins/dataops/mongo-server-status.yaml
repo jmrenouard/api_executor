@@ -1,0 +1,32 @@
+id: mongo-server-status
+name: MongoDB Server Telemetry & WiredTiger Statistics
+version: 1.0.0
+category: DataOps
+description: Query MongoDB server status, active connections, operations, and WiredTiger
+  engine metrics.
+os_family: any
+actions:
+- name: server_status
+  description: Query server connections and operations telemetry
+  command: mongosh
+  args:
+  - --host
+  - '{{host}}'
+  - --port
+  - '{{port}}'
+  - --eval
+  - db.serverStatus().connections
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MongoDB host
+  - name: port
+    type: string
+    required: false
+    default: '27017'
+    pattern: ^[0-9]+$
+    description: MongoDB port

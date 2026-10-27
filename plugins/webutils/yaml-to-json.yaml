@@ -1,0 +1,23 @@
+id: yaml-to-json
+name: YAML Document to JSON Converter Utility
+version: 1.0.0
+category: WebUtils
+description: Convert YAML configuration document into equivalent compact or formatted
+  JSON representation.
+os_family: any
+actions:
+- name: convert_yaml
+  description: Convert YAML to JSON via python3 yaml.safe_load
+  command: python3
+  args:
+  - -c
+  - import yaml, json, sys; print(json.dumps(yaml.safe_load(open(sys.argv[1]))))
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/config.yaml
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to YAML file

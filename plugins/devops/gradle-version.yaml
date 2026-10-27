@@ -1,0 +1,14 @@
+id: gradle-version
+name: Gradle Build System Release & JVM Details
+version: 1.0.0
+category: DevOps
+description: Query Gradle build tool release version, Groovy engine, and JVM runtime
+  details.
+os_family: any
+actions:
+- name: gradle_version
+  description: Display Gradle toolchain version details
+  command: gradle
+  args:
+  - --version
+  timeout: 5s

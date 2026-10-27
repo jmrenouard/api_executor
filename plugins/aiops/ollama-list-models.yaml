@@ -1,0 +1,14 @@
+id: ollama-list-models
+name: Ollama Local LLM Model Weights & Artifacts Catalog
+version: 1.0.0
+category: AIOps
+description: Enumerate downloaded and registered local LLM models with quantization
+  types and sizes.
+os_family: any
+actions:
+- name: list_models
+  description: Query installed Ollama models catalog
+  command: ollama
+  args:
+  - list
+  timeout: 5s

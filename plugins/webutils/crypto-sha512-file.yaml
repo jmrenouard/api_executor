@@ -1,0 +1,20 @@
+id: crypto-sha512-file
+name: Cryptographic SHA-512 Digest Calculator
+version: 1.0.0
+category: WebUtils
+description: Compute SHA-512 cryptographic digest of a local file via standard sha512sum.
+os_family: any
+actions:
+- name: sha512_hash
+  description: Calculate SHA-512 hash of file
+  command: sha512sum
+  args:
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/test.txt
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to file to hash

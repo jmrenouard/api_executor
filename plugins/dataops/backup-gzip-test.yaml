@@ -1,0 +1,22 @@
+id: backup-gzip-test
+name: Gzip Database Dump Decompression Integrity Test
+version: 1.0.0
+category: DataOps
+description: Test CRC32 integrity of gzipped database dump without writing uncompressed
+  output to disk.
+os_family: any
+actions:
+- name: test_gzip
+  description: Run gzip -t integrity check on dump file
+  command: gzip
+  args:
+  - -t
+  - '{{file_path}}'
+  timeout: 5s
+  parameters:
+  - name: file_path
+    type: string
+    required: false
+    default: /tmp/backup.sql.gz
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to gzipped database dump

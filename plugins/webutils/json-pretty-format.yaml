@@ -1,0 +1,23 @@
+id: json-pretty-format
+name: JSON Document Pretty Formatter & Indenter
+version: 1.0.0
+category: WebUtils
+description: Format unindented raw JSON file into formatted, indented, human-readable
+  JSON.
+os_family: any
+actions:
+- name: pretty_print
+  description: Format JSON file via python3 json.tool
+  command: python3
+  args:
+  - -m
+  - json.tool
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/sample.json
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to JSON file

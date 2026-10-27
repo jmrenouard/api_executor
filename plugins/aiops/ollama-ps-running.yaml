@@ -1,0 +1,14 @@
+id: ollama-ps-running
+name: Ollama VRAM Active Model Inference Processes
+version: 1.0.0
+category: AIOps
+description: Inspect LLM models currently loaded into GPU VRAM or host memory for
+  active serving.
+os_family: any
+actions:
+- name: running_models
+  description: List models active in memory via ollama ps
+  command: ollama
+  args:
+  - ps
+  timeout: 5s

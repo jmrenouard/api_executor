@@ -1,0 +1,13 @@
+id: tcp-retrans-stats
+name: Kernel TCP Packet Retransmission Rate Telemetry
+version: 1.0.0
+category: SRE
+description: Inspect TCP packet retransmissions, resets, and error segments from /proc/net/snmp.
+os_family: linux
+actions:
+- name: tcp_snmp_stats
+  description: Dump TCP SNMP protocol counters
+  command: cat
+  args:
+  - /proc/net/snmp
+  timeout: 5s

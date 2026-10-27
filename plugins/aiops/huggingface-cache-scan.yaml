@@ -1,0 +1,14 @@
+id: huggingface-cache-scan
+name: HuggingFace CLI Cache Space & Revision Scanner
+version: 1.0.0
+category: AIOps
+description: Run huggingface-cli scan to calculate model disk consumption and revision
+  links.
+os_family: any
+actions:
+- name: scan_cache
+  description: Run huggingface-cli scan-cache tool
+  command: huggingface-cli
+  args:
+  - scan-cache
+  timeout: 5s

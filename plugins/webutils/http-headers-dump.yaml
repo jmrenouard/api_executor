@@ -1,0 +1,26 @@
+id: http-headers-dump
+name: HTTP Response Headers & Security Banner Dump
+version: 1.0.0
+category: WebUtils
+description: Inspect complete HTTP response headers including HSTS, CSP, and CORS
+  policies.
+os_family: any
+actions:
+- name: dump_headers
+  description: Fetch headers via curl -D
+  command: curl
+  args:
+  - -s
+  - -D
+  - '-'
+  - -o
+  - /dev/null
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: false
+    default: http://127.0.0.1:8080
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: Target HTTP URL

@@ -1,0 +1,22 @@
+id: yamllint-file
+name: YAML Document Syntax & Indentation Linter
+version: 1.0.0
+category: DevOps
+description: Validate YAML file syntax, document formatting, and indentation compliance.
+os_family: any
+actions:
+- name: lint_yaml
+  description: Run yamllint on target YAML file
+  command: yamllint
+  args:
+  - -f
+  - parsable
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/config.yaml
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to YAML file to validate

@@ -1,0 +1,29 @@
+id: dataset-head-sample
+name: Dataset First Records Preview & Structure Sampler
+version: 1.0.0
+category: AIOps
+description: Preview first N training records of dataset file without reading entire
+  corpus into memory.
+os_family: any
+actions:
+- name: preview_records
+  description: Read top N lines from dataset file
+  command: head
+  args:
+  - -n
+  - '{{count}}'
+  - '{{dataset_path}}'
+  timeout: 5s
+  parameters:
+  - name: count
+    type: string
+    required: false
+    default: '5'
+    pattern: ^[0-9]+$
+    description: Number of records to sample
+  - name: dataset_path
+    type: string
+    required: false
+    default: /tmp/dataset.jsonl
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to dataset file

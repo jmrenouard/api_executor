@@ -1,0 +1,30 @@
+id: mysql-ping
+name: MySQL/MariaDB Service Availability & Ping
+version: 1.0.0
+category: DataOps
+description: Ping MySQL or MariaDB instance via mysqladmin utility to test responsiveness.
+os_family: any
+actions:
+- name: ping_mysql
+  description: Ping MySQL daemon to check server availability
+  command: mysqladmin
+  args:
+  - -h
+  - '{{host}}'
+  - -P
+  - '{{port}}'
+  - ping
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MySQL host
+  - name: port
+    type: string
+    required: false
+    default: '3306'
+    pattern: ^[0-9]+$
+    description: MySQL port

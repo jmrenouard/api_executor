@@ -1,0 +1,13 @@
+id: ollama-version
+name: Ollama Local Daemon Service Release Version
+version: 1.0.0
+category: AIOps
+description: Query local Ollama inference service daemon version and build information.
+os_family: any
+actions:
+- name: ollama_version
+  description: Query Ollama CLI version
+  command: ollama
+  args:
+  - --version
+  timeout: 5s

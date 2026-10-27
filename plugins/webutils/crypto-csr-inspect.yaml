@@ -1,0 +1,25 @@
+id: crypto-csr-inspect
+name: Certificate Signing Request (CSR) Subject & SAN Inspector
+version: 1.0.0
+category: WebUtils
+description: Inspect Certificate Signing Request (CSR) distinguished names and requested
+  Subject Alternative Names.
+os_family: any
+actions:
+- name: inspect_csr
+  description: Decode and print CSR fields in human-readable text
+  command: openssl
+  args:
+  - req
+  - -in
+  - '{{csr_path}}'
+  - -noout
+  - -text
+  timeout: 5s
+  parameters:
+  - name: csr_path
+    type: string
+    required: false
+    default: /tmp/request.csr
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to CSR file

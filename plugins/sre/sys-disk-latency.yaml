@@ -1,0 +1,14 @@
+id: sys-disk-latency
+name: Linux Kernel Block Device Disk Statistics
+version: 1.0.0
+category: SRE
+description: Retrieve kernel disk statistics, read/write merge rates, and I/O latency
+  metrics from /proc/diskstats.
+os_family: linux
+actions:
+- name: read_diskstats
+  description: Dump /proc/diskstats block device metrics
+  command: cat
+  args:
+  - /proc/diskstats
+  timeout: 5s
