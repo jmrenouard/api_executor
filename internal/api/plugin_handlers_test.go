@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -125,5 +126,76 @@ func TestPluginsListHandlerQueryFiltering(t *testing.T) {
 	none := fetchPlugins("/api/v1/plugins?category=NonExistentCategory12345")
 	if len(none) != 0 {
 		t.Errorf("expected 0 plugins for non-existent category, got %d", len(none))
+	}
+
+	// 9. Unrecognized or invalid plugin type returns empty array
+	bogusType := fetchPlugins("/api/v1/plugins?type=bogus-type")
+	if len(bogusType) != 0 {
+		t.Errorf("expected 0 plugins for bogus-type, got %d", len(bogusType))
+	}
+}
+
+func TestPluginDeclarativeRegisterHandlerMetadataCompleteness(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+
+	db, err := database.NewDB(filepath.Join(t.TempDir(), "api_plugins_decl_reg_test.db"))
+	if err != nil {
+		t.Fatalf("failed to create DB: %v", err)
+	}
+	defer db.Close()
+	if err := db.Init(); err != nil {
+		t.Fatalf("db.Init failed: %v", err)
+	}
+
+	reg := plugins.NewRegistry()
+	env := &APIEnv{
+		Config:         cfg,
+		DB:             db,
+		PluginRegistry: reg,
+	}
+	router := NewRouter(env)
+
+	specJSON := `{
+		"id": "custom-devops-tool",
+		"name": "Custom DevOps Tool",
+		"version": "1.0.0",
+		"category": "DevOps",
+		"description": "Custom declarative test tool",
+		"actions": [
+			{
+				"name": "ping",
+				"description": "Ping test action",
+				"command": "echo",
+				"args": ["pong"]
+			}
+		]
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/declarative", bytes.NewBufferString(specJSON))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected HTTP 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var registered plugins.PluginInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &registered); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if registered.ID != "custom-devops-tool" {
+		t.Errorf("expected ID 'custom-devops-tool', got %q", registered.ID)
+	}
+	if registered.Type != "declarative" {
+		t.Errorf("expected Type 'declarative', got %q", registered.Type)
+	}
+	if registered.Category != "DevOps" {
+		t.Errorf("expected Category 'DevOps', got %q", registered.Category)
+	}
+	if registered.Kind != plugins.KindDeclarative {
+		t.Errorf("expected Kind 'declarative', got %q", registered.Kind)
 	}
 }

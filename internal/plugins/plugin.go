@@ -211,13 +211,17 @@ func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo
 		if pluginType != "" && pluginType != "all" {
 			pTypeLower := strings.ToLower(info.Type)
 			pKindLower := strings.ToLower(string(info.Kind))
-			if pluginType == "native" && pTypeLower != "native" && pKindLower != "advanced" {
-				continue
-			}
-			if pluginType == "advanced" && pTypeLower != "native" && pKindLower != "advanced" {
-				continue
-			}
-			if pluginType == "declarative" && pTypeLower != "declarative" && pKindLower != "declarative" {
+			switch pluginType {
+			case "native", "advanced":
+				if pTypeLower != "native" && pKindLower != "advanced" {
+					continue
+				}
+			case "declarative":
+				if pTypeLower != "declarative" && pKindLower != "declarative" {
+					continue
+				}
+			default:
+				// Unrecognized or invalid plugin type filter matches nothing
 				continue
 			}
 		}

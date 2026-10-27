@@ -314,7 +314,13 @@ func (p *HTTPLatencyProbePlugin) Execute(ctx context.Context, action string, par
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
 		}
-		req, _ := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
+		if err != nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: err.Error(),
+			}, err
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return PluginResult{
@@ -355,7 +361,13 @@ func (p *HTTPLatencyProbePlugin) Execute(ctx context.Context, action string, par
 			Timeout: 5 * time.Second,
 		}
 
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+		if err != nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: err.Error(),
+			}, err
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			data := map[string]any{
@@ -632,7 +644,18 @@ func (p *JWTTokenInspectorPlugin) Execute(_ context.Context, action string, para
 		}
 
 		var hdr map[string]any
-		_ = json.Unmarshal(hdrBytes, &hdr)
+		if err := json.Unmarshal(hdrBytes, &hdr); err != nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: fmt.Sprintf("failed to parse JSON header: %v", err),
+			}, err
+		}
+		if hdr == nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: "invalid JWT header: expected JSON object",
+			}, fmt.Errorf("invalid JWT header: expected JSON object")
+		}
 		data := map[string]any{
 			"header": hdr,
 		}
@@ -650,7 +673,18 @@ func (p *JWTTokenInspectorPlugin) Execute(_ context.Context, action string, para
 		}
 
 		var claims map[string]any
-		_ = json.Unmarshal(payloadBytes, &claims)
+		if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: fmt.Sprintf("failed to parse JSON claims: %v", err),
+			}, err
+		}
+		if claims == nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: "invalid JWT payload: expected JSON object",
+			}, fmt.Errorf("invalid JWT payload: expected JSON object")
+		}
 		data := map[string]any{
 			"claims": claims,
 		}
@@ -668,7 +702,18 @@ func (p *JWTTokenInspectorPlugin) Execute(_ context.Context, action string, para
 		}
 
 		var claims map[string]any
-		_ = json.Unmarshal(payloadBytes, &claims)
+		if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: fmt.Sprintf("failed to parse JSON claims: %v", err),
+			}, err
+		}
+		if claims == nil {
+			return PluginResult{
+				PluginID: p.ID(), Action: action, Status: "error", DurationMs: time.Since(start).Milliseconds(),
+				Error: "invalid JWT payload: expected JSON object",
+			}, fmt.Errorf("invalid JWT payload: expected JSON object")
+		}
 
 		now := time.Now().Unix()
 		isExpired := false
@@ -681,6 +726,10 @@ func (p *JWTTokenInspectorPlugin) Execute(_ context.Context, action string, para
 				expNum = int64(ev)
 			case int64:
 				expNum = ev
+			case string:
+				if n, err := strconv.ParseInt(ev, 10, 64); err == nil {
+					expNum = n
+				}
 			}
 			if expNum > 0 {
 				isExpired = now > expNum
@@ -688,11 +737,29 @@ func (p *JWTTokenInspectorPlugin) Execute(_ context.Context, action string, para
 			}
 		}
 
+		valid := !isExpired
+		if nbfVal, ok := claims["nbf"]; ok {
+			var nbfNum int64
+			switch nv := nbfVal.(type) {
+			case float64:
+				nbfNum = int64(nv)
+			case int64:
+				nbfNum = nv
+			case string:
+				if n, err := strconv.ParseInt(nv, 10, 64); err == nil {
+					nbfNum = n
+				}
+			}
+			if nbfNum > 0 && now < nbfNum {
+				valid = false
+			}
+		}
+
 		data := map[string]any{
 			"current_timestamp": now,
 			"is_expired":        isExpired,
 			"seconds_remaining": expDiffSec,
-			"valid":             !isExpired,
+			"valid":             valid,
 		}
 		return PluginResult{
 			PluginID: p.ID(), Action: action, Status: "ok", Output: formatJSON(data), Data: data, DurationMs: time.Since(start).Milliseconds(),
