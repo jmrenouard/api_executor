@@ -39,15 +39,19 @@
 4. **Predefined Ubuntu & RedHat / RHEL OS Tasks (`internal/core/os_presets.go`)**:
    - Ready-to-run, container-safe system administration catalogs for **Ubuntu / Debian** (`configs/ubuntu-tasks.yaml`, `docker/Dockerfile.ubuntu`) and **RedHat / RHEL / UBI9** (`configs/redhat-tasks.yaml`, `docker/Dockerfile.redhat`), orchestrated via `docker-compose.os-test.yml` and dynamically activatable at runtime (`POST /api/v1/presets/activate`).
 5. **Pure Web Administration Console (`web/static/index.html`)**:
-   - Single-page 8-tab dark enterprise console covering Command Execution, Ubuntu & RedHat Presets, RBAC Users & Personal Access Tokens, Third-Party Service Accounts, Extensible Plugins & Read-Only SQL Explorer, Interactive MCP Playground & Trace Inspector, SHA-256 Audit Trail, and X.509 TLS Certificate Management.
+   - Single-page 8-tab dark enterprise console covering Command Execution, Ubuntu & RedHat Presets, RBAC Users & Personal Access Tokens, Third-Party Service Accounts, Extensible 300+ Plugins Catalog & Read-Only SQL Explorer, Interactive MCP Playground & Trace Inspector, SHA-256 Audit Trail, and X.509 TLS Certificate Management.
+   - **Tab 5 Master-Detail Catalog**: Instant client-side search, 10 domain category pills with live count badges, type filter toggles (`All`, `Native`, `Declarative`), client-side pagination, dynamic parameter form generation with typed controls (boolean toggles, numeric inputs, regex pattern hints), two-way JSON mode synchronization, and formatted execution telemetry.
 6. **RBAC User Management, Personal Access Tokens & Third-Party Service Accounts (`internal/auth/manager.go`)**:
-   - Role-Based Access Control (`admin`, `operator`, `viewer`), Personal Access Tokens (`gat_pat_...`) for remote CLI/API calls, and machine-to-machine Third-Party Service Accounts (`gat_svc_...`) with wildcard action scoping (`allowed_actions`: e.g. `disk-usage`, `ubuntu-*`, `db-exposure`) and instant key rotation.
-7. **Extensible Plugin System & Guarded Read-Only Database Exposure (`internal/plugins/`)**:
-   - **Declarative Command Plugins**: Register YAML/JSON command modules (`plugins/network-audit.yaml` or via `POST /api/v1/plugins/declarative`) with strict regex parameter validation (`^[a-zA-Z0-9._:/-]+$`) and direct `exec.CommandContext` argv execution (zero shell interpolation).
+   - Role-Based Access Control (`admin`, `operator`, `viewer`), Personal Access Tokens (`gat_pat_...`) for remote CLI/API calls, and machine-to-machine Third-Party Service Accounts (`gat_svc_...`) with wildcard action scoping (`allowed_actions`: e.g. `disk-usage`, `ubuntu-*`, `db-exposure`, `plugin:sys-diagnostics:*`) and instant key rotation.
+7. **300+ Plugins Enterprise Ecosystem & Guarded Read-Only Database Exposure (`internal/plugins/`)**:
+   - **305 Production-Ready Plugins Across 10 Domains**: 24 pure-Go native plugins (zero CGO) + 281 declarative YAML plugins spanning `SysAdmin`, `NetOps`, `SecOps`, `ContainerOps`, `Kubernetes`, `DataOps`, `DevOps`, `SRE`, `AIOps`, and `WebUtils`.
+   - **Recursive Directory Discovery**: Automatic discovery via `filepath.WalkDir` traversing `plugins/<domain>/` subdirectories with domain fallback categorization.
+   - **Multi-Attribute Query Filtering**: `GET /api/v1/plugins` supports case-insensitive `?category=...`, keyword search `?q=...`, and `?type=native|declarative`.
+   - **Guarded Direct Subprocess Execution**: Strict parameter type validation, regex pattern enforcement (`^[a-zA-Z0-9._:/-]+$`), path-traversal prevention, and direct `exec.CommandContext` argv execution (zero shell interpolation).
    - **Native `db-exposure` Plugin**: Exposes read-only SQLite inspection (`GET /api/v1/db/tables`) and parameterized `SELECT` queries (`POST /api/v1/db/query`) guarded by `ValidateReadOnlySQL` (blocks `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `PRAGMA`, `ATTACH`, comments, and multi-statement semicolons) with automatic `LIMIT` bounding.
-   - **Native `sys-diagnostics` Plugin**: Provides cross-platform Go runtime, memory, and environment telemetry.
-8. **Model Context Protocol (MCP) Server with Persistent Trace Retention (`internal/mcp/server.go`)**:
+8. **Model Context Protocol (MCP) Server & Meta-Tool Pattern (`internal/mcp/server.go`)**:
    - Full JSON-RPC 2.0 MCP (`2024-11-05`) server (`POST /api/v1/mcp`) supporting `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, and `prompts/get`.
+   - **Meta-Tool Pattern**: Exposes the complete 300+ plugins catalog as a structured MCP resource (`executor://plugins/catalog`) and provides the `execute_plugin` meta-tool, giving LLMs access to all 300+ plugins without overflowing token context windows.
    - Every MCP interaction generates an immutable `TraceRecord` (`mcp_tr_<hex>`) persisted to SQLite/JSONL and cross-referenced with the SHA-256 audit log (`GET /api/v1/mcp/traces`).
 9. **Tamper-Evident SHA-256 Hash-Chained Audit Trail & Structured Logging (`internal/audit/audit.go`, `internal/core/logger.go`)**:
    - Every command execution, auth event, plugin call, TLS rotation, and MCP invocation is chained cryptographically (`prev_hash` -> `entry_hash` starting from `GENESIS`) and verifiable on demand via `GET /api/v1/audit/verify`.
@@ -84,10 +88,20 @@
 │   ├── database/                                # SQLite persistence with pure-Go in-memory fallback (CGO_ENABLED=0)
 │   ├── mcp/                                     # JSON-RPC 2.0 Model Context Protocol server & trace store
 │   └── plugins/                                 # Plugin registry, declarative runner, db-exposure & sys-diagnostics
-├── plugins/
-│   └── network-audit.yaml                       # Declarative YAML plugin manifest example
+├── plugins/                                     # 280 declarative YAML plugin manifests across 10 operational domains
+│   ├── sysadmin/                                # System, CPU, memory, storage & kernel inspection (28 plugins)
+│   ├── netops/                                  # Interfaces, routing, DNS, firewall & connectivity (28 plugins)
+│   ├── secops/                                  # Audit logs, sudo, SUID, permissions & compliance (28 plugins)
+│   ├── containerops/                            # Docker, containerd, crictl & Podman lifecycle (28 plugins)
+│   ├── kubernetes/                              # Nodes, pods, services, ingress & Helm releases (28 plugins)
+│   ├── dataops/                                 # SQLite, PostgreSQL, MySQL, Redis, MongoDB & backups (28 plugins)
+│   ├── devops/                                  # Git, compilers, linters, packages & CI runners (28 plugins)
+│   ├── sre/                                     # Prometheus, Loki, OpenTelemetry, SLO & FinOps (28 plugins)
+│   ├── aiops/                                   # NVIDIA GPU, CUDA, Ollama, vLLM, TGI, MCP & vectors (28 plugins)
+│   ├── webutils/                                # HTTP, TLS, X.509, JWT, base64 & archives (28 plugins)
+│   └── ops.yaml                                 # Quick operations declarative module
 └── web/static/
-    └── index.html                               # 8-tab Pure Web Administration Console
+    └── index.html                               # Pure Web Administration Console (Tab 5 Master-Detail Catalog)
 ```
 
 ---
@@ -193,24 +207,113 @@ Authenticate third-party service calls with `X-Service-Key: gat_svc_<key>`.
 
 ---
 
-### 3. Extensible Plugin System & Guarded Read-Only Database Exposure
+### 3. 300+ Plugins Enterprise Ecosystem & Guarded Database Exposure
 
-#### Execute a Declarative or Native Plugin Action
+The **API Executor** plugin engine (`internal/plugins/`) combines high-performance native Go plugins with declarative YAML command manifests, scaled to over 300 production-ready modules across 10 operational domains:
+
+#### Operational Domains & Plugin Architecture
+
+The catalog contains **305 registered plugins** (24 pure-Go native plugins + 281 declarative YAML manifests):
+
+| Domain | Scope & Description | Native Plugins | Declarative Plugins | Total |
+|---|---|---|---|---|
+| **SysAdmin** | System health, CPU, memory, mount storage, process trees, and kernel telemetry | `sys-diagnostics`, `host-storage-stats`, `system-load-audit`, `kernel-module-audit` | 28 (`plugins/sysadmin/*.yaml`) + `ops-quick-tools` | 33 |
+| **NetOps** | Network interfaces, routing tables, ARP cache, DNS resolution, firewall rules & ping | `dns-resolver-audit`, `network-ping` | 28 (`plugins/netops/*.yaml`) | 30 |
+| **SecOps** | Authentication logs, sudoers, SUID/SGID binaries, file permissions & crypto hashes | `file-integrity-checker`, `password-policy-audit` | 28 (`plugins/secops/*.yaml`) | 30 |
+| **ContainerOps** | Docker, containerd, crictl, and Podman containers, dangling images & networks | `container-runtime-probe`, `container-image-analyzer` | 28 (`plugins/containerops/*.yaml`) | 30 |
+| **Kubernetes** | K8s nodes, pods, services, ingress, PVCs, events, and Helm release management | `helm-chart-inspector`, `k8s-resource-quota` | 28 (`plugins/kubernetes/*.yaml`) | 30 |
+| **DataOps** | SQLite, PostgreSQL, MySQL, Redis, MongoDB, Elasticsearch, and backup verification | `db-exposure`, `sqlite-analyzer`, `redis-info-probe` | 28 (`plugins/dataops/*.yaml`) | 31 |
+| **DevOps** | Git repository status, commits, tags, Go/Node/Python/Rust compilers & linters | `git-repo-inspector`, `semver-validator` | 28 (`plugins/devops/*.yaml`) | 30 |
+| **SRE** | Prometheus scraping, Loki log metrics, OpenTelemetry collector, SLO & FinOps | `prometheus-scrape-audit`, `slo-calculator` | 28 (`plugins/sre/*.yaml`) | 30 |
+| **AIOps** | NVIDIA GPU/CUDA, Ollama, vLLM, TGI, MCP client, vector databases & datasets | `llm-token-estimator`, `mcp-schema-validator` | 28 (`plugins/aiops/*.yaml`) | 30 |
+| **WebUtils** | HTTP latency, headers, SSL/TLS, X.509 certs, JWT headers, base64, JSON & archives | `tls-handshake-probe`, `jwt-inspector` | 28 (`plugins/webutils/*.yaml`) | 30 |
+
+#### Recursive Discovery & Domain Directory Structure
+
+The declarative plugin loader automatically discovers plugin manifests recursively across domain subdirectories using `filepath.WalkDir`:
+```text
+plugins/
+├── sysadmin/      # 28 YAML manifests (sys-cpu-info, sys-memory-free, sys-uptime, ...)
+├── netops/        # 28 YAML manifests (net-interfaces, net-routes, net-dns-lookup, ...)
+├── secops/        # 28 YAML manifests (sec-auth-failures, sec-sudo-users, sec-suid-bins, ...)
+├── containerops/  # 28 YAML manifests (docker-ps-active, containerd-tasks, podman-pods, ...)
+├── kubernetes/    # 28 YAML manifests (k8s-nodes-list, k8s-pods-status, k8s-events-warn, ...)
+├── dataops/       # 28 YAML manifests (sqlite-integrity, postgres-ping, redis-ping, ...)
+├── devops/        # 28 YAML manifests (git-status, golang-version, rust-cargo-version, ...)
+├── sre/           # 28 YAML manifests (prom-scrape-endpoint, loki-query, otel-collector, ...)
+├── aiops/         # 28 YAML manifests (nvidia-smi-summary, ollama-list-models, milvus-health, ...)
+├── webutils/      # 28 YAML manifests (http-status-code, crypto-sha256-file, archive-tar-list, ...)
+└── ops.yaml       # Root declarative quick operations module
+```
+If a declarative YAML manifest omits the `category` attribute, the loader automatically infers its category from the parent directory name (e.g. `plugins/netops/` -> `NetOps`).
+
+#### Multi-Attribute Catalog Filtering (`GET /api/v1/plugins`)
+
+The `GET /api/v1/plugins` endpoint provides sub-millisecond in-memory multi-attribute filtering:
 
 ```bash
+# Filter by domain category
+curl -k "https://localhost:8080/api/v1/plugins?category=SecOps"
+
+# Filter by keyword query (searches ID, Name, Description, Category, and Action names)
+curl -k "https://localhost:8080/api/v1/plugins?q=kubernetes"
+
+# Filter by implementation type (native vs. declarative)
+curl -k "https://localhost:8080/api/v1/plugins?type=native"
+
+# Combine multiple filters simultaneously
+curl -k "https://localhost:8080/api/v1/plugins?category=DevOps&type=declarative&q=git"
+```
+
+#### Execute a Plugin Action (`POST /api/v1/plugins/execute`)
+
+Every action invocation is audited to the SHA-256 hash-chain, tracked with Prometheus metrics, and subject to RBAC:
+
+```bash
+# Execute a native Go plugin action
 curl -k -X POST https://localhost:8080/api/v1/plugins/execute \
+  -H "X-API-Token: gat_pat_<token>" \
   -H "Content-Type: application/json" \
   -d '{
     "plugin_id": "sys-diagnostics",
-    "action": "runtime-stats",
+    "action": "runtime_stats",
     "params": {}
+  }'
+
+# Execute a declarative YAML plugin action with validated parameters
+curl -k -X POST https://localhost:8080/api/v1/plugins/execute \
+  -H "X-API-Token: gat_pat_<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plugin_id": "archive-gzip-size",
+    "action": "gzip_size",
+    "params": {
+      "file": "/tmp/backup.tar.gz"
+    }
   }'
 ```
 
-#### Query the SQLite Database Safely via `db-exposure`
+#### Safe Direct Subprocess Execution
+
+Declarative plugins execute commands via direct `exec.CommandContext` argv execution without shell interpreters (`sh`, `bash`, `cmd`), strictly preventing shell command injection. Input parameters are strictly validated:
+- Type checking (`string`, `int`, `bool`).
+- Strict regex pattern validation (default: `^[a-zA-Z0-9._:/-]+$`).
+- Path traversal rejection (`../` and `..\`).
+- Metacharacter blacklist blocking `|`, `&`, `;`, `$`, `` ` ``, `>`, `<`, `\n`, `\r`.
+
+#### Web Administration Console (Tab 5 Master-Detail)
+
+Tab 5 (`5. Plugins & SQL Explorer`) in `web/static/index.html` provides a pure zero-build Alpine.js interface for interacting with the 300+ plugins:
+1. **Instant Search & Domain Pills**: Real-time filtering across ID, Name, Description, and Actions, with interactive pills for all 10 domains showing per-domain count badges.
+2. **Type Toggles & Pagination**: Quick toggles for `All`, `Native`, and `Declarative` plugins, coupled with responsive 10-per-page pagination.
+3. **Dynamic Parameter Form Generator**: Automatically parses action parameter schemas into typed HTML form controls (toggle switches for booleans, numerical steppers for integers, pattern-validated text inputs with placeholders).
+4. **Two-Way JSON Synchronization**: One-click toggle between Dynamic Form mode and Raw JSON mode with seamless reactive synchronization.
+5. **Execution Telemetry**: Displays real-time status badges, duration in milliseconds, timed-out flags, and formatted JSON/text output.
+
+#### Guarded Read-Only Database Exposure (`db-exposure`)
 
 ```bash
-# List tables, column schemas, and row counts
+# List SQLite tables, column definitions, and row counts
 curl -k https://localhost:8080/api/v1/db/tables
 
 # Run a guarded read-only SELECT query (DDL/DML/PRAGMA/multi-statement rejected)
@@ -270,7 +373,7 @@ curl -k "https://localhost:8080/api/v1/mcp/traces?limit=20"
 | `GET/POST/DELETE` | `/api/v1/auth/tokens` | Issue, list, and revoke Personal Access Tokens (`gat_pat_...`) |
 | `GET/POST/DELETE` | `/api/v1/auth/service-accounts` | Register, list, and delete Third-Party Service Accounts (`gat_svc_...`) |
 | `POST` | `/api/v1/auth/service-accounts/rotate` | Rotate a Service Account API key with zero downtime |
-| `GET` | `/api/v1/plugins` | List registered declarative and native plugins |
+| `GET` | `/api/v1/plugins` | List 300+ plugins with multi-attribute filtering (`?category=...&q=...&type=native\|declarative`) |
 | `POST` | `/api/v1/plugins/execute` | Execute a plugin action with validated parameters |
 | `POST` | `/api/v1/plugins/declarative` | Dynamically register a declarative command plugin manifest |
 | `GET` | `/api/v1/db/tables` | Inspect SQLite tables and column schemas via `db-exposure` |

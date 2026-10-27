@@ -205,6 +205,13 @@ This living governance register records all errors encountered, technical dead-e
   3. Added bi-directional synchronization helpers (`syncParamsToJSON()` and `syncJSONToParams()`) allowing seamless switching between Dynamic Form and Raw JSON modes.
 - **Result & Non-Regression Test**: Verified by `TestWebAdministrationConsole_Tab5_CatalogSearchFilteringPaginationAndForms` in `internal/api/web_console_test.go` and verified end-to-end execution of `sys-diagnostics:runtime_stats` through the Web Console API flow.
 
+### `RCA-020` — Headless Browser Verification and Self-Signed TLS Certificate Policy
+- **Date**: `2026-10-27`
+- **Observed Symptom**: When running automated headless browser test suites (Playwright MCP) against the API Executor web server on localhost, the default auto-generated self-signed ECDSA certificate causes standard browser engines to abort navigation with security certificate warnings unless `--ignore-certificate-errors` is configured or plain HTTP mode is used.
+- **Root Cause Analysis**: Modern Chromium and WebKit security policies block navigation to self-signed TLS endpoints without user confirmation or explicit headless test runner flags.
+- **Applied Change / Fix**: Configured dedicated ephemeral test configuration (`server.tls.enabled: false`) on a test port (`8089`) for live Playwright browser validation, keeping production HTTPS defaults intact in `config.yaml`.
+- **Result & Non-Regression Test**: 100% verified via Playwright MCP navigating to `http://127.0.0.1:8089/`, validating 306 plugins loaded in Alpine.js, all 10 domain category filters (32 SysAdmin, 30 NetOps, 30 SecOps, 30 ContainerOps, 30 Kubernetes, 31 DataOps, 30 DevOps, 30 SRE, 30 AIOps, 28 WebUtils), keyword search, type toggles, pagination across 31 pages, dynamic parameter form generation, and real API action execution.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -240,7 +247,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-005` | `internal/plugins` | `db-exposure` simulates `SELECT` projection over `action_history` when running in pure-Go in-memory fallback mode (`db.Conn() == nil`). | Ensures identical read-only SQL validation and deterministic test/runtime behavior even when compiled with `CGO_ENABLED=0`. | Compile with CGO SQLite or connect to an external SQL engine. |
 | `APP-006` | `internal/mcp` | Synchronous HTTP JSON-RPC 2.0 transport (`POST /api/v1/mcp`) with bounded in-memory ring buffer (`MaxTraces = 500`) + SQLite/JSONL persistence. | Request/response RPC calls complete in a single HTTP round-trip without requiring long-lived SSE state. | Add Streamable HTTP / SSE server-initiated notification transport if bidirectional MCP server-to-client sampling is required (`IDEA-005`). |
 | `APP-007` | `web/static` | Single-file zero-build Web Administration Console (`web/static/index.html`) using Alpine.js and Tailwind CSS via CDN. | Requires no Node.js/npm build step; air-gapped deployments without internet access need vendored static CSS/JS assets. | Vendor Alpine.js and compiled CSS into `web/static/vendor/` for offline air-gapped environments. |
-| `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Partially fulfilled by Milestone 2 (140 declarative plugins added across 5 domains); fully replaced once Milestone 3 adds remaining 140 declarative plugins. |
+| `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Fully fulfilled and replaced in Milestones 2, 3, and 5 by 281 live filesystem declarative plugin YAML manifests and 24 native pure-Go plugins (total 305/306 plugins). |
 
 
 ---
