@@ -41,7 +41,7 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
     - Added `TestMCPServer_ResourcePluginsCatalog_300PlusPlugins` asserting that `executor://plugins/catalog` resource returns `>= 300` plugins across all 10 domains with `>= 28` plugins per domain, and validating `execute_plugin` meta-tool execution for native and database plugins, error handling for unknown plugins/actions, and RBAC authorization denial.
   - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-019` (dynamic form parameter type coercion and two-way sync) and `IDEA-006` (virtualized catalog scrolling for >1,000 plugins).
 - **Result**:
-  - 100% test pass rate across all 10 packages (`227 passed in 10 packages`, `65 passed in 1 packages` for E2E tests); statement coverage: `internal/api` at 89.9%, `internal/mcp` at 94.2%, `internal/plugins` at 86.3%.
+  - 100% test pass rate across all 10 packages (`227 passed in 10 packages`, `65 passed in 1 packages` for E2E tests); statement coverage: `internal/api` at 89.9%, `internal/mcp` at 94.2%, `internal/plugins` at 86.3%. Merged to `main` in PR [#45](https://github.com/jmrenouard/api_executor/pull/45) (commit `9d5cc7d`).
 
 
 ### `ACT-021` — Applications, Data, and AIOps Declarative Plugin Packs (140 Plugins Across 5 Domains)
