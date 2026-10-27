@@ -1,0 +1,14 @@
+id: git-stash-list
+name: Git Stash Stack & Saved Working States
+version: 1.0.0
+category: DevOps
+description: Query entries stored in the local Git stash stack and inspect saved work.
+os_family: any
+actions:
+- name: list_stash
+  description: Display list of saved stash references
+  command: git
+  args:
+  - stash
+  - list
+  timeout: 5s

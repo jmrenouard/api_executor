@@ -1,0 +1,22 @@
+id: sqlite-integrity-check
+name: SQLite Database Integrity & B-Tree Verification
+version: 1.0.0
+category: DataOps
+description: Run PRAGMA integrity_check on local SQLite database file to detect corruption
+  and structural issues.
+os_family: any
+actions:
+- name: check_integrity
+  description: Execute PRAGMA integrity_check against SQLite database
+  command: sqlite3
+  args:
+  - '{{db_path}}'
+  - PRAGMA integrity_check;
+  timeout: 5s
+  parameters:
+  - name: db_path
+    type: string
+    required: false
+    default: /tmp/test.db
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to SQLite database file

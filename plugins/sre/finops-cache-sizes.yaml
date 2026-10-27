@@ -1,0 +1,22 @@
+id: finops-cache-sizes
+name: FinOps Package Cache Storage Footprint
+version: 1.0.0
+category: SRE
+description: Inspect package manager and system cache directory disk consumption for
+  FinOps cost reclaim.
+os_family: linux
+actions:
+- name: cache_size
+  description: Compute storage usage of system cache directory
+  command: du
+  args:
+  - -sh
+  - '{{dir}}'
+  timeout: 5s
+  parameters:
+  - name: dir
+    type: string
+    required: false
+    default: /var/cache
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Cache directory path

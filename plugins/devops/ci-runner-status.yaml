@@ -1,0 +1,14 @@
+id: ci-runner-status
+name: CI/CD Self-Hosted Runner Service Status
+version: 1.0.0
+category: DevOps
+description: Check service execution status and connectivity of local CI runner service.
+os_family: linux
+actions:
+- name: runner_status
+  description: Query systemd status of gitlab-runner service
+  command: systemctl
+  args:
+  - status
+  - gitlab-runner
+  timeout: 5s

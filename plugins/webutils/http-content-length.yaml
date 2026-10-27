@@ -1,0 +1,23 @@
+id: http-content-length
+name: HTTP Remote Asset Content-Length Header Inspector
+version: 1.0.0
+category: WebUtils
+description: Retrieve Content-Length header of remote asset via HEAD request without
+  downloading body.
+os_family: any
+actions:
+- name: get_content_length
+  description: Query HEAD headers for content length
+  command: curl
+  args:
+  - -s
+  - -I
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: false
+    default: http://127.0.0.1:8080
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: Target asset URL

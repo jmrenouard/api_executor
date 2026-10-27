@@ -1,0 +1,15 @@
+id: sys-context-switches
+name: CPU Context Switches & Interrupt Rate Telemetry
+version: 1.0.0
+category: SRE
+description: Measure operating system CPU context switch frequency and interrupt counts
+  over interval.
+os_family: linux
+actions:
+- name: sample_vmstat
+  description: Sample vmstat context switch and interrupt metrics
+  command: vmstat
+  args:
+  - '1'
+  - '2'
+  timeout: 5s

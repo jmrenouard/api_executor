@@ -1,0 +1,30 @@
+id: json-key-extract
+name: JSON Document Key Value Extractor
+version: 1.0.0
+category: WebUtils
+description: Extract specific top-level key value from JSON document file without
+  third-party jq dependencies.
+os_family: any
+actions:
+- name: extract_key
+  description: Extract JSON key value using python3
+  command: python3
+  args:
+  - -c
+  - import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])
+  - '{{file}}'
+  - '{{key}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/sample.json
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to JSON file
+  - name: key
+    type: string
+    required: false
+    default: status
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Key name to extract

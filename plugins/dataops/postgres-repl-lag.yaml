@@ -1,0 +1,40 @@
+id: postgres-repl-lag
+name: PostgreSQL Streaming Replication Lag Monitor
+version: 1.0.0
+category: DataOps
+description: Compute streaming replication status, sync states, and sender replay
+  lag.
+os_family: any
+actions:
+- name: replication_status
+  description: Query pg_stat_replication for standby connection states
+  command: psql
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - -U
+  - '{{user}}'
+  - -c
+  - SELECT client_addr, state, sync_state FROM pg_stat_replication;
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: PostgreSQL server host
+  - name: port
+    type: string
+    required: false
+    default: '5432'
+    pattern: ^[0-9]+$
+    description: PostgreSQL server port
+  - name: user
+    type: string
+    required: false
+    default: postgres
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Database username

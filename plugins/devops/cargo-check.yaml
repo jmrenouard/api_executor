@@ -1,0 +1,14 @@
+id: cargo-check
+name: Cargo Rust Crate Code & Syntax Analyzer
+version: 1.0.0
+category: DevOps
+description: Analyze Rust crate source code for syntax and type errors without code
+  generation.
+os_family: any
+actions:
+- name: check_crate
+  description: Execute cargo check on current Rust project
+  command: cargo
+  args:
+  - check
+  timeout: 5s

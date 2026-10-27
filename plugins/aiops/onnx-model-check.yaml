@@ -1,0 +1,23 @@
+id: onnx-model-check
+name: ONNX Model Graph Validation & Tensor Checker
+version: 1.0.0
+category: AIOps
+description: Validate ONNX neural network graph structure, tensor shapes, and input/output
+  schema.
+os_family: any
+actions:
+- name: validate_onnx
+  description: Run onnx.checker validation tool on model
+  command: python3
+  args:
+  - -m
+  - onnx.checker
+  - '{{model_path}}'
+  timeout: 5s
+  parameters:
+  - name: model_path
+    type: string
+    required: false
+    default: /tmp/model.onnx
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to ONNX model file

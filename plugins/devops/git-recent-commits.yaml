@@ -1,0 +1,23 @@
+id: git-recent-commits
+name: Git Recent Commits History & Oneline Log
+version: 1.0.0
+category: DevOps
+description: List recent commit hashes, authors, relative timestamps, and commit subjects.
+os_family: any
+actions:
+- name: recent_commits
+  description: Display concise commit history
+  command: git
+  args:
+  - log
+  - -n
+  - '{{count}}'
+  - --oneline
+  timeout: 5s
+  parameters:
+  - name: count
+    type: string
+    required: false
+    default: '10'
+    pattern: ^[0-9]+$
+    description: Number of recent commits to display

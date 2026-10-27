@@ -1,0 +1,22 @@
+id: archive-zip-list
+name: ZIP Archive Member Entries & File Sizes Enumerator
+version: 1.0.0
+category: WebUtils
+description: List file entries, uncompressed lengths, and CRC32 digests inside a ZIP
+  archive.
+os_family: any
+actions:
+- name: list_zip
+  description: Enumerate files in zip archive
+  command: unzip
+  args:
+  - -l
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/archive.zip
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to ZIP archive file

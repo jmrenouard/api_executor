@@ -1,0 +1,14 @@
+id: finops-disk-reclaim
+name: FinOps Deleted Unlinked Files Disk Reclaim Auditor
+version: 1.0.0
+category: SRE
+description: Identify unlinked deleted files still holding disk blocks via active
+  process file descriptors.
+os_family: linux
+actions:
+- name: unlinked_files
+  description: List deleted files with open handles via lsof
+  command: lsof
+  args:
+  - +L1
+  timeout: 5s

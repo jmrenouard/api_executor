@@ -1,0 +1,30 @@
+id: crypto-x509-verify
+name: X.509 Certificate Chain & Root CA Verifier
+version: 1.0.0
+category: WebUtils
+description: Verify X.509 certificate validity against a trusted Certificate Authority
+  root bundle.
+os_family: any
+actions:
+- name: verify_cert
+  description: Verify certificate trust chain via openssl
+  command: openssl
+  args:
+  - verify
+  - -CAfile
+  - '{{ca_path}}'
+  - '{{cert_path}}'
+  timeout: 5s
+  parameters:
+  - name: ca_path
+    type: string
+    required: false
+    default: /etc/ssl/certs/ca.pem
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to CA root bundle
+  - name: cert_path
+    type: string
+    required: false
+    default: /etc/ssl/certs/cert.pem
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to target certificate

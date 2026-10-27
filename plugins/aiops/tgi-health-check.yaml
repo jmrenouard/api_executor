@@ -1,0 +1,28 @@
+id: tgi-health-check
+name: HuggingFace TGI Inference Engine Readiness Probe
+version: 1.0.0
+category: AIOps
+description: Query HuggingFace Text Generation Inference (TGI) engine readiness health
+  endpoint.
+os_family: any
+actions:
+- name: check_health
+  description: Probe TGI /health HTTP endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/health
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: TGI server host
+  - name: port
+    type: string
+    required: false
+    default: '8080'
+    pattern: ^[0-9]+$
+    description: TGI server port

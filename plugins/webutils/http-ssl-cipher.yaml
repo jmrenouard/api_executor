@@ -1,0 +1,24 @@
+id: http-ssl-cipher
+name: HTTPS Negotiated TLS Cipher & Protocol Inspector
+version: 1.0.0
+category: WebUtils
+description: Inspect negotiated TLS version, ALPN protocol, and cipher suite for an
+  HTTPS endpoint.
+os_family: any
+actions:
+- name: inspect_ssl
+  description: Query SSL handshake details via verbose curl
+  command: curl
+  args:
+  - -s
+  - -v
+  - -I
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: false
+    default: https://127.0.0.1:8443
+    pattern: ^https://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: HTTPS URL to inspect

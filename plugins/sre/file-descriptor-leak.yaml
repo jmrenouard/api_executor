@@ -1,0 +1,13 @@
+id: file-descriptor-leak
+name: System File Descriptor Allocation & Leak Monitor
+version: 1.0.0
+category: SRE
+description: Count total allocated file handles vs kernel maximum capacity from /proc/sys/fs/file-nr.
+os_family: linux
+actions:
+- name: check_file_nr
+  description: Query allocated and maximum file descriptors
+  command: cat
+  args:
+  - /proc/sys/fs/file-nr
+  timeout: 5s

@@ -1,0 +1,15 @@
+id: golang-mod-verify
+name: Go Module Dependency Cryptographic Verifier
+version: 1.0.0
+category: DevOps
+description: Validate cryptographic checksums of downloaded Go module dependencies
+  against go.sum.
+os_family: any
+actions:
+- name: verify_modules
+  description: Verify go.sum cryptographic checksums
+  command: go
+  args:
+  - mod
+  - verify
+  timeout: 5s

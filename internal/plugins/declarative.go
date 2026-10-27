@@ -150,7 +150,7 @@ func (p *DeclarativePlugin) Execute(_ context.Context, actionName string, params
 				re = compiled
 			}
 			// Reject shell metacharacters or unsafe tokens
-			if strings.ContainsAny(rawVal, ";&|$`><\n\r") || !re.MatchString(rawVal) {
+			if strings.ContainsAny(rawVal, ";&|$`><\n\r") || strings.Contains(rawVal, "../") || strings.Contains(rawVal, "..\\") || !re.MatchString(rawVal) {
 				err := fmt.Errorf("parameter %q value %q failed security validation", paramDef.Name, rawVal)
 				return PluginResult{
 					PluginID: p.ID(),
@@ -256,7 +256,7 @@ func InferCategoryFromPath(baseDir, filePath string) string {
 	case "aiops", "ai", "llm", "mcp":
 		return "AIOps"
 	case "webutils", "web_utilities", "web", "crypto", "utilities":
-		return "Web & Crypto Utilities"
+		return "WebUtils"
 	default:
 		if len(domainKey) > 0 {
 			return strings.ToUpper(domainKey[:1]) + domainKey[1:]

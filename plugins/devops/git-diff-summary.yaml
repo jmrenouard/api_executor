@@ -1,0 +1,23 @@
+id: git-diff-summary
+name: Git Commit Diff Statistics & Changed Files
+version: 1.0.0
+category: DevOps
+description: Summarize changed file line insertions and deletions between commits
+  or working tree.
+os_family: any
+actions:
+- name: diff_summary
+  description: Generate diff stat against target reference
+  command: git
+  args:
+  - diff
+  - --stat
+  - '{{ref}}'
+  timeout: 5s
+  parameters:
+  - name: ref
+    type: string
+    required: false
+    default: HEAD~1
+    pattern: ^[a-zA-Z0-9._~^-]+$
+    description: Git revision or reference to compare

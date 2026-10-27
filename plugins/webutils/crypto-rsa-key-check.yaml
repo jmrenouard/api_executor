@@ -1,0 +1,25 @@
+id: crypto-rsa-key-check
+name: RSA Private Key Format & Consistency Validator
+version: 1.0.0
+category: WebUtils
+description: Validate RSA private key PEM structure, prime consistency, and passphrase
+  integrity via openssl.
+os_family: any
+actions:
+- name: check_rsa_key
+  description: Run RSA key check verification
+  command: openssl
+  args:
+  - rsa
+  - -in
+  - '{{key_path}}'
+  - -check
+  - -noout
+  timeout: 5s
+  parameters:
+  - name: key_path
+    type: string
+    required: false
+    default: /etc/ssl/private/key.pem
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to RSA private key file

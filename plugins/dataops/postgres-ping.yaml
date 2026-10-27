@@ -1,0 +1,38 @@
+id: postgres-ping
+name: PostgreSQL Server Health & Readiness Ping
+version: 1.0.0
+category: DataOps
+description: Test PostgreSQL server reachability, port availability, and connection
+  acceptance.
+os_family: any
+actions:
+- name: ping_postgres
+  description: Check if PostgreSQL database is ready to accept connections
+  command: pg_isready
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - -d
+  - '{{dbname}}'
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: PostgreSQL server hostname or IP address
+  - name: port
+    type: string
+    required: false
+    default: '5432'
+    pattern: ^[0-9]+$
+    description: PostgreSQL server TCP port
+  - name: dbname
+    type: string
+    required: false
+    default: postgres
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Database name to connect

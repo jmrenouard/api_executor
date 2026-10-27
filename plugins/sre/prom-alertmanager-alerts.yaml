@@ -1,0 +1,22 @@
+id: prom-alertmanager-alerts
+name: Prometheus Alertmanager Active Alerts & Silences
+version: 1.0.0
+category: SRE
+description: Query Alertmanager API for active firing alerts, receivers, and inhibition
+  silences.
+os_family: any
+actions:
+- name: active_alerts
+  description: Query Alertmanager v2 alerts API
+  command: curl
+  args:
+  - -s
+  - http://{{alertmanager_host}}:9093/api/v2/alerts
+  timeout: 5s
+  parameters:
+  - name: alertmanager_host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Alertmanager server host

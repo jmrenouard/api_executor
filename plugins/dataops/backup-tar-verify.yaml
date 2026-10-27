@@ -1,0 +1,21 @@
+id: backup-tar-verify
+name: Archive Backup Integrity & TAR Structure Verifier
+version: 1.0.0
+category: DataOps
+description: Verify integrity of compressed backup archive by testing tar header extraction.
+os_family: any
+actions:
+- name: test_tar_archive
+  description: Test tar archive readability and checksum
+  command: tar
+  args:
+  - -tzf
+  - '{{archive_path}}'
+  timeout: 5s
+  parameters:
+  - name: archive_path
+    type: string
+    required: false
+    default: /tmp/backup.tar.gz
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to compressed tar backup archive

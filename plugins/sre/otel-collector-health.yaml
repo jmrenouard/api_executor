@@ -1,0 +1,28 @@
+id: otel-collector-health
+name: OpenTelemetry Collector Health Check Endpoint
+version: 1.0.0
+category: SRE
+description: Inspect OpenTelemetry Collector health check extension endpoint for pipeline
+  status.
+os_family: any
+actions:
+- name: check_health
+  description: Probe OpenTelemetry health check port
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: OpenTelemetry collector host
+  - name: port
+    type: string
+    required: false
+    default: '13133'
+    pattern: ^[0-9]+$
+    description: Health extension TCP port

@@ -1,0 +1,31 @@
+id: redis-ping
+name: Redis In-Memory Cache Reachability & Ping
+version: 1.0.0
+category: DataOps
+description: Verify Redis server connectivity and response time via redis-cli ping
+  probe.
+os_family: any
+actions:
+- name: ping_redis
+  description: Send PING command to Redis server
+  command: redis-cli
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - ping
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Redis host
+  - name: port
+    type: string
+    required: false
+    default: '6379'
+    pattern: ^[0-9]+$
+    description: Redis port

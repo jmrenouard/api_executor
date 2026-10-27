@@ -1,0 +1,32 @@
+id: redis-info-summary
+name: Redis Server Overview & Role Information
+version: 1.0.0
+category: DataOps
+description: Retrieve Redis release version, operating mode, replication role, and
+  process ID.
+os_family: any
+actions:
+- name: server_info
+  description: Query Redis server section info
+  command: redis-cli
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - info
+  - server
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Redis host
+  - name: port
+    type: string
+    required: false
+    default: '6379'
+    pattern: ^[0-9]+$
+    description: Redis port

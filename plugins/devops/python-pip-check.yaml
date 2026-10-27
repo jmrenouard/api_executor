@@ -1,0 +1,16 @@
+id: python-pip-check
+name: Python Package Dependency Compatibility Checker
+version: 1.0.0
+category: DevOps
+description: Verify that installed Python packages have compatible dependencies and
+  no broken requirements.
+os_family: any
+actions:
+- name: check_deps
+  description: Execute pip check to detect dependency conflicts
+  command: python3
+  args:
+  - -m
+  - pip
+  - check
+  timeout: 5s

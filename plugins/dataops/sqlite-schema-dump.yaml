@@ -1,0 +1,22 @@
+id: sqlite-schema-dump
+name: SQLite Schema & Table Definitions Dump
+version: 1.0.0
+category: DataOps
+description: Extract table definitions, triggers, and index schemas from SQLite database
+  file.
+os_family: any
+actions:
+- name: dump_schema
+  description: Dump schema definitions from SQLite database
+  command: sqlite3
+  args:
+  - '{{db_path}}'
+  - .schema
+  timeout: 5s
+  parameters:
+  - name: db_path
+    type: string
+    required: false
+    default: /tmp/test.db
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to SQLite database file

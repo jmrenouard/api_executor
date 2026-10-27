@@ -1,0 +1,24 @@
+id: safetensors-header
+name: Safetensors Model Tensor Dictionary Size Verifier
+version: 1.0.0
+category: AIOps
+description: Extract tensor metadata header size from Safetensors model file without
+  loading weights.
+os_family: any
+actions:
+- name: inspect_header_size
+  description: Read 8-byte little-endian header length from Safetensors file
+  command: python3
+  args:
+  - -c
+  - 'import sys; f=open(sys.argv[1],''rb''); b=f.read(8); n=int.from_bytes(b,''little'')
+    if len(b)==8 else 0; print(f''Header size: {n} bytes'')'
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/model.safetensors
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to Safetensors model file

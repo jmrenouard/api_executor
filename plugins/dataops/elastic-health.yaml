@@ -1,0 +1,28 @@
+id: elastic-health
+name: Elasticsearch Cluster Status & Shard Health
+version: 1.0.0
+category: DataOps
+description: Check Elasticsearch cluster health status (green, yellow, red), nodes,
+  and unassigned shards.
+os_family: any
+actions:
+- name: cluster_health
+  description: Query Elasticsearch cluster health API
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/_cluster/health
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Elasticsearch host
+  - name: port
+    type: string
+    required: false
+    default: '9200'
+    pattern: ^[0-9]+$
+    description: Elasticsearch HTTP port

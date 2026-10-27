@@ -1,0 +1,26 @@
+id: http-status-code
+name: HTTP Endpoint Status Code Fast Probe
+version: 1.0.0
+category: WebUtils
+description: Rapid HTTP response status code extraction for availability and health
+  probes.
+os_family: any
+actions:
+- name: get_status_code
+  description: Fetch HTTP response status code via curl
+  command: curl
+  args:
+  - -s
+  - -o
+  - /dev/null
+  - -w
+  - '%{http_code}'
+  - '{{url}}'
+  timeout: 5s
+  parameters:
+  - name: url
+    type: string
+    required: false
+    default: http://127.0.0.1:8080
+    pattern: ^https?://[a-zA-Z0-9.:_-]+(/.*)?$
+    description: Target HTTP URL to probe

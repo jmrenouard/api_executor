@@ -1,0 +1,28 @@
+id: elastic-indices
+name: Elasticsearch Index Catalog & Document Counts
+version: 1.0.0
+category: DataOps
+description: List Elasticsearch indices with document counts, primary store sizes,
+  and replica states.
+os_family: any
+actions:
+- name: cat_indices
+  description: Fetch index table via _cat/indices API
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/_cat/indices?v
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Elasticsearch host
+  - name: port
+    type: string
+    required: false
+    default: '9200'
+    pattern: ^[0-9]+$
+    description: Elasticsearch HTTP port

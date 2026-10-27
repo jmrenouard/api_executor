@@ -1,0 +1,14 @@
+id: ci-github-actions
+name: GitHub Actions Workflow Configuration Auditor
+version: 1.0.0
+category: DevOps
+description: Enumerate and inspect GitHub Actions workflow configurations via gh cli.
+os_family: any
+actions:
+- name: list_workflows
+  description: List GitHub Actions workflows
+  command: gh
+  args:
+  - workflow
+  - list
+  timeout: 5s

@@ -1,0 +1,17 @@
+id: python-pip-list
+name: Python PIP Package Catalog & Version Inspector
+version: 1.0.0
+category: DevOps
+description: Enumerate installed Python packages with version numbers in structured
+  JSON.
+os_family: any
+actions:
+- name: list_packages
+  description: List installed Python packages via pip
+  command: python3
+  args:
+  - -m
+  - pip
+  - list
+  - --format=json
+  timeout: 5s

@@ -1,0 +1,28 @@
+id: jaeger-sampling-strategy
+name: Jaeger & OpenTelemetry Sampling Strategy Telemetry
+version: 1.0.0
+category: SRE
+description: Fetch OpenTelemetry and Jaeger trace sampling strategy configuration
+  per service.
+os_family: any
+actions:
+- name: sampling_strategy
+  description: Query Jaeger sampling endpoint for service
+  command: curl
+  args:
+  - -s
+  - http://{{jaeger_host}}:5778/sampling?service={{service}}
+  timeout: 5s
+  parameters:
+  - name: jaeger_host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Jaeger agent host
+  - name: service
+    type: string
+    required: false
+    default: api-executor
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Service name to check strategy

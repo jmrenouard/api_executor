@@ -1,0 +1,15 @@
+id: nvidia-smi-processes
+name: NVIDIA GPU Active Compute Processes & PID VRAM Allocations
+version: 1.0.0
+category: AIOps
+description: List active GPU compute processes, host process IDs, and allocated VRAM
+  in megabytes.
+os_family: any
+actions:
+- name: gpu_processes
+  description: Query active GPU compute applications and VRAM usage
+  command: nvidia-smi
+  args:
+  - --query-compute-apps=pid,process_name,used_memory
+  - --format=csv,noheader
+  timeout: 5s

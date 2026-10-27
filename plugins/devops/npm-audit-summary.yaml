@@ -1,0 +1,14 @@
+id: npm-audit-summary
+name: NPM Dependency Security Vulnerability Audit
+version: 1.0.0
+category: DevOps
+description: Run npm security audit on package dependencies and output report in JSON.
+os_family: any
+actions:
+- name: run_audit
+  description: Execute npm audit in JSON format
+  command: npm
+  args:
+  - audit
+  - --json
+  timeout: 5s

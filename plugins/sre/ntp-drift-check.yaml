@@ -1,0 +1,14 @@
+id: ntp-drift-check
+name: NTP Clock Synchronization & Jitter Tracking
+version: 1.0.0
+category: SRE
+description: Inspect chrony NTP clock drift, leap second status, and synchronization
+  jitter.
+os_family: linux
+actions:
+- name: chrony_tracking
+  description: Query chrony NTP tracking telemetry
+  command: chronyc
+  args:
+  - tracking
+  timeout: 5s

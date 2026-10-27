@@ -36,6 +36,8 @@ go-admin-tool
 app.log
 history.db
 history.db-journal
-*.db
 *.log
 server.log
+
+# Agent teamwork metadata
+.agents/teamwork/

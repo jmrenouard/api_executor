@@ -1,0 +1,37 @@
+id: prom-metric-grep
+name: Prometheus Metric Family Query via Prometheus API
+version: 1.0.0
+category: SRE
+description: Query specific Prometheus metric family name using Prometheus instant
+  query API.
+os_family: any
+actions:
+- name: query_family
+  description: Query Prometheus metric family via instant query API
+  command: curl
+  args:
+  - -s
+  - -G
+  - http://{{host}}:{{port}}/api/v1/query
+  - --data-urlencode
+  - query={{metric}}
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Prometheus host
+  - name: port
+    type: string
+    required: false
+    default: '9090'
+    pattern: ^[0-9]+$
+    description: Prometheus port
+  - name: metric
+    type: string
+    required: false
+    default: up
+    pattern: ^[a-zA-Z_:][a-zA-Z0-9_:]*$
+    description: Metric family name to query

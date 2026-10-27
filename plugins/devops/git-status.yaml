@@ -1,0 +1,15 @@
+id: git-status
+name: Git Working Tree Status & Porcelain Inspector
+version: 1.0.0
+category: DevOps
+description: Inspect repository working directory status, untracked files, and staged
+  index changes.
+os_family: any
+actions:
+- name: porcelain_status
+  description: Query git status in machine-readable porcelain format
+  command: git
+  args:
+  - status
+  - --porcelain
+  timeout: 5s

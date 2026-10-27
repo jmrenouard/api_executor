@@ -1,0 +1,22 @@
+id: dataset-jsonl-count
+name: JSONL Training Dataset Record Count Calculator
+version: 1.0.0
+category: AIOps
+description: Count total examples and records in JSONL training or fine-tuning dataset
+  file.
+os_family: any
+actions:
+- name: count_records
+  description: Count line records in JSONL dataset file
+  command: wc
+  args:
+  - -l
+  - '{{dataset_path}}'
+  timeout: 5s
+  parameters:
+  - name: dataset_path
+    type: string
+    required: false
+    default: /tmp/dataset.jsonl
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to JSONL dataset file

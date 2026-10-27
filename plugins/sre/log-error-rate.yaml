@@ -1,0 +1,24 @@
+id: log-error-rate
+name: Application Log Error & Exception Frequency Counter
+version: 1.0.0
+category: SRE
+description: Count occurrences of ERROR, FATAL, and CRITICAL keywords in application
+  log file.
+os_family: any
+actions:
+- name: count_errors
+  description: Count critical error occurrences in log file
+  command: grep
+  args:
+  - -c
+  - -E
+  - (ERROR|FATAL|CRITICAL)
+  - '{{log_path}}'
+  timeout: 5s
+  parameters:
+  - name: log_path
+    type: string
+    required: false
+    default: /var/log/syslog
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to application log file

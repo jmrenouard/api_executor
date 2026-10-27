@@ -1,0 +1,40 @@
+id: postgres-conn-stats
+name: PostgreSQL Connection Activity & State Distribution
+version: 1.0.0
+category: DataOps
+description: Inspect active client connections, idle in transaction workers, and backend
+  states.
+os_family: any
+actions:
+- name: connection_states
+  description: Query client connection states from pg_stat_activity
+  command: psql
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - -U
+  - '{{user}}'
+  - -c
+  - SELECT state, count(*) FROM pg_stat_activity GROUP BY state;
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: PostgreSQL server host
+  - name: port
+    type: string
+    required: false
+    default: '5432'
+    pattern: ^[0-9]+$
+    description: PostgreSQL server port
+  - name: user
+    type: string
+    required: false
+    default: postgres
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Database username

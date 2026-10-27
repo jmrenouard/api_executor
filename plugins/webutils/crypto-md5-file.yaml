@@ -1,0 +1,20 @@
+id: crypto-md5-file
+name: Legacy MD5 Checksum Digest Calculator
+version: 1.0.0
+category: WebUtils
+description: Compute legacy MD5 checksum of a local file for compatibility verification.
+os_family: any
+actions:
+- name: md5_hash
+  description: Calculate MD5 hash of file
+  command: md5sum
+  args:
+  - '{{file}}'
+  timeout: 5s
+  parameters:
+  - name: file
+    type: string
+    required: false
+    default: /tmp/test.txt
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to file to hash

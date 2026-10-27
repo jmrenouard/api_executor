@@ -1,0 +1,31 @@
+id: mysql-status
+name: MySQL Global Runtime Status & Uptime Telemetry
+version: 1.0.0
+category: DataOps
+description: Collect global MySQL runtime status metrics including uptime, threads,
+  and queries per second.
+os_family: any
+actions:
+- name: mysql_status
+  description: Display MySQL runtime status metrics
+  command: mysqladmin
+  args:
+  - -h
+  - '{{host}}'
+  - -P
+  - '{{port}}'
+  - status
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MySQL host
+  - name: port
+    type: string
+    required: false
+    default: '3306'
+    pattern: ^[0-9]+$
+    description: MySQL port

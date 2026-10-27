@@ -1,0 +1,22 @@
+id: backup-checksum-match
+name: Backup Manifest SHA-256 Checksum Validator
+version: 1.0.0
+category: DataOps
+description: Validate cryptographic SHA-256 checksums of database dumps against recorded
+  manifest.
+os_family: any
+actions:
+- name: verify_checksums
+  description: Verify file checksums using sha256sum -c
+  command: sha256sum
+  args:
+  - -c
+  - '{{checksum_file}}'
+  timeout: 5s
+  parameters:
+  - name: checksum_file
+    type: string
+    required: false
+    default: /tmp/checksums.txt
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to SHA-256 checksum manifest file

@@ -1,0 +1,21 @@
+id: finops-core-dumps
+name: FinOps System Core Crash Dumps Disk Auditor
+version: 1.0.0
+category: SRE
+description: Identify disk space occupied by abandoned crash dumps and core files.
+os_family: linux
+actions:
+- name: crash_dumps_size
+  description: Inspect core dump storage usage
+  command: du
+  args:
+  - -sh
+  - '{{dir}}'
+  timeout: 5s
+  parameters:
+  - name: dir
+    type: string
+    required: false
+    default: /var/crash
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Crash dump directory path

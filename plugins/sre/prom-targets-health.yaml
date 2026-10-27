@@ -1,0 +1,22 @@
+id: prom-targets-health
+name: Prometheus Active Scraping Targets Health
+version: 1.0.0
+category: SRE
+description: Query Prometheus target discovery API for active scraping health and
+  drop status.
+os_family: any
+actions:
+- name: targets_health
+  description: Query Prometheus /api/v1/targets endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{prom_host}}:9090/api/v1/targets
+  timeout: 5s
+  parameters:
+  - name: prom_host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Prometheus server host

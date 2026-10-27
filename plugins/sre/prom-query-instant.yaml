@@ -1,0 +1,30 @@
+id: prom-query-instant
+name: Prometheus PromQL Instant Query Execution
+version: 1.0.0
+category: SRE
+description: Execute PromQL instant expression against Prometheus HTTP v1 query API.
+os_family: any
+actions:
+- name: promql_query
+  description: Execute PromQL instant expression
+  command: curl
+  args:
+  - -s
+  - -G
+  - http://{{prom_host}}:9090/api/v1/query
+  - --data-urlencode
+  - query={{promql}}
+  timeout: 5s
+  parameters:
+  - name: prom_host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Prometheus server host
+  - name: promql
+    type: string
+    required: false
+    default: up
+    pattern: ^[a-zA-Z0-9_:{}=~\"'-]+$
+    description: PromQL expression

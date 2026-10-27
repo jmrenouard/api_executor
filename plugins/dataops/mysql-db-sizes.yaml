@@ -1,0 +1,33 @@
+id: mysql-db-sizes
+name: MySQL Information Schema Storage & Index Sizing
+version: 1.0.0
+category: DataOps
+description: Calculate database table sizes, row allocations, and index overhead across
+  schemas.
+os_family: any
+actions:
+- name: table_storage
+  description: Aggregate data and index length by schema from information_schema
+  command: mysql
+  args:
+  - -h
+  - '{{host}}'
+  - -P
+  - '{{port}}'
+  - -e
+  - SELECT table_schema, sum(data_length + index_length) FROM information_schema.tables
+    GROUP BY table_schema;
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MySQL host
+  - name: port
+    type: string
+    required: false
+    default: '3306'
+    pattern: ^[0-9]+$
+    description: MySQL port

@@ -1,0 +1,13 @@
+id: cuda-version
+name: CUDA Toolkit Compiler Release & Driver Compatibility
+version: 1.0.0
+category: AIOps
+description: Inspect installed CUDA toolkit release version and NVCC compiler architecture.
+os_family: any
+actions:
+- name: nvcc_version
+  description: Query NVCC CUDA compiler release
+  command: nvcc
+  args:
+  - --version
+  timeout: 5s

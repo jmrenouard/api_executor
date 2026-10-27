@@ -1,0 +1,28 @@
+id: diff-files-unified
+name: Unified Diff Two Files Comparison Tool
+version: 1.0.0
+category: WebUtils
+description: Generate unified diff output comparing two text or configuration files.
+os_family: any
+actions:
+- name: compare_files
+  description: Run unified diff on two files
+  command: diff
+  args:
+  - -u
+  - '{{file1}}'
+  - '{{file2}}'
+  timeout: 5s
+  parameters:
+  - name: file1
+    type: string
+    required: false
+    default: /tmp/file1.txt
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: First file to compare
+  - name: file2
+    type: string
+    required: false
+    default: /tmp/file2.txt
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Second file to compare

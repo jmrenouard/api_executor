@@ -1,0 +1,28 @@
+id: qdrant-health
+name: Qdrant Vector Search Engine Cluster Health
+version: 1.0.0
+category: AIOps
+description: Query Qdrant vector database healthz endpoint for cluster readiness and
+  memory status.
+os_family: any
+actions:
+- name: check_health
+  description: Probe Qdrant healthz endpoint
+  command: curl
+  args:
+  - -s
+  - http://{{host}}:{{port}}/healthz
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Qdrant host
+  - name: port
+    type: string
+    required: false
+    default: '6333'
+    pattern: ^[0-9]+$
+    description: Qdrant HTTP port

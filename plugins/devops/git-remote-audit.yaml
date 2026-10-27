@@ -1,0 +1,14 @@
+id: git-remote-audit
+name: Git Configured Remote Endpoints & Push URLs
+version: 1.0.0
+category: DevOps
+description: Inspect configured Git remotes, fetch locations, and push targets.
+os_family: any
+actions:
+- name: list_remotes
+  description: Query configured Git remote endpoints
+  command: git
+  args:
+  - remote
+  - -v
+  timeout: 5s

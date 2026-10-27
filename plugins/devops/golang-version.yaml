@@ -1,0 +1,14 @@
+id: golang-version
+name: Go Compiler Toolchain Release & Architecture
+version: 1.0.0
+category: DevOps
+description: Query installed Go compiler version, target OS architecture, and runtime
+  release.
+os_family: any
+actions:
+- name: go_version
+  description: Display Go compiler release
+  command: go
+  args:
+  - version
+  timeout: 5s

@@ -1,0 +1,15 @@
+id: git-branch-info
+name: Git Active Branch & Upstream Tracking Inspector
+version: 1.0.0
+category: DevOps
+description: Query current Git branch reference, symbolic HEAD name, and commit pointer.
+os_family: any
+actions:
+- name: branch_name
+  description: Resolve symbolic name of current HEAD branch
+  command: git
+  args:
+  - rev-parse
+  - --abbrev-ref
+  - HEAD
+  timeout: 5s

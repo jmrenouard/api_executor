@@ -1,0 +1,30 @@
+id: loki-query-instant
+name: Grafana Loki LogQL Instant Query Execution
+version: 1.0.0
+category: SRE
+description: Query Grafana Loki LogQL for recent error streams and application exceptions.
+os_family: any
+actions:
+- name: query_logs
+  description: Execute instant LogQL query
+  command: curl
+  args:
+  - -s
+  - -G
+  - http://{{loki_host}}:3100/loki/api/v1/query
+  - --data-urlencode
+  - query={{logql}}
+  timeout: 5s
+  parameters:
+  - name: loki_host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Grafana Loki host
+  - name: logql
+    type: string
+    required: false
+    default: '{job="varlog"}'
+    pattern: ^[a-zA-Z0-9_{}=\"~ /-]+$
+    description: LogQL query stream selector

@@ -1,0 +1,19 @@
+id: nodejs-npm-version
+name: Node.js & NPM Toolchain Release Verifier
+version: 1.0.0
+category: DevOps
+description: Query installed Node.js runtime and npm package manager release versions.
+os_family: any
+actions:
+- name: node_version
+  description: Query Node.js runtime version
+  command: node
+  args:
+  - --version
+  timeout: 5s
+- name: npm_version
+  description: Query npm CLI version
+  command: npm
+  args:
+  - --version
+  timeout: 5s

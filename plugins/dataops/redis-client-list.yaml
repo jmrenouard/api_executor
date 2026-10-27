@@ -1,0 +1,32 @@
+id: redis-client-list
+name: Redis Connected Client Connections & Age Inspector
+version: 1.0.0
+category: DataOps
+description: List connected Redis clients with IP addresses, connection age, idle
+  duration, and flags.
+os_family: any
+actions:
+- name: list_clients
+  description: Execute CLIENT LIST command
+  command: redis-cli
+  args:
+  - -h
+  - '{{host}}'
+  - -p
+  - '{{port}}'
+  - client
+  - list
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: Redis host
+  - name: port
+    type: string
+    required: false
+    default: '6379'
+    pattern: ^[0-9]+$
+    description: Redis port

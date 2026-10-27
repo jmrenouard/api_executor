@@ -1,0 +1,28 @@
+id: log-tail-grep
+name: Log Tail Stream & Recent Lines Inspector
+version: 1.0.0
+category: SRE
+description: Inspect recent lines of application or system log file for troubleshooting.
+os_family: any
+actions:
+- name: tail_log
+  description: Tail the last N lines of specified log file
+  command: tail
+  args:
+  - -n
+  - '{{lines}}'
+  - '{{log_path}}'
+  timeout: 5s
+  parameters:
+  - name: lines
+    type: string
+    required: false
+    default: '100'
+    pattern: ^[0-9]+$
+    description: Number of lines to tail
+  - name: log_path
+    type: string
+    required: false
+    default: /var/log/syslog
+    pattern: ^/[a-zA-Z0-9._/-]+$
+    description: Path to target log file

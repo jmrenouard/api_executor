@@ -1,0 +1,32 @@
+id: mysql-processlist
+name: MySQL Client Threads & Running Queries Inspector
+version: 1.0.0
+category: DataOps
+description: Inspect active MySQL client threads, query execution times, and lock
+  states.
+os_family: any
+actions:
+- name: show_processlist
+  description: Query full processlist for active queries and threads
+  command: mysql
+  args:
+  - -h
+  - '{{host}}'
+  - -P
+  - '{{port}}'
+  - -e
+  - SHOW FULL PROCESSLIST;
+  timeout: 5s
+  parameters:
+  - name: host
+    type: string
+    required: false
+    default: 127.0.0.1
+    pattern: ^[a-zA-Z0-9.-]+$
+    description: MySQL host
+  - name: port
+    type: string
+    required: false
+    default: '3306'
+    pattern: ^[0-9]+$
+    description: MySQL port
