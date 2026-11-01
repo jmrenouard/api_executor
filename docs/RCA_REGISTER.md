@@ -240,6 +240,22 @@ This living governance register records all errors encountered, technical dead-e
   4. Added telemetry logging for mounted plugin counts and directory loading metrics.
 - **Result & Non-Regression Test**: Verified by `TestResolveConfigPathAndInitializeServerEnv` asserting all 24 native plugin IDs in `cmd/server/main_test.go`, `TestInitializeServerEnv_All24NativePluginsMounted` asserting all 10 operational domains, `TestInitializeServerEnv_PluginsDisabled` asserting 0 plugins when disabled, and `TestInitializeServerEnv_FeatureFlagToggles` (100% pass across 4 tests in `cmd/server` with 82.4% coverage; 218 unit + 65 E2E tests passing 100%).
 
+### `RCA-023` — Unbounded HTTP Server Timeouts (Slowloris Vulnerability) and Abrupt Process Termination on OS Signals
+- **Date**: `2026-11-01`
+- **Observed Symptom**: In `cmd/server/main.go`, `buildHTTPServer` initialized `http.Server` with zero timeouts, leaving the server vulnerable to connection exhaustion via Slowloris attacks. Furthermore, `runServer` directly invoked `serveFn` on the main goroutine without trapping `SIGINT` or `SIGTERM`, causing abrupt daemon termination, dropped in-flight requests, and risk of SQLite write interruption upon container shutdown.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why was the server susceptible to Slowloris attacks?* Because `http.Server` was instantiated with zero values for `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, and `IdleTimeout`.
+  2. *Why were timeouts not configured?* Go's `http.Server` defaults all timeout fields to zero (unbounded), requiring explicit developer configuration.
+  3. *Why did the daemon exit abruptly on container shutdown?* Because no signal handler caught `os.Interrupt` (`SIGINT`) or `syscall.SIGTERM` to coordinate a graceful shutdown sequence.
+  4. *What was the impact of abrupt exit?* Active HTTP connections were dropped immediately without sending response trailers or status codes, and open SQLite transactions risked leaving the WAL journal in an uncheckpointed state.
+  5. *Root Cause*: Omission of defensive HTTP connection timeout limits on `http.Server` and absence of an OS signal notification context with bounded graceful shutdown.
+- **Applied Change / Fix**:
+  1. Configured defensive timeouts in `buildHTTPServer` (`ReadHeaderTimeout: 5s`, `ReadTimeout: 15s`, `WriteTimeout: 30s`, `IdleTimeout: 60s`).
+  2. Structured `runServer` to trap `os.Interrupt` and `syscall.SIGTERM` using `signal.NotifyContext`.
+  3. Ran listener execution in a dedicated goroutine and coordinated clean shutdown via `srv.Shutdown(shutdownCtx)` with a 10-second timeout context.
+  4. Handled `http.ErrServerClosed` cleanly and ensured deferred cleanup functions release database and logger resources.
+- **Result & Non-Regression Test**: Verified by `TestBuildHTTPServer_TimeoutsConfigured`, `TestRunServerWithContext_GracefulShutdown`, and `TestRunServerWithContext_RealListenerGracefulShutdown` in `cmd/server/main_test.go` (100% pass across 7 tests in `cmd/server` with 82.3% statement coverage; 221 unit + 65 E2E tests passing 100%).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

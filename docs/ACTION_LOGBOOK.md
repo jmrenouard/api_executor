@@ -15,6 +15,24 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-026` — Add HTTP Server Timeouts and Graceful OS Signal Shutdown
+- **Timestamp (UTC)**: `2026-11-01T23:25:00Z`
+- **GitHub Issue**: [#52](https://github.com/jmrenouard/api_executor/issues/52)
+- **Branch**: `feat/issue-52-http-timeouts-and-graceful-shutdown`
+- **Request**:
+  - Configure `ReadHeaderTimeout` (5s), `ReadTimeout` (15s), `WriteTimeout` (30s), and `IdleTimeout` (60s) on `http.Server` in `buildHTTPServer` to mitigate Slowloris resource exhaustion attacks.
+  - Implement OS signal trapping (`os.Interrupt`, `syscall.SIGTERM`) via `signal.NotifyContext` in `runServer`, execute listeners in a separate goroutine, and trigger graceful shutdown via `srv.Shutdown` with a 10-second timeout context while cleanly handling `http.ErrServerClosed`.
+  - Add unit tests verifying configured timeouts and graceful termination behavior on context cancellation and real HTTP listeners.
+- **Changes**:
+  - Updated [`cmd/server/main.go`](../cmd/server/main.go): configured Slowloris protection timeouts on `http.Server` in `buildHTTPServer`; implemented `signal.NotifyContext` signal trapping in `runServer` delegating to `runServerWithContext`; managed listener goroutine and graceful termination via `srv.Shutdown` with 10s context timeout; preserved subsystem cleanup on server exit.
+  - Updated [`cmd/server/main_test.go`](../cmd/server/main_test.go): asserted timeouts on `httpsSrv` and `httpSrv` in `TestResolveConfigPathAndInitializeServerEnv`; added `TestBuildHTTPServer_TimeoutsConfigured`, `TestRunServerWithContext_GracefulShutdown`, and `TestRunServerWithContext_RealListenerGracefulShutdown`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-023` under `Errors & Bugs Encountered`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-026`.
+- **Result**:
+  - Package test suite: 100% pass rate (`7 passed in 1 packages`, statement coverage 82.3% in `cmd/server`).
+  - Full project test suite: 100% pass rate (`221 passed in 10 packages` + `65 passed in tests/e2e`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #52.
+
 ### `ACT-025` — Mount All 24 Built-In Native Plugins in Production Server Runtime
 - **Timestamp (UTC)**: `2026-11-01T23:05:00Z`
 - **GitHub Issue**: [#50](https://github.com/jmrenouard/api_executor/issues/50)
