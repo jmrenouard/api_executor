@@ -224,6 +224,22 @@ This living governance register records all errors encountered, technical dead-e
 - **Applied Change / Fix**: Replaced `rm -rf ./docs` in `Makefile` with targeted cleanup of generated swagger artifacts: `rm -f docs/docs.go docs/swagger.json docs/swagger.yaml`.
 - **Result & Non-Regression Test**: Verified by `go test -v -cover ./...` (100% pass across 215 tests in 10 packages) and verified `make clean` preserves `docs/` governance registers while removing generated swagger files.
 
+### `RCA-022` — Omission of 22 Compiled Native Go Plugins in Production Server Runtime
+- **Date**: `2026-11-01`
+- **Observed Symptom**: In `cmd/server/main.go`, the server daemon initialized the plugin registry and only explicitly loaded `DefaultDeclarativeOpsPlugin`, `DatabaseExposurePlugin`, and `SystemDiagnosticsPlugin`, omitting 22 of the 24 compiled native Go plugins from runtime initialization with active database bindings and configured row bounds. Furthermore, initializing with `plugins.NewRegistry()` pre-populated default plugins with `nil` database instances even when `plugins.enabled` was set to `false`.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why were 22 native plugins omitted from production server runtime?* Because `cmd/server/main.go` never called `plugins.RegisterDefaultNativePlugins(pluginRegistry, db, config.Plugins.MaxQueryRows)`.
+  2. *Why was `RegisterDefaultNativePlugins` not called in `cmd/server/main.go`?* Because early server bootstrapping only wired `db-exposure` and `sys-diagnostics` before the 24 native plugins were compiled across 10 operational domains in Milestone 1.
+  3. *Why did `plugins.NewRegistry()` not suffice?* `plugins.NewRegistry()` passes `nil` database reference and a hardcoded limit of `200` rows without dynamic configuration bindings, and would register plugins unconditionally even when `plugins.enabled: false`.
+  4. *Why did subsequent re-registration fail?* `Registry.Register` prohibits duplicate IDs to prevent silent overrides, returning `ErrDuplicatePlugin` on re-registration of the other 22 native plugins.
+  5. *Root Cause*: Lack of clean initialization via `plugins.NewEmptyRegistry()` followed by explicit guarded invocation of `plugins.RegisterDefaultNativePlugins` inside `cmd/server/main.go`.
+- **Applied Change / Fix**:
+  1. Updated `cmd/server/main.go` to construct the registry using `plugins.NewEmptyRegistry()`.
+  2. Injected all 24 native Go plugins with production database reference `db` and `config.Plugins.MaxQueryRows` via `plugins.RegisterDefaultNativePlugins` when `config.Plugins.Enabled` is true.
+  3. Added clean unregistration for `db-exposure` and `sys-diagnostics` when their respective feature flags (`enable_db_exposure`, `enable_sys_diagnostics`) are disabled.
+  4. Added telemetry logging for mounted plugin counts and directory loading metrics.
+- **Result & Non-Regression Test**: Verified by `TestResolveConfigPathAndInitializeServerEnv` asserting all 24 native plugin IDs in `cmd/server/main_test.go`, `TestInitializeServerEnv_All24NativePluginsMounted` asserting all 10 operational domains, `TestInitializeServerEnv_PluginsDisabled` asserting 0 plugins when disabled, and `TestInitializeServerEnv_FeatureFlagToggles` (100% pass across 4 tests in `cmd/server` with 82.4% coverage; 218 unit + 65 E2E tests passing 100%).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
