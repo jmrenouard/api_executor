@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestResolveConfigPathAndInitializeServerEnv(t *testing.T) {
@@ -98,6 +101,13 @@ command_executor:
 	if httpsSrv.TLSConfig == nil || httpsSrv.Addr != "127.0.0.1:18443" {
 		t.Errorf("expected non-nil TLSConfig and addr 127.0.0.1:18443, got %+v", httpsSrv)
 	}
+	if httpsSrv.ReadHeaderTimeout != 5*time.Second ||
+		httpsSrv.ReadTimeout != 15*time.Second ||
+		httpsSrv.WriteTimeout != 30*time.Second ||
+		httpsSrv.IdleTimeout != 60*time.Second {
+		t.Errorf("expected Slowloris timeouts (5s, 15s, 30s, 60s), got readHeader=%v read=%v write=%v idle=%v",
+			httpsSrv.ReadHeaderTimeout, httpsSrv.ReadTimeout, httpsSrv.WriteTimeout, httpsSrv.IdleTimeout)
+	}
 
 	// Verify router responds to /api/v1/plugins and includes boot-plugin
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/plugins", nil)
@@ -148,6 +158,13 @@ command_executor:
 	}
 	if httpSrv.TLSConfig != nil {
 		t.Errorf("expected nil TLSConfig when TLS is disabled")
+	}
+	if httpSrv.ReadHeaderTimeout != 5*time.Second ||
+		httpSrv.ReadTimeout != 15*time.Second ||
+		httpSrv.WriteTimeout != 30*time.Second ||
+		httpSrv.IdleTimeout != 60*time.Second {
+		t.Errorf("expected Slowloris timeouts on httpSrv, got readHeader=%v read=%v write=%v idle=%v",
+			httpSrv.ReadHeaderTimeout, httpSrv.ReadTimeout, httpSrv.WriteTimeout, httpSrv.IdleTimeout)
 	}
 
 	// 4. Error branches in initializeServerEnv: invalid logger path, invalid TLS config
@@ -393,6 +410,153 @@ plugins:
 		t.Errorf("expected tls-cert-inspector to remain registered")
 	}
 }
+
+func TestBuildHTTPServer_TimeoutsConfigured(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "timeouts-test.yaml")
+	cfgContent := `
+server:
+  port: 19083
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, router, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv failed: %v", err)
+	}
+	defer cleanup()
+
+	srv, err := buildHTTPServer(env, router)
+	if err != nil {
+		t.Fatalf("buildHTTPServer failed: %v", err)
+	}
+
+	if srv.ReadHeaderTimeout != 5*time.Second {
+		t.Errorf("expected ReadHeaderTimeout = 5s, got %v", srv.ReadHeaderTimeout)
+	}
+	if srv.ReadTimeout != 15*time.Second {
+		t.Errorf("expected ReadTimeout = 15s, got %v", srv.ReadTimeout)
+	}
+	if srv.WriteTimeout != 30*time.Second {
+		t.Errorf("expected WriteTimeout = 30s, got %v", srv.WriteTimeout)
+	}
+	if srv.IdleTimeout != 60*time.Second {
+		t.Errorf("expected IdleTimeout = 60s, got %v", srv.IdleTimeout)
+	}
+}
+
+func TestRunServerWithContext_GracefulShutdown(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "graceful-test.yaml")
+	cfgContent := `
+server:
+  port: 19084
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	serverDone := make(chan error, 1)
+
+	go func() {
+		serverDone <- runServerWithContext(ctx, cfgPath, func(srv *http.Server, tlsEnabled bool) error {
+			close(started)
+			<-ctx.Done()
+			return http.ErrServerClosed
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for server to start")
+	}
+
+	// Trigger graceful shutdown by cancelling context
+	cancel()
+
+	select {
+	case err := <-serverDone:
+		if err != nil {
+			t.Fatalf("expected nil error on graceful shutdown, got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for graceful shutdown to complete")
+	}
+}
+
+func TestRunServerWithContext_RealListenerGracefulShutdown(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "real-listener-test.yaml")
+	cfgContent := `
+server:
+  port: 0
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	serverDone := make(chan error, 1)
+
+	var ln net.Listener
+	var lnErr error
+
+	go func() {
+		serverDone <- runServerWithContext(ctx, cfgPath, func(srv *http.Server, tlsEnabled bool) error {
+			ln, lnErr = net.Listen("tcp", "127.0.0.1:0")
+			if lnErr != nil {
+				close(started)
+				return lnErr
+			}
+			srv.Addr = ln.Addr().String()
+			close(started)
+			return srv.Serve(ln)
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for real server listener to start")
+	}
+	if lnErr != nil {
+		t.Fatalf("failed to bind listener: %v", lnErr)
+	}
+
+	// Make an HTTP request to verify server is genuinely accepting traffic
+	resp, err := http.Get(fmt.Sprintf("http://%s/health", ln.Addr().String()))
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+
+	// Cancel context to trigger graceful shutdown
+	cancel()
+
+	select {
+	case err := <-serverDone:
+		if err != nil {
+			t.Fatalf("expected nil on real server graceful shutdown, got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for real server to shut down gracefully")
+	}
+}
+
 
 
 
