@@ -15,6 +15,20 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-024` — Prevent Destructive Deletion of docs Directory in make clean
+- **Timestamp (UTC)**: `2026-11-01T22:50:00Z`
+- **GitHub Issue**: [#48](https://github.com/jmrenouard/api_executor/issues/48)
+- **Branch**: `fix/issue-48-make-clean-docs-safety`
+- **Request**:
+  - Replace destructive `rm -rf ./docs` in `Makefile` clean target with targeted cleanup of generated swagger files only (`docs/docs.go`, `docs/swagger.json`, `docs/swagger.yaml`) to prevent deletion of living governance registers, architecture docs, and brand assets.
+- **Changes**:
+  - Updated [`Makefile`](../Makefile): modified `clean` target to replace `rm -rf ./docs` with `rm -f docs/docs.go docs/swagger.json docs/swagger.yaml`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): added `RCA-021` under `Errors & Bugs Encountered`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-024`.
+- **Result**:
+  - Full test suite: 100% pass rate (`215 passed in 10 packages`), verified all packages compile cleanly and pass.
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #48.
+
 ### `ACT-023` — 300+ Plugins Ecosystem Final Verification, Live Playwright E2E Validation, and Comprehensive Documentation
 - **Timestamp (UTC)**: `2026-10-27T04:35:00Z`
 - **GitHub Issue**: [#46](https://github.com/jmrenouard/api_executor/issues/46)

@@ -40,7 +40,7 @@ clean:
 	@echo "Cleaning up..."
 	@$(GOCLEAN)
 	@rm -f $(BINARY_NAME)
-	@rm -rf ./docs
+	@rm -f docs/docs.go docs/swagger.json docs/swagger.yaml
 
 test:
 	@echo "Running tests..."
