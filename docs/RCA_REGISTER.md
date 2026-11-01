@@ -273,6 +273,21 @@ This living governance register records all errors encountered, technical dead-e
   5. Implemented comprehensive test coverage in `internal/api/router_test.go` verifying dynamic template normalization, static route preservation, and cardinality bounding under fuzzing attacks.
 - **Result & Non-Regression Test**: Verified by `TestNormalizeMetricPath`, `TestPrometheusMetricDynamicRouteNormalization`, `TestPrometheusMetricPathCardinalityBounding`, and `TestPrometheusMetricStaticRoutesPreserved` in `internal/api/router_test.go` (100% pass across 94 tests in `internal/api`; full suite 276 tests passing 100% across all 10 packages).
 
+### `RCA-025` — Unauthenticated Access to Administrative File Server, Command Metadata, and Audit/Log Endpoints
+- **Date**: `2026-11-01`
+- **Observed Symptom**: When `auth.require_auth: true` was configured, several sensitive administrative endpoints (`/api/v1/files`, `/api/v1/files/:filename`, `/api/v1/commands`, `/api/v1/audit/logs`, `/api/v1/audit/verify`, `/api/v1/logs`, and `/api/v1/history`) completely bypassed authentication. Unauthenticated clients could list server files, download sensitive file payloads, inspect command timeouts/names, read tamper-evident audit events, verify audit chains, view ring-buffered system logs, and inspect execution history.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why could unauthenticated callers access sensitive endpoints?* Because `ListFilesHandler`, `DownloadFileHandler`, `ListCommandsHandler`, `AuditLogsHandler`, `AuditVerifyHandler`, `SystemLogsHandler`, and `ActionHistoryHandler` never invoked `resolvePrincipal(r)` or checked `RequireAuth`.
+  2. *Why was authentication not checked in those handlers?* They were initially implemented as read-only diagnostic or utility endpoints prior to the introduction of the RBAC and authentication subsystem in Milestone 1.
+  3. *Why did existing auth tests not detect the gap?* Existing auth tests focused on mutation endpoints (`/api/v1/execute`, `/api/v1/auth/*`, `/api/v1/tls/renew`, `/api/v1/presets/activate`, `/api/v1/plugins/execute`), while file and audit tests only ran with `RequireAuth: false`.
+  4. *What was the security impact?* An unauthenticated remote attacker could enumerate server files, download arbitrary files from the secure directory, read internal application logs, and inspect audit trails even in hardened environments where authentication was strictly required.
+  5. *Root Cause*: Lack of uniform authentication enforcement across all administrative and diagnostic handlers upon enabling `RequireAuth`.
+- **Applied Change / Fix**:
+  1. Added `p, err := env.resolvePrincipal(r)` and `RequireAuth` checks returning `401 Unauthorized` across `ListFilesHandler`, `DownloadFileHandler`, and `ListCommandsHandler` in `internal/api/handlers.go`.
+  2. Added `p, err := env.resolvePrincipal(r)` and `RequireAuth` checks returning `401 Unauthorized` across `AuditLogsHandler`, `AuditVerifyHandler`, `SystemLogsHandler`, and `ActionHistoryHandler` in `internal/api/audit_handlers.go`.
+  3. Created `internal/api/endpoint_auth_test.go` verifying 100% enforcement across all 7 endpoints for unauthenticated requests, invalid tokens, Bearer/X-API-Token credentials, and backward compatibility when `RequireAuth: false`.
+- **Result & Non-Regression Test**: Verified by `TestProtectedEndpoints_RequireAuth_UnauthenticatedReturns401`, `TestProtectedEndpoints_RequireAuth_AuthenticatedSucceeds200`, `TestProtectedEndpoints_RequireAuthFalse_BackwardCompatibility`, and `TestProtectedEndpoints_RequireAuth_NilAuthManagerReturns401` in `internal/api/endpoint_auth_test.go` (100% pass across 126 tests in `internal/api` with 90.3% coverage; 308 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
