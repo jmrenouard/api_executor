@@ -15,6 +15,25 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-027` — Normalize Prometheus Metric Route Paths to Prevent Cardinality Explosion DoS
+- **Timestamp (UTC)**: `2026-11-01T23:35:00Z`
+- **GitHub Issue**: [#54](https://github.com/jmrenouard/api_executor/issues/54)
+- **Branch**: `fix/issue-54-prometheus-path-cardinality-bounds`
+- **Request**:
+  - In `internal/api/router.go`, raw `r.URL.Path` was passed directly into `httpRequestsTotal` and `httpRequestDuration` Prometheus metric labels.
+  - Variable path parameters (such as `/api/v1/files/:filename`, `/api/v1/mcp/traces/:trace_id`) and random 404 paths caused unbounded metric time series creation, exposing the server to memory exhaustion DoS.
+  - Implement route path normalization `normalizeMetricPath(path string) string` collapsing dynamic paths and unrecognized/random paths to `"other"`, while preserving known static paths.
+  - Add comprehensive unit tests in `internal/api/router_test.go` asserting dynamic routes collapse to templates, random paths collapse to `"other"`, and no unbounded series are created.
+- **Changes**:
+  - Updated [`internal/api/router.go`](../internal/api/router.go): added `knownStaticPaths` lookup set, added `normalizeMetricPath` collapsing dynamic routes (`/api/v1/files/:filename`, `/api/v1/mcp/traces/:trace_id`), swagger documentation paths (`/swagger`), and unrecognized/random paths (`"other"`), while preserving recognized static paths and trimming redundant trailing slashes; integrated `normalizeMetricPath` into `prometheusMiddleware`; added `ResetHTTPMetrics()` helper for test isolation.
+  - Added [`internal/api/router_test.go`](../internal/api/router_test.go): added `TestNormalizeMetricPath` table-driven test covering dynamic, static, trailing slash, and random paths; added `TestPrometheusMetricDynamicRouteNormalization` asserting Prometheus labels collapse to templates; added `TestPrometheusMetricPathCardinalityBounding` verifying 50+ random fuzz paths collapse under single `"other"` label without creating individual series in the Prometheus registry; added `TestPrometheusMetricStaticRoutesPreserved`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-027`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-024` under `Errors & Bugs Encountered`.
+- **Result**:
+  - Package test suite: 100% pass rate (`94 passed in 1 packages`, statement coverage 83.9% in `internal/api`).
+  - Full project test suite: 100% pass rate (`276 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #54.
+
 ### `ACT-026` — Add HTTP Server Timeouts and Graceful OS Signal Shutdown
 - **Timestamp (UTC)**: `2026-11-01T23:25:00Z`
 - **GitHub Issue**: [#52](https://github.com/jmrenouard/api_executor/issues/52)

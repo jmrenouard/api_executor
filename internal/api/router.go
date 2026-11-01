@@ -156,6 +156,12 @@ func ResetActionMetrics() {
 	actionCallDuration.Reset()
 }
 
+// ResetHTTPMetrics resets HTTP request metric vectors (useful for isolated tests).
+func ResetHTTPMetrics() {
+	httpRequestsTotal.Reset()
+	httpRequestDuration.Reset()
+}
+
 // normalizeActionLabel sanitizes the action name and bounds dynamic label cardinality.
 func normalizeActionLabel(action string) string {
 	label := strings.TrimSpace(action)
@@ -260,6 +266,80 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// knownStaticPaths contains recognized static endpoint paths whose cardinality is strictly bounded.
+var knownStaticPaths = map[string]struct{}{
+	"/":                                    {},
+	"/index.html":                          {},
+	"/health":                              {},
+	"/metrics":                             {},
+	"/swagger":                             {},
+	"/api/v1/commands":                     {},
+	"/api/v1/execute":                      {},
+	"/api/v1/presets":                      {},
+	"/api/v1/presets/activate":             {},
+	"/api/v1/files":                        {},
+	"/api/v1/tls/info":                     {},
+	"/api/v1/tls/certificate":              {},
+	"/api/v1/tls/renew":                    {},
+	"/api/v1/tls/certificate/renew":        {},
+	"/api/v1/audit/logs":                   {},
+	"/api/v1/audit/verify":                 {},
+	"/api/v1/logs":                         {},
+	"/api/v1/history":                      {},
+	"/api/v1/auth/login":                   {},
+	"/api/v1/auth/me":                      {},
+	"/api/v1/auth/users":                   {},
+	"/api/v1/auth/tokens":                  {},
+	"/api/v1/auth/credentials":             {},
+	"/api/v1/auth/service-accounts":        {},
+	"/api/v1/auth/service-accounts/rotate": {},
+	"/api/v1/plugins":                      {},
+	"/api/v1/plugins/catalog":              {},
+	"/api/v1/plugins/execute":              {},
+	"/api/v1/plugins/declarative":          {},
+	"/api/v1/db/tables":                    {},
+	"/api/v1/db/query":                     {},
+	"/api/v1/mcp":                          {},
+	"/api/v1/mcp/tools":                    {},
+	"/api/v1/mcp/resources":                {},
+	"/api/v1/mcp/traces":                   {},
+}
+
+// normalizeMetricPath normalizes HTTP request paths for Prometheus metrics to prevent
+// unbounded label cardinality DoS. Dynamic parameterized routes are collapsed to their
+// route pattern templates, recognized static routes are preserved, and unrecognized/random
+// paths are collapsed to "other".
+func normalizeMetricPath(path string) string {
+	// Normalize dynamic parameterized routes
+	if strings.HasPrefix(path, "/api/v1/files/") && path != "/api/v1/files" {
+		return "/api/v1/files/:filename"
+	}
+	if strings.HasPrefix(path, "/api/v1/mcp/traces/") && path != "/api/v1/mcp/traces" {
+		return "/api/v1/mcp/traces/:trace_id"
+	}
+
+	// Collapse swagger documentation paths
+	if path == "/swagger" || strings.HasPrefix(path, "/swagger/") {
+		return "/swagger"
+	}
+
+	// Check exact match for known static routes
+	if _, ok := knownStaticPaths[path]; ok {
+		return path
+	}
+
+	// Check if trailing slash was appended to a known static route
+	if len(path) > 1 && strings.HasSuffix(path, "/") {
+		trimmed := strings.TrimSuffix(path, "/")
+		if _, ok := knownStaticPaths[trimmed]; ok {
+			return trimmed
+		}
+	}
+
+	// Unrecognized or random 404 paths are bounded to "other"
+	return "other"
+}
+
 // prometheusMiddleware wraps an http.Handler to collect metrics and apply HTTPS security headers.
 func prometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +356,7 @@ func prometheusMiddleware(next http.Handler) http.Handler {
 		}
 
 		duration := time.Since(start).Seconds()
-		path := r.URL.Path
+		path := normalizeMetricPath(r.URL.Path)
 
 		httpRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(statusCode)).Inc()
 		httpRequestDuration.WithLabelValues(r.Method, path).Observe(duration)
