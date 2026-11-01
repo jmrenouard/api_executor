@@ -256,6 +256,23 @@ This living governance register records all errors encountered, technical dead-e
   4. Handled `http.ErrServerClosed` cleanly and ensured deferred cleanup functions release database and logger resources.
 - **Result & Non-Regression Test**: Verified by `TestBuildHTTPServer_TimeoutsConfigured`, `TestRunServerWithContext_GracefulShutdown`, and `TestRunServerWithContext_RealListenerGracefulShutdown` in `cmd/server/main_test.go` (100% pass across 7 tests in `cmd/server` with 82.3% statement coverage; 221 unit + 65 E2E tests passing 100%).
 
+### `RCA-024` — Unbounded Prometheus Metric Route Path Cardinality Explosion (OOM DoS Vulnerability)
+- **Date**: `2026-11-01`
+- **Observed Symptom**: In `internal/api/router.go`, `prometheusMiddleware` extracted raw `r.URL.Path` and passed it directly as a Prometheus metric label value for `http_requests_total` (`method`, `path`, `status`) and `http_request_duration_seconds` (`method`, `path`). Any client querying dynamic parameterized endpoints (e.g. `/api/v1/files/:filename`, `/api/v1/mcp/traces/:trace_id`) or fuzzing random 404 paths created a new metric time series in memory for every distinct URI, causing unbounded Prometheus registry memory growth and exposing the server to out-of-memory (OOM) denial-of-service.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did metric time series grow without bound?* Because `prometheusMiddleware` passed raw `r.URL.Path` directly as a Prometheus label value.
+  2. *Why was raw path used?* Standard `http.ServeMux` does not automatically annotate requests with route pattern templates (unlike gorilla/mux or gin), leaving `r.URL.Path` as the raw path string.
+  3. *Why is this a security vulnerability?* Prometheus stores every distinct combination of label values as a persistent in-memory time series (`MetricFamily`). Attackers or clients scanning random paths can generate millions of time series, causing memory exhaustion.
+  4. *Why were dynamic routes particularly vulnerable?* Routes such as `/api/v1/files/{filename}` and `/api/v1/mcp/traces/{trace_id}` take arbitrary identifiers in the path component.
+  5. *Root Cause*: Absence of a route path normalization layer (`normalizeMetricPath`) to collapse parameterized routes to route templates and fall back to a strictly bounded `"other"` label for arbitrary or unrecognized URLs.
+- **Applied Change / Fix**:
+  1. Defined `knownStaticPaths` lookup set in `internal/api/router.go` for all legitimate static application endpoints.
+  2. Implemented `normalizeMetricPath` collapsing dynamic parameterized routes (`/api/v1/files/*` -> `/api/v1/files/:filename`, `/api/v1/mcp/traces/*` -> `/api/v1/mcp/traces/:trace_id`), collapsing Swagger doc paths to `/swagger`, preserving recognized static routes (with optional trailing slash tolerance), and collapsing any unrecognized path or random 404 to `"other"`.
+  3. Integrated `normalizeMetricPath` into `prometheusMiddleware` so Prometheus metrics record only bounded template labels.
+  4. Added `ResetHTTPMetrics()` for isolated metric test verification.
+  5. Implemented comprehensive test coverage in `internal/api/router_test.go` verifying dynamic template normalization, static route preservation, and cardinality bounding under fuzzing attacks.
+- **Result & Non-Regression Test**: Verified by `TestNormalizeMetricPath`, `TestPrometheusMetricDynamicRouteNormalization`, `TestPrometheusMetricPathCardinalityBounding`, and `TestPrometheusMetricStaticRoutesPreserved` in `internal/api/router_test.go` (100% pass across 94 tests in `internal/api`; full suite 276 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
