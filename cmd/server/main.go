@@ -91,20 +91,34 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		return nil, nil, nil, fmt.Errorf("failed to initialize authentication manager: %w", err)
 	}
 
-	pluginRegistry := plugins.NewRegistry()
+	pluginRegistry := plugins.NewEmptyRegistry()
 	if config.Plugins.Enabled {
+		plugins.RegisterDefaultNativePlugins(pluginRegistry, db, config.Plugins.MaxQueryRows)
+		logger.Info(fmt.Sprintf("Mounted %d default native plugins in server runtime", len(pluginRegistry.List())))
+
 		if opsPlugin, err := plugins.DefaultDeclarativeOpsPlugin(); err == nil {
-			_ = pluginRegistry.Register(opsPlugin)
+			if err := pluginRegistry.Register(opsPlugin); err != nil {
+				logger.Warn(fmt.Sprintf("Failed to register default declarative ops plugin: %v", err))
+			}
 		}
 		if config.Plugins.EnableDBExposure {
-			_ = pluginRegistry.Register(plugins.NewDatabaseExposurePlugin(db, config.Plugins.MaxQueryRows))
+			_ = pluginRegistry.RegisterOrReplace(plugins.NewDatabaseExposurePlugin(db, config.Plugins.MaxQueryRows))
+		} else {
+			pluginRegistry.Unregister("db-exposure")
 		}
 		if config.Plugins.EnableSysDiag {
-			_ = pluginRegistry.Register(plugins.NewSystemDiagnosticsPlugin())
+			_ = pluginRegistry.RegisterOrReplace(plugins.NewSystemDiagnosticsPlugin())
+		} else {
+			pluginRegistry.Unregister("sys-diagnostics")
 		}
 		if config.Plugins.DeclarativeDir != "" {
 			if _, err := os.Stat(config.Plugins.DeclarativeDir); err == nil {
-				_, _ = pluginRegistry.LoadDeclarativeDirectory(config.Plugins.DeclarativeDir)
+				count, err := pluginRegistry.LoadDeclarativeDirectory(config.Plugins.DeclarativeDir)
+				if err != nil {
+					logger.Warn(fmt.Sprintf("Encountered errors loading declarative plugins from %s: %v", config.Plugins.DeclarativeDir, err))
+				} else {
+					logger.Info(fmt.Sprintf("Loaded %d declarative plugins from %s", count, config.Plugins.DeclarativeDir))
+				}
 			}
 		}
 	}

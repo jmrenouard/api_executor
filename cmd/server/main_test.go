@@ -107,6 +107,39 @@ command_executor:
 		t.Errorf("expected 200 from /api/v1/plugins, got %d", rec.Code)
 	}
 
+	// Verify all 24 native plugins are registered in env.PluginRegistry
+	expectedNativePlugins := []string{
+		"sys-diagnostics",
+		"host-storage-stats",
+		"process-tree-analyzer",
+		"tcp-udp-port-probe",
+		"dns-resolver-audit",
+		"file-integrity-checker",
+		"password-policy-audit",
+		"docker-socket-client",
+		"container-spec-validator",
+		"k8s-manifest-linter",
+		"helm-chart-inspector",
+		"db-exposure",
+		"sqlite-schema-analyzer",
+		"redis-protocol-probe",
+		"git-repo-inspector",
+		"semver-release-checker",
+		"prometheus-scraper",
+		"log-regex-analyzer",
+		"mcp-endpoint-tester",
+		"model-artifact-verifier",
+		"tls-cert-inspector",
+		"http-latency-probe",
+		"crypto-hash-utility",
+		"jwt-token-inspector",
+	}
+	for _, pID := range expectedNativePlugins {
+		if p, ok := env.PluginRegistry.Get(pID); !ok || p == nil {
+			t.Errorf("expected native plugin %q to be registered in production server runtime", pID)
+		}
+	}
+
 	// Verify buildHTTPServer with TLS disabled
 	env.Config.Server.TLS.Enabled = false
 	httpSrv, err := buildHTTPServer(env, router)
@@ -183,5 +216,183 @@ command_executor:
 		t.Errorf("expected error when auth.bootstrap_password is shorter than 6 characters")
 	}
 }
+
+func TestInitializeServerEnv_All24NativePluginsMounted(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "plugins-enabled.yaml")
+	cfgContent := `
+server:
+  port: 19080
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+plugins:
+  enabled: true
+  enable_db_exposure: true
+  enable_sys_diag: true
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv failed: %v", err)
+	}
+	defer cleanup()
+
+	expectedNativeIDs := []string{
+		// 1. SysAdmin
+		"sys-diagnostics",
+		"host-storage-stats",
+		"process-tree-analyzer",
+		// 2. NetOps
+		"tcp-udp-port-probe",
+		"dns-resolver-audit",
+		// 3. SecOps
+		"file-integrity-checker",
+		"password-policy-audit",
+		// 4. ContainerOps
+		"docker-socket-client",
+		"container-spec-validator",
+		// 5. Kubernetes
+		"k8s-manifest-linter",
+		"helm-chart-inspector",
+		// 6. DataOps
+		"db-exposure",
+		"sqlite-schema-analyzer",
+		"redis-protocol-probe",
+		// 7. DevOps
+		"git-repo-inspector",
+		"semver-release-checker",
+		// 8. SRE
+		"prometheus-scraper",
+		"log-regex-analyzer",
+		// 9. AIOps
+		"mcp-endpoint-tester",
+		"model-artifact-verifier",
+		// 10. Web & Crypto Utilities
+		"tls-cert-inspector",
+		"http-latency-probe",
+		"crypto-hash-utility",
+		"jwt-token-inspector",
+	}
+
+	for _, id := range expectedNativeIDs {
+		p, found := env.PluginRegistry.Get(id)
+		if !found || p == nil {
+			t.Errorf("expected native plugin %q to be registered in production server runtime", id)
+			continue
+		}
+		if p.ID() != id {
+			t.Errorf("plugin ID mismatch: expected %q, got %q", id, p.ID())
+		}
+		if p.Name() == "" {
+			t.Errorf("plugin %q has empty Name", id)
+		}
+		if p.Category() == "" {
+			t.Errorf("plugin %q has empty Category", id)
+		}
+		if len(p.Actions()) == 0 {
+			t.Errorf("plugin %q has no actions exposed", id)
+		}
+	}
+
+	// Verify all 10 operational domains are represented
+	expectedCategories := map[string]bool{
+		"SysAdmin":                 false,
+		"NetOps":                   false,
+		"SecOps":                   false,
+		"ContainerOps":             false,
+		"Kubernetes":               false,
+		"DataOps":                  false,
+		"DevOps":                   false,
+		"SRE":                      false,
+		"AIOps":                    false,
+		"Web & Crypto Utilities":   false,
+	}
+
+	for _, p := range env.PluginRegistry.List() {
+		if _, ok := expectedCategories[p.Category]; ok {
+			expectedCategories[p.Category] = true
+		}
+	}
+
+	for cat, found := range expectedCategories {
+		if !found {
+			t.Errorf("expected operational category %q to be present in mounted plugins", cat)
+		}
+	}
+}
+
+func TestInitializeServerEnv_PluginsDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "plugins-disabled.yaml")
+	cfgContent := `
+server:
+  port: 19081
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+plugins:
+  enabled: false
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv failed: %v", err)
+	}
+	defer cleanup()
+
+	if pluginsCount := len(env.PluginRegistry.List()); pluginsCount != 0 {
+		t.Errorf("expected 0 plugins when plugins.enabled=false, got %d", pluginsCount)
+	}
+}
+
+func TestInitializeServerEnv_FeatureFlagToggles(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "plugins-toggles.yaml")
+	cfgContent := `
+server:
+  port: 19082
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+plugins:
+  enabled: true
+  enable_db_exposure: false
+  enable_sys_diagnostics: false
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv failed: %v", err)
+	}
+	defer cleanup()
+
+	if _, found := env.PluginRegistry.Get("db-exposure"); found {
+		t.Errorf("expected db-exposure to be absent when enable_db_exposure is false")
+	}
+	if _, found := env.PluginRegistry.Get("sys-diagnostics"); found {
+		t.Errorf("expected sys-diagnostics to be absent when enable_sys_diag is false")
+	}
+
+	// Verify other native plugins are still mounted
+	if _, found := env.PluginRegistry.Get("host-storage-stats"); !found {
+		t.Errorf("expected host-storage-stats to remain registered")
+	}
+	if _, found := env.PluginRegistry.Get("tls-cert-inspector"); !found {
+		t.Errorf("expected tls-cert-inspector to remain registered")
+	}
+}
+
 
 

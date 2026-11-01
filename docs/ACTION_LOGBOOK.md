@@ -15,6 +15,25 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-025` — Mount All 24 Built-In Native Plugins in Production Server Runtime
+- **Timestamp (UTC)**: `2026-11-01T23:05:00Z`
+- **GitHub Issue**: [#50](https://github.com/jmrenouard/api_executor/issues/50)
+- **Branch**: `feat/issue-50-mount-native-plugins-production`
+- **Request**:
+  - Mount all 24 built-in native Go plugins across all 10 operational domains in production server runtime (`cmd/server/main.go`) by calling `plugins.RegisterDefaultNativePlugins(pluginRegistry, db, config.Plugins.MaxQueryRows)` when `config.Plugins.Enabled` is true.
+  - Verify that when plugins are disabled (`plugins.enabled: false`), the registry is empty.
+  - Support granular toggling of `db-exposure` and `sys-diagnostics` via `enable_db_exposure` and `enable_sys_diagnostics`.
+  - Add comprehensive unit tests in `cmd/server/main_test.go` asserting all 24 native plugins and 10 operational domains are mounted with valid actions and metadata.
+- **Changes**:
+  - Updated [`cmd/server/main.go`](../cmd/server/main.go): switched initial registry creation to `plugins.NewEmptyRegistry()`, invoked `plugins.RegisterDefaultNativePlugins(pluginRegistry, db, config.Plugins.MaxQueryRows)` when `config.Plugins.Enabled` is true, logged plugin mount telemetry, and handled unregistration of `db-exposure` and `sys-diagnostics` when feature flags are disabled.
+  - Updated [`cmd/server/main_test.go`](../cmd/server/main_test.go): asserted presence of all 24 native plugins in `TestResolveConfigPathAndInitializeServerEnv`, added `TestInitializeServerEnv_All24NativePluginsMounted` asserting all 24 native IDs and all 10 operational categories, added `TestInitializeServerEnv_PluginsDisabled` verifying 0 plugins when disabled, and added `TestInitializeServerEnv_FeatureFlagToggles`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): added `RCA-022` under `Errors & Bugs Encountered`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-025`.
+- **Result**:
+  - Package test suite: 100% pass rate (`4 passed in 1 packages`, statement coverage 82.4% in `cmd/server`).
+  - Full project test suite: 100% pass rate (`218 passed in 10 packages` + `65 passed in tests/e2e`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #50.
+
 ### `ACT-024` — Prevent Destructive Deletion of docs Directory in make clean
 - **Timestamp (UTC)**: `2026-11-01T22:50:00Z`
 - **GitHub Issue**: [#48](https://github.com/jmrenouard/api_executor/issues/48)
