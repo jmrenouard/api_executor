@@ -12,6 +12,16 @@ import (
 
 // AuditLogsHandler returns filtered tamper-evident audit events.
 func (env *APIEnv) AuditLogsHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if env.Config != nil && env.Config.Auth.RequireAuth && (p == nil || p.Type == "anonymous") {
+		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if env.AuditLogger == nil {
 		_ = json.NewEncoder(w).Encode(struct {
@@ -46,6 +56,16 @@ func (env *APIEnv) AuditLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 // AuditVerifyHandler verifies the SHA-256 hash chain integrity of all retained audit events.
 func (env *APIEnv) AuditVerifyHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if env.Config != nil && env.Config.Auth.RequireAuth && (p == nil || p.Type == "anonymous") {
+		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if env.AuditLogger == nil {
 		_ = json.NewEncoder(w).Encode(audit.ChainVerificationResult{
@@ -60,6 +80,16 @@ func (env *APIEnv) AuditVerifyHandler(w http.ResponseWriter, r *http.Request) {
 
 // SystemLogsHandler returns recent structured application log entries from the in-memory ring buffer.
 func (env *APIEnv) SystemLogsHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if env.Config != nil && env.Config.Auth.RequireAuth && (p == nil || p.Type == "anonymous") {
+		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if env.Logger == nil {
 		_ = json.NewEncoder(w).Encode(struct {
@@ -81,6 +111,16 @@ func (env *APIEnv) SystemLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 // ActionHistoryHandler returns the most recent command execution history entries from SQLite / in-memory DB.
 func (env *APIEnv) ActionHistoryHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if env.Config != nil && env.Config.Auth.RequireAuth && (p == nil || p.Type == "anonymous") {
+		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if env.DB == nil {
 		_ = json.NewEncoder(w).Encode(struct {

@@ -413,6 +413,16 @@ func writeJSONError(w http.ResponseWriter, msg string, code int) {
 // @Failure 500 {object} ErrorResponse
 // @Router /api/v1/files [get]
 func (env *APIEnv) ListFilesHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if env.Config != nil && env.Config.Auth.RequireAuth && (p == nil || p.Type == "anonymous") {
+		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	if !env.Config.FileServer.Enabled {
 		http.Error(w, "File server is disabled", http.StatusNotFound)
 		return
@@ -445,6 +455,16 @@ func (env *APIEnv) ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 // @Failure 404 {object} ErrorResponse
 // @Router /api/v1/files/{filename} [get]
 func (env *APIEnv) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if env.Config != nil && env.Config.Auth.RequireAuth && (p == nil || p.Type == "anonymous") {
+		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	if !env.Config.FileServer.Enabled {
 		http.Error(w, "File server is disabled", http.StatusNotFound)
 		return
@@ -496,6 +516,16 @@ func (env *APIEnv) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 // @Failure 404 {object} ErrorResponse
 // @Router /api/v1/commands [get]
 func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if env.Config != nil && env.Config.Auth.RequireAuth && (p == nil || p.Type == "anonymous") {
+		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	if !env.Config.Executor.Enabled {
 		http.Error(w, "Command executor is disabled", http.StatusNotFound)
 		return

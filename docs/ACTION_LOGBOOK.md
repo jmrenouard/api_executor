@@ -15,6 +15,26 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-028` — Enforce Authentication on Administrative File, Command Listing, and Audit/Log Endpoints
+- **Timestamp (UTC)**: `2026-11-01T23:45:00Z`
+- **GitHub Issue**: [#56](https://github.com/jmrenouard/api_executor/issues/56)
+- **Branch**: `feat/issue-56-protect-file-audit-log-endpoints`
+- **Request**:
+  - Multiple sensitive endpoints bypassed authentication even when `auth.require_auth: true` was enabled: `ListFilesHandler` (`/api/v1/files`), `DownloadFileHandler` (`/api/v1/files/:filename`), and `ListCommandsHandler` (`/api/v1/commands`) in `internal/api/handlers.go`, and `AuditLogsHandler` (`/api/v1/audit/logs`), `AuditVerifyHandler` (`/api/v1/audit/verify`), `SystemLogsHandler` (`/api/v1/logs`), and `ActionHistoryHandler` (`/api/v1/history`) in `internal/api/audit_handlers.go`.
+  - Protect all 7 endpoints by resolving principals (`p, err := env.resolvePrincipal(r)`) and returning HTTP 401 Unauthorized when authentication is required and caller is unauthenticated or credentials are invalid.
+  - Preserve backward compatibility when `RequireAuth: false`.
+  - Add comprehensive unit tests in `internal/api/` verifying HTTP 401 on unauthenticated calls, HTTP 200 on authenticated calls, and backward compatibility.
+- **Changes**:
+  - Updated [`internal/api/handlers.go`](../internal/api/handlers.go): added principal resolution and `RequireAuth` authentication check to `ListFilesHandler`, `DownloadFileHandler`, and `ListCommandsHandler`.
+  - Updated [`internal/api/audit_handlers.go`](../internal/api/audit_handlers.go): added principal resolution and `RequireAuth` authentication check to `AuditLogsHandler`, `AuditVerifyHandler`, `SystemLogsHandler`, and `ActionHistoryHandler`.
+  - Added [`internal/api/endpoint_auth_test.go`](../internal/api/endpoint_auth_test.go): comprehensive unit tests verifying 401 Unauthorized on unauthenticated requests and invalid tokens when `RequireAuth: true`, 200 OK on authenticated requests with Bearer and X-API-Token credentials, backward compatibility when `RequireAuth: false`, and nil `AuthManager` handling.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-028`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-025`.
+- **Result**:
+  - Package test suite: 100% pass rate (`126 passed in 1 packages`, statement coverage 90.3% in `internal/api`).
+  - Full project test suite: 100% pass rate (`308 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #56.
+
 ### `ACT-027` — Normalize Prometheus Metric Route Paths to Prevent Cardinality Explosion DoS
 - **Timestamp (UTC)**: `2026-11-01T23:35:00Z`
 - **GitHub Issue**: [#54](https://github.com/jmrenouard/api_executor/issues/54)
