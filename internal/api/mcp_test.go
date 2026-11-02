@@ -105,12 +105,12 @@ func TestMCPEndpointsAndTraceInspection(t *testing.T) {
 		t.Errorf("expected 400 and -32700 parse error, got %d: %s", recBad.Code, recBad.Body.String())
 	}
 
-	// 5. DELETE /api/v1/mcp/traces clears retained traces
+	// 5. Anonymous DELETE /api/v1/mcp/traces returns 403 Forbidden
 	reqDel := httptest.NewRequest(http.MethodDelete, "/api/v1/mcp/traces", nil)
 	recDel := httptest.NewRecorder()
 	router.ServeHTTP(recDel, reqDel)
-	if recDel.Code != http.StatusOK {
-		t.Fatalf("expected 200 from DELETE /api/v1/mcp/traces, got %d", recDel.Code)
+	if recDel.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 from anonymous DELETE /api/v1/mcp/traces, got %d", recDel.Code)
 	}
 
 	// 6. Verify service account allowed_actions cannot be bypassed via POST /api/v1/mcp tools/call
@@ -173,6 +173,23 @@ func TestMCPEndpointsAndTraceInspection(t *testing.T) {
 	router.ServeHTTP(recDelForbid, reqDelForbid)
 	if recDelForbid.Code != http.StatusForbidden {
 		t.Errorf("expected 403 when service account tries to DELETE /api/v1/mcp/traces, got %d", recDelForbid.Code)
+	}
+
+	// Admin caller successfully clears MCP traces (200 OK)
+	adminUser, err := authMgr.CreateUser("mcp-admin-user", "MCP Admin", "admin@corp.local", "secret-admin-pass-123", auth.RoleAdmin)
+	if err != nil {
+		t.Fatalf("failed to create admin user: %v", err)
+	}
+	_, adminToken, err := authMgr.CreateToken(adminUser.ID, "admin-pat", nil, 0)
+	if err != nil {
+		t.Fatalf("failed to create admin token: %v", err)
+	}
+	reqDelAdmin := httptest.NewRequest(http.MethodDelete, "/api/v1/mcp/traces", nil)
+	reqDelAdmin.Header.Set("Authorization", "Bearer "+adminToken)
+	recDelAdmin := httptest.NewRecorder()
+	router.ServeHTTP(recDelAdmin, reqDelAdmin)
+	if recDelAdmin.Code != http.StatusOK {
+		t.Fatalf("expected 200 from admin DELETE /api/v1/mcp/traces, got %d: %s", recDelAdmin.Code, recDelAdmin.Body.String())
 	}
 
 	// Unknown trace ID -> 404, empty trace suffix delegates to list

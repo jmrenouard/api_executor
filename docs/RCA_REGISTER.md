@@ -354,6 +354,25 @@ This living governance register records all errors encountered, technical dead-e
   5. Implemented comprehensive test coverage in `internal/plugins/native_sre_test.go` with `httptest.Server`.
 - **Result & Non-Regression Test**: Verified by `TestPrometheusScraperPlugin_RealScrapeSuccess`, `TestPrometheusScraperPlugin_UnreachableTargetGenuineError`, `TestPrometheusScraperPlugin_HTTP500GenuineError`, `TestPrometheusScraperPlugin_HTTP404GenuineError`, and `TestPrometheusScraperPlugin_ExplicitAllowMock` (69 tests passing in `internal/plugins`, full repository suite 329 tests passing 100% across all 10 packages).
 
+### `RCA-030` — Inverted Authorization Check on MCP Trace Deletion, Variable-Time HMAC Verification, and Sibling Prefix Path Confinement
+- **Date**: `2026-11-02`
+- **Observed Symptom**:
+  1. In `internal/plugins/native_crypto.go`, `verify_hmac` compared computed digest with expected digest via standard string equality (`computed == expected`), vulnerable to timing side-channel attacks.
+  2. In `internal/api/handlers.go` (`DownloadFileHandler`), path boundary check used `strings.HasPrefix(absFilePath, absSecureDir)`. If `absSecureDir` was `/var/uploads` and a sibling directory `/var/uploads_private` existed, `HasPrefix` returned true without verifying directory boundaries.
+  3. In `internal/api/mcp_handlers.go` (`DELETE /api/v1/mcp/traces`), authorization check was inverted (`if p.Type != "anonymous" && p.Role != auth.RoleAdmin`), allowing unauthenticated anonymous callers to bypass admin checks and delete traces while blocking non-admin authenticated users.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why was string equality used for HMAC verification?* Standard equality was used for simplicity without considering side-channel timing discrepancy between byte-by-byte comparison and constant-time comparison.
+  2. *Why did path prefix check allow sibling directory bypasses?* `strings.HasPrefix` checked raw string prefix rather than directory tree confinement (`filepath.Rel` or path separator suffix).
+  3. *Why did anonymous callers bypass the MCP trace deletion check?* A Boolean logic inversion (`!= "anonymous" && != RoleAdmin` instead of `== "anonymous" || != RoleAdmin`) left anonymous callers unchecked because `p.Type != "anonymous"` evaluated to false.
+  4. *Why did prior tests not catch the anonymous deletion vulnerability?* The test suite previously ran `DELETE /api/v1/mcp/traces` before initializing auth, asserting that the anonymous call succeeded with 200 OK.
+  5. *Root Cause*: Inconsistent defense-in-depth patterns across handlers and lack of constant-time primitives for cryptographic verification.
+- **Applied Change / Fix**:
+  1. Used `crypto/subtle.ConstantTimeCompare` for HMAC comparison in `internal/plugins/native_crypto.go`.
+  2. Replaced path prefix check in `internal/api/handlers.go` with `filepath.Rel` and `baseWithSep` path separator enforcement.
+  3. Corrected authorization condition in `internal/api/mcp_handlers.go` to `if p == nil || p.Type == "anonymous" || p.Role != auth.RoleAdmin`.
+  4. Added unit tests across `internal/plugins/native_crypto_test.go`, `internal/api/files_test.go`, and `internal/api/mcp_test.go`.
+- **Result & Non-Regression Test**: Verified by `TestCryptoHashUtilityPlugin_VerifyHMAC_MatchingAndNonMatching`, `TestDownloadFileHandler_DirectoryBoundaryAndSiblingConfinement`, and `TestMCPEndpointsAndTraceInspection` (71 tests in `internal/plugins`, 129 tests in `internal/api`, and 332 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

@@ -523,18 +523,29 @@ func (env *APIEnv) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	filePath := filepath.Join(env.Config.FileServer.SecureDir, fileName)
 
-	// Security: Double-check that the resolved path is still within the secure directory.
-	absSecureDir, err := filepath.Abs(env.Config.FileServer.SecureDir)
+	// Security: Double-check that the resolved path is strictly confined within the secure directory.
+	absSecureDir, err := filepath.Abs(filepath.Clean(env.Config.FileServer.SecureDir))
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	absFilePath, err := filepath.Abs(filePath)
+	absFilePath, err := filepath.Abs(filepath.Clean(filePath))
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	if !strings.HasPrefix(absFilePath, absSecureDir) {
+
+	rel, err := filepath.Rel(absSecureDir, absFilePath)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	baseWithSep := absSecureDir
+	if !strings.HasSuffix(baseWithSep, string(filepath.Separator)) {
+		baseWithSep += string(filepath.Separator)
+	}
+	if absFilePath != absSecureDir && !strings.HasPrefix(absFilePath, baseWithSep) {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}

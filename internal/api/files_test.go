@@ -159,3 +159,65 @@ func TestExecutorDisabledAndQueryParamCommandFallback(t *testing.T) {
 		t.Errorf("expected 400 for missing command name, got %d", recNoName.Code)
 	}
 }
+
+func TestDownloadFileHandler_DirectoryBoundaryAndSiblingConfinement(t *testing.T) {
+	parentDir := t.TempDir()
+	secureDir := filepath.Join(parentDir, "secure_uploads")
+	siblingDir := filepath.Join(parentDir, "secure_uploads_sibling")
+
+	if err := os.MkdirAll(secureDir, 0755); err != nil {
+		t.Fatalf("failed to create secureDir: %v", err)
+	}
+	if err := os.MkdirAll(siblingDir, 0755); err != nil {
+		t.Fatalf("failed to create siblingDir: %v", err)
+	}
+
+	validFile := filepath.Join(secureDir, "legit.txt")
+	if err := os.WriteFile(validFile, []byte("legit-data"), 0600); err != nil {
+		t.Fatalf("failed to create validFile: %v", err)
+	}
+
+	siblingFile := filepath.Join(siblingDir, "secret.txt")
+	if err := os.WriteFile(siblingFile, []byte("sibling-secret"), 0600); err != nil {
+		t.Fatalf("failed to create siblingFile: %v", err)
+	}
+
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+	cfg.FileServer.Enabled = true
+	cfg.FileServer.SecureDir = secureDir
+
+	env := &APIEnv{Config: cfg}
+	router := NewRouter(env)
+
+	// 1. Valid download succeeds
+	reqValid := httptest.NewRequest(http.MethodGet, "/api/v1/files/legit.txt", nil)
+	recValid := httptest.NewRecorder()
+	router.ServeHTTP(recValid, reqValid)
+	if recValid.Code != http.StatusOK || recValid.Body.String() != "legit-data" {
+		t.Fatalf("expected 200 with legit-data, got %d: %q", recValid.Code, recValid.Body.String())
+	}
+
+	// 2. Directory traversal via ../ or encoded variants rejected
+	for _, path := range []string{
+		"/api/v1/files/../secret.txt",
+		"/api/v1/files/..%2fsecret.txt",
+		"/api/v1/files/..\\secret.txt",
+		"/api/v1/files/sub/file.txt",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		env.DownloadFileHandler(rec, req)
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusForbidden {
+			t.Errorf("expected 400 or 403 for traversal path %q, got %d", path, rec.Code)
+		}
+	}
+
+	// 3. Sibling directory prefix cannot be accessed
+	reqSibling := httptest.NewRequest(http.MethodGet, "/api/v1/files/../secure_uploads_sibling/secret.txt", nil)
+	recSibling := httptest.NewRecorder()
+	env.DownloadFileHandler(recSibling, reqSibling)
+	if recSibling.Code != http.StatusBadRequest && recSibling.Code != http.StatusForbidden {
+		t.Errorf("expected 400 or 403 when accessing sibling directory, got %d", recSibling.Code)
+	}
+}
