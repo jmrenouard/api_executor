@@ -35,22 +35,20 @@ func (env *APIEnv) ActivatePresetsHandler(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
-		if authErr := auth.Authorize(p, "commands:execute", ""); authErr != nil {
-			if env.AuditLogger != nil {
-				_, _ = env.AuditLogger.Record(audit.AuditEvent{
-					Category:  "admin",
-					Action:    "presets.activate",
-					ActorType: p.Type,
-					ActorID:   p.Name,
-					SourceIP:  r.RemoteAddr,
-					Status:    "denied",
-					Summary:   fmt.Sprintf("Denied OS preset activation for %s: %v", p.Name, authErr),
-				})
-			}
-			writeJSONError(w, authErr.Error(), http.StatusForbidden)
-			return
+	if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "admin",
+				Action:    "presets.activate",
+				ActorType: p.Type,
+				ActorID:   p.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "denied",
+				Summary:   fmt.Sprintf("Denied OS preset activation for %s: admin role required", p.Name),
+			})
 		}
+		writeJSONError(w, "Admin role required to activate OS presets", http.StatusForbidden)
+		return
 	}
 
 	var req struct {
@@ -72,11 +70,13 @@ func (env *APIEnv) ActivatePresetsHandler(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	env.commandsMu.Lock()
 	before := len(env.Config.Executor.Commands)
 	env.Config.Executor.Commands = core.MergeOSPresets(env.Config.Executor.Commands, req.Families...)
 	env.Config.Executor.EnableOSPresets = true
-	initConfiguredActionMetrics(env)
+	initConfiguredActionMetricsLocked(env)
 	after := len(env.Config.Executor.Commands)
+	env.commandsMu.Unlock()
 
 	if env.AuditLogger != nil {
 		_, _ = env.AuditLogger.Record(audit.AuditEvent{

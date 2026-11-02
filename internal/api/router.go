@@ -229,6 +229,16 @@ func initConfiguredActionMetrics(env *APIEnv) {
 	if env == nil || env.Config == nil {
 		return
 	}
+	env.commandsMu.RLock()
+	defer env.commandsMu.RUnlock()
+	initConfiguredActionMetricsLocked(env)
+}
+
+// initConfiguredActionMetricsLocked pre-initializes Prometheus counters when env.commandsMu is already held.
+func initConfiguredActionMetricsLocked(env *APIEnv) {
+	if env == nil || env.Config == nil {
+		return
+	}
 	actionLabelsMu.Lock()
 	for _, cmd := range env.Config.Executor.Commands {
 		name := strings.TrimSpace(cmd.Name)

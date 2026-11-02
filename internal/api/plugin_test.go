@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
 	"go-admin-tool/internal/plugins"
@@ -35,9 +36,19 @@ func TestPluginEndpointsDeclarativeRegistrationAndReadOnlyDBExposure(t *testing.
 	_ = reg.Register(plugins.NewDatabaseExposurePlugin(db, 100))
 	_ = reg.Register(plugins.NewSystemDiagnosticsPlugin())
 
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+	_, _, adminTok, err := authMgr.AuthenticateUser(cfg.Auth.BootstrapUsername, cfg.Auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
+
 	env := &APIEnv{
 		Config:         cfg,
 		DB:             db,
+		AuthManager:    authMgr,
 		PluginRegistry: reg,
 	}
 	router := NewRouter(env)
@@ -91,7 +102,16 @@ func TestPluginEndpointsDeclarativeRegistrationAndReadOnlyDBExposure(t *testing.
 			},
 		},
 	})
+	// Anonymous caller must be forbidden
+	reqAnon := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/declarative", bytes.NewReader(declBody))
+	recAnon := httptest.NewRecorder()
+	router.ServeHTTP(recAnon, reqAnon)
+	if recAnon.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for anonymous /api/v1/plugins/declarative, got %d: %s", recAnon.Code, recAnon.Body.String())
+	}
+
 	reqDecl := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/declarative", bytes.NewReader(declBody))
+	reqDecl.Header.Set("Authorization", "Bearer "+adminTok)
 	recDecl := httptest.NewRecorder()
 	router.ServeHTTP(recDecl, reqDecl)
 	if recDecl.Code != http.StatusCreated {

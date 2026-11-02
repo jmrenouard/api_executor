@@ -24,9 +24,18 @@ func TestWebAdministrationConsoleServed(t *testing.T) {
 	}
 	cfg := core.DefaultConfig()
 	cfg.Server.TLS.Enabled = false
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+	_, _, adminTok, err := authMgr.AuthenticateUser(cfg.Auth.BootstrapUsername, cfg.Auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
 	env := &APIEnv{
-		Config: cfg,
-		Logger: logger,
+		Config:      cfg,
+		Logger:      logger,
+		AuthManager: authMgr,
 	}
 	router := NewRouter(env)
 
@@ -80,6 +89,7 @@ func TestWebAdministrationConsoleServed(t *testing.T) {
 	// Verify the Web Console's single-family os_families payload activates ONLY Ubuntu presets (not RedHat)
 	actReqBody, _ := json.Marshal(map[string]any{"os_families": []string{"ubuntu"}})
 	actReq := httptest.NewRequest(http.MethodPost, "/api/v1/presets/activate", bytes.NewReader(actReqBody))
+	actReq.Header.Set("Authorization", "Bearer "+adminTok)
 	actRec := httptest.NewRecorder()
 	router.ServeHTTP(actRec, actReq)
 	if actRec.Code != http.StatusOK {
@@ -131,6 +141,10 @@ func TestWebAdministrationConsoleEndToEndWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to init auth manager: %v", err)
 	}
+	_, _, adminTok, err := authMgr.AuthenticateUser(cfg.Auth.BootstrapUsername, cfg.Auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
 	reg := plugins.NewRegistry()
 	_ = reg.Register(plugins.NewDatabaseExposurePlugin(db, 50))
 	_ = reg.Register(plugins.NewSystemDiagnosticsPlugin())
@@ -170,6 +184,7 @@ func TestWebAdministrationConsoleEndToEndWorkflows(t *testing.T) {
 	}
 	declBytes, _ := json.Marshal(declSpec)
 	declReq := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/declarative", bytes.NewReader(declBytes))
+	declReq.Header.Set("Authorization", "Bearer "+adminTok)
 	declRec := httptest.NewRecorder()
 	router.ServeHTTP(declRec, declReq)
 	if declRec.Code != http.StatusCreated {
@@ -195,6 +210,7 @@ func TestWebAdministrationConsoleEndToEndWorkflows(t *testing.T) {
 
 	// 3. Tab 8 workflow: Rotate TLS certificate and verify audit chain integrity in Tab 7
 	tlsReq := httptest.NewRequest(http.MethodPost, "/api/v1/tls/renew", nil)
+	tlsReq.Header.Set("Authorization", "Bearer "+adminTok)
 	tlsRec := httptest.NewRecorder()
 	router.ServeHTTP(tlsRec, tlsReq)
 	if tlsRec.Code != http.StatusOK {

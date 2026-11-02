@@ -176,7 +176,18 @@ func (env *APIEnv) PluginDeclarativeRegisterHandler(w http.ResponseWriter, r *ht
 		writeJSONError(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+	if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
+		if env.AuditLogger != nil {
+			_, _ = env.AuditLogger.Record(audit.AuditEvent{
+				Category:  "plugin",
+				Action:    "plugin.register_declarative",
+				ActorType: p.Type,
+				ActorID:   p.Name,
+				SourceIP:  r.RemoteAddr,
+				Status:    "denied",
+				Summary:   fmt.Sprintf("Denied declarative plugin registration for %s: admin role required", p.Name),
+			})
+		}
 		writeJSONError(w, "Admin role required to register declarative plugins", http.StatusForbidden)
 		return
 	}
