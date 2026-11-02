@@ -365,5 +365,77 @@ func TestWebAdministrationConsole_Tab5_CatalogSearchFilteringPaginationAndForms(
 	}
 }
 
+func TestWebAdministrationConsole_ResilienceGuarantees(t *testing.T) {
+	logger, err := core.NewLogger(core.LoggingConfig{Level: "info"})
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+	env := &APIEnv{
+		Config:      cfg,
+		Logger:      logger,
+		AuthManager: authMgr,
+	}
+	router := NewRouter(env)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK for GET /, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// 1. Authorization header format in curlSnippet() must match headers() (Bearer token, not deprecated X-API-Token)
+	expectedCurlAuth := `-H "Authorization: Bearer ${this.authToken || 'gat_pat_<your_token>'}"`
+	if !strings.Contains(body, expectedCurlAuth) {
+		t.Errorf("expected curlSnippet() to generate Authorization: Bearer header %q", expectedCurlAuth)
+	}
+	if strings.Contains(body, `X-API-Token: ${this.authToken`) {
+		t.Errorf("curlSnippet() must not contain deprecated X-API-Token header")
+	}
+
+	// 2. Initial page load without token must suppress statusBanner error
+	if !strings.Contains(body, "if (this.authToken)") {
+		t.Errorf("expected loadPrincipal() to guard statusBanner with 'if (this.authToken)'")
+	}
+
+	// 3. Coordination of refreshAll() via Promise.allSettled()
+	if !strings.Contains(body, "Promise.allSettled") {
+		t.Errorf("expected refreshAll() to coordinate concurrent requests with Promise.allSettled()")
+	}
+
+	// 4. Defensive try...catch blocks on action methods
+	defensiveMarkers := []string{
+		"Failed to activate presets: ' + e",
+		"Authentication failed: ' + e",
+		"Failed to create user: ' + e",
+		"Failed to delete user: ' + e",
+		"Failed to issue token: ' + e",
+		"Failed to revoke token: ' + e",
+		"Failed to create service account: ' + e",
+		"Failed to rotate service account key: ' + e",
+		"Failed to delete service account: ' + e",
+		"Failed to register declarative plugin: ' + e",
+		"Failed to load tables: ' + e",
+		"Database query failed: ' + e",
+		"MCP request failed: ' + e",
+		"Failed to rotate TLS certificate: ' + e",
+	}
+
+	for _, marker := range defensiveMarkers {
+		if !strings.Contains(body, marker) {
+			t.Errorf("expected web console to contain defensive error handling marker %q", marker)
+		}
+	}
+}
+
 
 

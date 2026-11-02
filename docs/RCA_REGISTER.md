@@ -393,6 +393,27 @@ This living governance register records all errors encountered, technical dead-e
   5. Added `TestDockerHygieneAndIgnoreRules` in `docs/branding_test.go`.
 - **Result & Non-Regression Test**: Verified by `TestDockerHygieneAndIgnoreRules` and `python scripts/lint_dockerfile.py` passing cleanly (333 tests passing 100% across all 10 packages).
 
+### `RCA-032` — Web Admin Console Spurious Initial 401 Error Banner, Unhandled Action Fetch Rejections, Outdated cURL Auth Header, and Race-Prone Refresh Coordination
+- **Date**: `2026-11-02`
+- **Observed Symptom**:
+  1. On initial page load or when unauthenticated (`!this.authToken`), the Web Admin Console (`web/static/index.html`) displayed a red error banner (`"Authentication failed (401)"`) because `loadPrincipal()` queried `GET /api/v1/auth/me` and unconditionally set `this.statusBanner = d.error || ('Authentication failed (' + r.status + ')')`.
+  2. The generated cURL snippet in `curlSnippet()` emitted deprecated `-H "X-API-Token: ..."` instead of `-H "Authorization: Bearer ..."`, causing cURL examples to mismatch `headers()`.
+  3. Action methods executing `fetch()` (`activatePresets`, `loginUser`, `createUser`, `deleteUser`, `createPAT`, `revokeToken`, `createServiceAccount`, `rotateServiceAccount`, `deleteServiceAccount`, `registerDeclarativePlugin`, `loadDBTables`, `runDBQuery`, `sendRawMCP`, `renewTLSCertificate`) lacked `try...catch` blocks, triggering uncaught Promise rejections and leaving UI spinners/banners frozen upon network disconnections or server restarts.
+  4. `refreshAll()` initiated 9 independent async functions without coordination or `await`, leading to race-condition banner overwrites and unhandled background rejections.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why was a red error banner visible on first page load?* Because `loadPrincipal()` handled 401 responses by setting `statusBanner` even when the user had not yet provided an authentication credential.
+  2. *Why was cURL authorization outdated?* Because `curlSnippet()` had not been updated when the backend was modernized to support standard Bearer authorization alongside Service Keys.
+  3. *Why did UI actions crash on network drops?* Because asynchronous `fetch()` invocations were not enclosed in error boundaries (`try...catch`).
+  4. *Why did panels experience race conditions?* Because `refreshAll()` fired async data loaders without synchronization or `Promise.allSettled()`.
+  5. *Root Cause*: Lack of unauthenticated state guards on initial load, outdated cURL string templates, absence of defensive error boundaries on user actions, and uncoordinated async panel refreshes in `web/static/index.html`.
+- **Applied Change / Fix**:
+  1. Guarded `this.statusBanner` assignment in `loadPrincipal()` with `if (this.authToken)`.
+  2. Updated `curlSnippet()` to format `-H "Authorization: Bearer ${this.authToken || 'gat_pat_<your_token>'}"`.
+  3. Enclosed all bare `fetch()` action methods in defensive `try...catch` blocks setting user-facing error banners.
+  4. Synchronized `refreshAll()` using `await Promise.allSettled([...])` and updated callers to await its resolution.
+  5. Added non-regression unit tests in `internal/api/web_console_test.go` (`TestWebAdministrationConsole_ResilienceGuarantees`).
+- **Result & Non-Regression Test**: Verified by `TestWebAdministrationConsole_ResilienceGuarantees` (130 tests passing in `internal/api` and 334 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

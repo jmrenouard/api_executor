@@ -1051,16 +1051,16 @@
                     this.activeTab = id;
                 },
 
-                clearToken() {
+                async clearToken() {
                     this.authToken = '';
                     this.statusBanner = 'Cleared active API credential';
-                    this.refreshAll();
+                    await this.refreshAll();
                 },
 
-                useIssuedSecret() {
+                async useIssuedSecret() {
                     this.authToken = this.newlyIssuedSecret;
                     this.newlyIssuedSecret = '';
-                    this.refreshAll();
+                    await this.refreshAll();
                 },
 
                 curlSnippet() {
@@ -1068,7 +1068,7 @@
                     const t = this.commandTimeoutOverride ? `, "timeout": "${this.commandTimeoutOverride}"` : '';
                     const hdr = this.authToken && this.authToken.startsWith('gat_svc_')
                         ? `-H "X-Service-Key: ${this.authToken}"`
-                        : `-H "X-API-Token: ${this.authToken || 'gat_pat_<your_token>'}"`;
+                        : `-H "Authorization: Bearer ${this.authToken || 'gat_pat_<your_token>'}"`;
                     return `curl -k -X POST ${window.location.origin}/api/v1/execute \\\n  ${hdr} \\\n  -H "Content-Type: application/json" \\\n  -d '{"name": "${cmd}"${t}}'`;
                 },
 
@@ -1080,7 +1080,9 @@
                             this.principal = d.principal;
                         } else {
                             this.principal = null;
-                            this.statusBanner = d.error || ('Authentication failed (' + r.status + ')');
+                            if (this.authToken) {
+                                this.statusBanner = d.error || ('Authentication failed (' + r.status + ')');
+                            }
                         }
                     } catch (_) {}
                 },
@@ -1138,17 +1140,21 @@
                 },
 
                 async activatePresets(families) {
-                    const r = await fetch('/api/v1/presets/activate', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: JSON.stringify({ os_families: families })
-                    });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.statusBanner = `Activated presets (${d.added_count} added, ${d.total_commands} total commands)`;
-                        await Promise.all([this.loadCommands(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to activate presets';
+                    try {
+                        const r = await fetch('/api/v1/presets/activate', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify({ os_families: families })
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.statusBanner = `Activated presets (${d.added_count} added, ${d.total_commands} total commands)`;
+                            await Promise.all([this.loadCommands(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to activate presets';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to activate presets: ' + e;
                     }
                 },
 
@@ -1160,18 +1166,22 @@
                 },
 
                 async loginUser() {
-                    const r = await fetch('/api/v1/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(this.loginForm)
-                    });
-                    const d = await r.json();
-                    if (r.ok && d.token) {
-                        this.authToken = d.token;
-                        this.statusBanner = `Signed in as ${d.user.username} (${d.user.role})`;
-                        this.refreshAll();
-                    } else {
-                        this.statusBanner = d.error || 'Authentication failed';
+                    try {
+                        const r = await fetch('/api/v1/auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.loginForm)
+                        });
+                        const d = await r.json();
+                        if (r.ok && d.token) {
+                            this.authToken = d.token;
+                            this.statusBanner = `Signed in as ${d.user.username} (${d.user.role})`;
+                            await this.refreshAll();
+                        } else {
+                            this.statusBanner = d.error || 'Authentication failed';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Authentication failed: ' + e;
                     }
                 },
 
@@ -1189,106 +1199,134 @@
                 },
 
                 async createUser() {
-                    const r = await fetch('/api/v1/auth/users', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: JSON.stringify(this.newUser)
-                    });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.statusBanner = `Created user ${d.username} (${d.role})`;
-                        this.newUser = { username: '', password: '', display_name: '', role: 'operator' };
-                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to create user';
+                    try {
+                        const r = await fetch('/api/v1/auth/users', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify(this.newUser)
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.statusBanner = `Created user ${d.username} (${d.role})`;
+                            this.newUser = { username: '', password: '', display_name: '', role: 'operator' };
+                            await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to create user';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to create user: ' + e;
                     }
                 },
 
                 async deleteUser(id) {
-                    const r = await fetch('/api/v1/auth/users?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.statusBanner = 'Deleted user ' + id;
-                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to delete user';
+                    try {
+                        const r = await fetch('/api/v1/auth/users?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.statusBanner = 'Deleted user ' + id;
+                            await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to delete user';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to delete user: ' + e;
                     }
                 },
 
                 async createPAT() {
-                    const r = await fetch('/api/v1/auth/tokens', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: JSON.stringify(this.newToken)
-                    });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.newlyIssuedSecret = d.token;
-                        this.statusBanner = `Issued Personal Access Token ${d.token_info ? d.token_info.name : ''}`;
-                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to issue token';
+                    try {
+                        const r = await fetch('/api/v1/auth/tokens', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify(this.newToken)
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.newlyIssuedSecret = d.token;
+                            this.statusBanner = `Issued Personal Access Token ${d.token_info ? d.token_info.name : ''}`;
+                            await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to issue token';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to issue token: ' + e;
                     }
                 },
 
                 async revokeToken(id) {
-                    const r = await fetch('/api/v1/auth/tokens?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.statusBanner = 'Revoked token ' + id;
-                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to revoke token';
+                    try {
+                        const r = await fetch('/api/v1/auth/tokens?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.statusBanner = 'Revoked token ' + id;
+                            await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to revoke token';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to revoke token: ' + e;
                     }
                 },
 
                 async createServiceAccount() {
-                    const actions = this.newSA.allowed_actions.split(',').map(s => s.trim()).filter(Boolean);
-                    const r = await fetch('/api/v1/auth/service-accounts', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: JSON.stringify({
-                            name: this.newSA.name,
-                            service_name: this.newSA.service_name,
-                            description: this.newSA.description,
-                            allowed_actions: actions,
-                            ttl: this.newSA.ttl
-                        })
-                    });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.newlyIssuedSAKey = d.api_key;
-                        this.statusBanner = `Created service account ${d.service_account ? d.service_account.name : ''}`;
-                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to create service account';
+                    try {
+                        const actions = this.newSA.allowed_actions.split(',').map(s => s.trim()).filter(Boolean);
+                        const r = await fetch('/api/v1/auth/service-accounts', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify({
+                                name: this.newSA.name,
+                                service_name: this.newSA.service_name,
+                                description: this.newSA.description,
+                                allowed_actions: actions,
+                                ttl: this.newSA.ttl
+                            })
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.newlyIssuedSAKey = d.api_key;
+                            this.statusBanner = `Created service account ${d.service_account ? d.service_account.name : ''}`;
+                            await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to create service account';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to create service account: ' + e;
                     }
                 },
 
                 async rotateServiceAccount(id) {
-                    const r = await fetch('/api/v1/auth/service-accounts/rotate', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: JSON.stringify({ id })
-                    });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.newlyIssuedSAKey = d.api_key;
-                        this.statusBanner = `Rotated key for service account ${d.service_account ? d.service_account.name : id}`;
-                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to rotate service account key';
+                    try {
+                        const r = await fetch('/api/v1/auth/service-accounts/rotate', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify({ id })
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.newlyIssuedSAKey = d.api_key;
+                            this.statusBanner = `Rotated key for service account ${d.service_account ? d.service_account.name : id}`;
+                            await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to rotate service account key';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to rotate service account key: ' + e;
                     }
                 },
 
                 async deleteServiceAccount(id) {
-                    const r = await fetch('/api/v1/auth/service-accounts?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.statusBanner = 'Deleted service account ' + id;
-                        await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
-                    } else {
-                        this.statusBanner = d.error || 'Failed to delete service account';
+                    try {
+                        const r = await fetch('/api/v1/auth/service-accounts?id=' + encodeURIComponent(id), { method: 'DELETE', headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.statusBanner = 'Deleted service account ' + id;
+                            await Promise.all([this.loadAuthData(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || 'Failed to delete service account';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to delete service account: ' + e;
                     }
                 },
 
@@ -1547,50 +1585,64 @@
                 },
 
                 async registerDeclarativePlugin() {
-                    const r = await fetch('/api/v1/plugins/declarative', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: this.declarativeSpecJSON
-                    });
-                    const d = await r.json();
-                    this.pluginOutput = JSON.stringify(d, null, 2);
-                    if (r.ok) {
-                        const pluginID = d.id || (d.plugin && d.plugin.id) || '';
-                        this.statusBanner = 'Registered declarative plugin ' + pluginID;
-                        await this.loadPlugins();
-                        if (pluginID) {
-                            this.selectedPluginID = pluginID;
-                            this.syncPluginActions();
+                    try {
+                        const r = await fetch('/api/v1/plugins/declarative', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: this.declarativeSpecJSON
+                        });
+                        const d = await r.json();
+                        this.pluginOutput = JSON.stringify(d, null, 2);
+                        if (r.ok) {
+                            const pluginID = d.id || (d.plugin && d.plugin.id) || '';
+                            this.statusBanner = 'Registered declarative plugin ' + pluginID;
+                            await this.loadPlugins();
+                            if (pluginID) {
+                                this.selectedPluginID = pluginID;
+                                this.syncPluginActions();
+                            }
+                            await this.loadAuditAndLogs();
+                        } else {
+                            this.statusBanner = d.error || 'Failed to register declarative plugin';
                         }
-                        await this.loadAuditAndLogs();
-                    } else {
-                        this.statusBanner = d.error || 'Failed to register declarative plugin';
+                    } catch (e) {
+                        this.statusBanner = 'Failed to register declarative plugin: ' + e;
+                        this.pluginOutput = String(e);
                     }
                 },
 
                 async loadDBTables() {
-                    const r = await fetch('/api/v1/db/tables', { headers: this.headers() });
-                    const d = await r.json();
-                    this.dbQueryOutput = JSON.stringify(d, null, 2);
-                    if (!r.ok && d.error) {
-                        this.statusBanner = d.error;
+                    try {
+                        const r = await fetch('/api/v1/db/tables', { headers: this.headers() });
+                        const d = await r.json();
+                        this.dbQueryOutput = JSON.stringify(d, null, 2);
+                        if (!r.ok && d.error) {
+                            this.statusBanner = d.error;
+                        }
+                    } catch (e) {
+                        this.dbQueryOutput = 'Failed to load tables: ' + e;
                     }
                 },
 
                 async runDBQuery() {
-                    const r = await fetch('/api/v1/db/query', {
-                        method: 'POST',
-                        headers: this.headers(),
-                        body: JSON.stringify({ sql: this.dbSQLQuery, max_rows: 50 })
-                    });
-                    const d = await r.json();
-                    this.dbQueryOutput = JSON.stringify(d, null, 2);
-                    if (r.ok) {
-                        this.statusBanner = 'Executed read-only SQL query';
-                    } else {
-                        this.statusBanner = d.error || 'Database query failed';
+                    try {
+                        const r = await fetch('/api/v1/db/query', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify({ sql: this.dbSQLQuery, max_rows: 50 })
+                        });
+                        const d = await r.json();
+                        this.dbQueryOutput = JSON.stringify(d, null, 2);
+                        if (r.ok) {
+                            this.statusBanner = 'Executed read-only SQL query';
+                        } else {
+                            this.statusBanner = d.error || 'Database query failed';
+                        }
+                        await this.loadAuditAndLogs();
+                    } catch (e) {
+                        this.statusBanner = 'Database query failed: ' + e;
+                        this.dbQueryOutput = String(e);
                     }
-                    await this.loadAuditAndLogs();
                 },
 
                 sendMCPPreset(method, params) {
@@ -1599,17 +1651,22 @@
                 },
 
                 async sendRawMCP() {
-                    const r = await fetch('/api/v1/mcp', {
-                        method: 'POST',
-                        headers: this.headers({ 'X-MCP-Session-ID': 'web-admin-console' }),
-                        body: this.mcpRequestJSON
-                    });
-                    const d = await r.json();
-                    this.mcpResponseJSON = JSON.stringify(d, null, 2);
-                    if (!r.ok && d.error) {
-                        this.statusBanner = typeof d.error === 'string' ? d.error : (d.error.message || 'MCP request failed');
+                    try {
+                        const r = await fetch('/api/v1/mcp', {
+                            method: 'POST',
+                            headers: this.headers({ 'X-MCP-Session-ID': 'web-admin-console' }),
+                            body: this.mcpRequestJSON
+                        });
+                        const d = await r.json();
+                        this.mcpResponseJSON = JSON.stringify(d, null, 2);
+                        if (!r.ok && d.error) {
+                            this.statusBanner = typeof d.error === 'string' ? d.error : (d.error.message || 'MCP request failed');
+                        }
+                        await Promise.all([this.loadMCPTraces(), this.loadAuditAndLogs()]);
+                    } catch (e) {
+                        this.statusBanner = 'MCP request failed: ' + e;
+                        this.mcpResponseJSON = JSON.stringify({ error: String(e) }, null, 2);
                     }
-                    await Promise.all([this.loadMCPTraces(), this.loadAuditAndLogs()]);
                 },
 
                 async loadMCPTraces() {
@@ -1651,14 +1708,18 @@
                 },
 
                 async renewTLSCertificate() {
-                    const r = await fetch('/api/v1/tls/renew', { method: 'POST', headers: this.headers() });
-                    const d = await r.json();
-                    if (r.ok) {
-                        this.tlsInfo = d;
-                        this.statusBanner = 'Rotated X.509 certificate with zero downtime';
-                        await this.loadAuditAndLogs();
-                    } else {
-                        this.statusBanner = d.error || 'Failed to rotate TLS certificate';
+                    try {
+                        const r = await fetch('/api/v1/tls/renew', { method: 'POST', headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.tlsInfo = d;
+                            this.statusBanner = 'Rotated X.509 certificate with zero downtime';
+                            await this.loadAuditAndLogs();
+                        } else {
+                            this.statusBanner = d.error || 'Failed to rotate TLS certificate';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to rotate TLS certificate: ' + e;
                     }
                 },
 
@@ -1677,20 +1738,22 @@
                     }
                 },
 
-                refreshAll() {
-                    this.loadPrincipal();
-                    this.loadCommands();
-                    this.loadPresets();
-                    this.loadAuthData();
-                    this.loadPlugins();
-                    this.loadMCPTraces();
-                    this.loadAuditAndLogs();
-                    this.loadTLSInfo();
-                    this.loadFiles();
+                async refreshAll() {
+                    await Promise.allSettled([
+                        this.loadPrincipal(),
+                        this.loadCommands(),
+                        this.loadPresets(),
+                        this.loadAuthData(),
+                        this.loadPlugins(),
+                        this.loadMCPTraces(),
+                        this.loadAuditAndLogs(),
+                        this.loadTLSInfo(),
+                        this.loadFiles()
+                    ]);
                 },
 
-                init() {
-                    this.refreshAll();
+                async init() {
+                    await this.refreshAll();
                 }
             };
         }

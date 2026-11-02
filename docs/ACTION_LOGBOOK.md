@@ -15,6 +15,31 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-035` — Add Web Admin Console Error Boundaries, Coordinate Refreshes with Promise.allSettled, and Fix Auth Header in cURL Snippet
+- **Timestamp (UTC)**: `2026-11-02T03:10:00Z`
+- **GitHub Issue**: [#70](https://github.com/jmrenouard/api_executor/issues/70)
+- **Branch**: `fix/issue-70-web-console-resilience`
+- **Request**:
+  - Suppress setting `statusBanner` in `loadPrincipal()` on fresh or unauthenticated page loads (`!this.authToken`) to prevent displaying a spurious red error banner upon receiving 401 from `/api/v1/auth/me`.
+  - Fix `curlSnippet()` in `web/static/index.html` to generate `-H "Authorization: Bearer ${this.authToken || 'gat_pat_<your_token>'}"` instead of deprecated `X-API-Token`, consistent with `headers()`.
+  - Wrap unhandled `fetch()` calls in defensive `try...catch` blocks across all Alpine.js action methods (`activatePresets`, `loginUser`, `createUser`, `deleteUser`, `createPAT`, `revokeToken`, `createServiceAccount`, `rotateServiceAccount`, `deleteServiceAccount`, `registerDeclarativePlugin`, `loadDBTables`, `runDBQuery`, `sendRawMCP`, `renewTLSCertificate`).
+  - Coordinate `refreshAll()` with `Promise.allSettled()` to prevent uncoordinated async banner overwrites and uncaught Promise rejections.
+  - Add non-regression unit tests in `internal/api/web_console_test.go` asserting these resilience guarantees.
+- **Changes**:
+  - Updated [`web/static/index.html`](../web/static/index.html):
+    - Added `if (this.authToken)` guard in `loadPrincipal()` to suppress error banner when unauthenticated.
+    - Updated `curlSnippet()` to format `-H "Authorization: Bearer ..."` instead of `-H "X-API-Token: ..."`.
+    - Wrapped all asynchronous fetch actions in defensive `try...catch` blocks with explicit user feedback banners.
+    - Updated `refreshAll()` to use `await Promise.allSettled([...])` and made calling methods await completion.
+  - Updated [`internal/api/web_console_test.go`](../internal/api/web_console_test.go):
+    - Added `TestWebAdministrationConsole_ResilienceGuarantees` asserting Authorization Bearer snippet, banner suppression guard, Promise.allSettled coordination, and defensive try-catch error boundary markers.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-035`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-032`.
+- **Result**:
+  - Package test suite: 100% pass rate (`130 passed in internal/api`).
+  - Full project test suite: 100% pass rate (`334 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #70.
+
 ### `ACT-034` — Add Root .dockerignore, Install curl in RedHat Test Container, and Optimize Docker Layer Caching
 - **Timestamp (UTC)**: `2026-11-02T02:45:00Z`
 - **GitHub Issue**: [#68](https://github.com/jmrenouard/api_executor/issues/68)
