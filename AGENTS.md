@@ -17,32 +17,35 @@ Every **Issue**, **Branch**, **Pull Request**, and **Merge** in this repository 
 
 For **every atomic item** (new feature, bug fix, CI/CD, documentation, security hardening, or refactoring), the agent **MUST systematically** execute the complete lifecycle below:
 
-1. **Open an Atomic GitHub Issue**:
+0. **Open an Atomic GitHub Issue (`gh issue create`)**:
    - Create a focused issue for that single item using `gh issue create --title "<type>: <title>" --body "<context, single objective, and acceptance criteria>"` before starting implementation.
    - Retrieve the issue number (`#<id>`).
 
-2. **Create a Dedicated Atomic Branch**:
+1. **Create a Dedicated Atomic Branch**:
    - Create a dedicated branch from `main` scoped strictly to that issue: `<type>/issue-<id>-<slug>` (e.g., `feat/issue-3-prometheus-action-metrics-and-timeouts`, `fix/issue-4-...`).
    - When parallel work exists in the main working directory, use `git worktree` to cleanly isolate the branch without disturbing uncommitted files from other tasks.
 
-3. **TDD Implementation & Unit Tests**:
+2. **TDD Implementation & Unit Tests**:
    - Write or update unit and integration tests across `internal/**/*_test.go` covering the atomic change.
    - Verify that the full test suite passes locally (`go test -v -cover ./...`).
+   - Update governance registers (`docs/ACTION_LOGBOOK.md` & `docs/RCA_REGISTER.md`) before committing.
 
-4. **Update Governance Registers (`docs/ACTION_LOGBOOK.md` & `docs/RCA_REGISTER.md`)**:
-   - Systematically update the Action Logbook (`docs/ACTION_LOGBOOK.md`) and the RCA Register (`docs/RCA_REGISTER.md`) before committing (see Sections 2 and 3 below).
+3. **Rigorous Staging (`git add`)**:
+   - Stage only tracked project files via `git add`; exclude build binaries, coverage profiles, or untracked dumps.
 
-5. **Commit & Push**:
+4. **Structured Commit (`git commit`)**:
    - Make atomic commits following the Conventional Commits format (`feat:`, `fix:`, `ci:`, `docs:`, `test:`, `chore:`) referencing the single issue (`Refs #<id>` or `Closes #<id>`).
+
+5. **Branch Push (`git push`)**:
    - Push the branch to the remote repository: `git push -u origin <branch>`.
 
-6. **Create an Atomic Pull Request (PR)**:
+6. **Create an Atomic Pull Request (`gh pr create`)**:
    - Open a Pull Request targeting `main` via `gh pr create --base main --head <branch> --title "<type>: <title> (#<id>)" --body "Closes #<id> ..."` containing only the changes for that single issue.
 
-7. **Merge the Pull Request**:
+7. **Merge the Pull Request (`gh pr merge`)**:
    - Merge the Pull Request into `main` via `gh pr merge <pr-id> --merge --delete-branch` and synchronize the local `main` branch (`git pull --ff-only origin main`).
 
-8. **Close Issue with Summary Comment**:
+8. **Close Issue with Summary Comment (`gh issue close`)**:
    - Explicitly close the corresponding GitHub Issue with a summary comment detailing the atomic changes, verification results, and merge commit (`gh issue comment <id> --body "..."` followed by `gh issue close <id>`).
 
 ---
@@ -81,4 +84,4 @@ All documentation, governance registers, rules, and source code in the **API Exe
 
 1. **Documentation & Registers**: All Markdown and HTML documentation (`README.md`, `docs/**/*.md`, `web/static/index.html`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md`, `AGENTS.md`, `.agents/rules/*.md`) must be written in English. Do not include non-English headings, subtitles, or prose sections.
 2. **Source Code & Tests**: All Go packages (`cmd/**/*.go`, `internal/**/*.go`), tests (`internal/**/*_test.go`), comments, variable/function/type names, CLI output, and API error messages must be written in English.
-3. **Git & GitHub Artifacts**: All commit messages, branch names, GitHub Issues, and Pull Requests must be written in English.
+3. **Git & GitHub Artifacts**: All commit messages, branch names, GitHub Issues (`gh issue create`), Pull Requests (`gh pr create`), PR merge commit messages (`gh pr merge`), and issue closing comments (`gh issue close --comment "..."` or `gh issue comment`) MUST be strictly written in English. Zero French is permitted in any GitHub interactions, issue comments, PR reviews, or merge messages.
