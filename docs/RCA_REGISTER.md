@@ -373,6 +373,26 @@ This living governance register records all errors encountered, technical dead-e
   4. Added unit tests across `internal/plugins/native_crypto_test.go`, `internal/api/files_test.go`, and `internal/api/mcp_test.go`.
 - **Result & Non-Regression Test**: Verified by `TestCryptoHashUtilityPlugin_VerifyHMAC_MatchingAndNonMatching`, `TestDownloadFileHandler_DirectoryBoundaryAndSiblingConfinement`, and `TestMCPEndpointsAndTraceInspection` (71 tests in `internal/plugins`, 129 tests in `internal/api`, and 332 tests passing 100% across all 10 packages).
 
+### `RCA-031` — Missing Root .dockerignore, RedHat Container Healthcheck Failure, and Suboptimal Docker Layer Caching
+- **Date**: `2026-11-02`
+- **Observed Symptom**:
+  1. The repository root had no `.dockerignore` file, transferring `.git/`, `.worktrees/`, `.agents/`, test databases (`history.db`), log files, and IDE directories into container build contexts, bloating context transfer time and risking credential/metadata leaks.
+  2. Running `docker-compose.os-test.yml` for `api-executor-redhat` failed its healthcheck (`test: ["CMD", "curl", "-k", "-f", "https://localhost:8080/api/v1/commands"]`) because the `redhat/ubi9:latest` base image does not package `curl` by default.
+  3. In `Dockerfile`, `COPY . .` was executed before `go mod tidy` and `go install ...`, invalidating Go dependency cache layers on every single application source code modification.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did the RedHat healthcheck fail?* Because `curl` was missing from the container image.
+  2. *Why was curl missing?* RedHat UBI9 minimal images do not include `curl` or `ca-certificates` in their standard package payload.
+  3. *Why did Docker builds invalidate dependency downloads on every change?* Because `COPY . .` was placed before dependency resolution, busting the Docker layer cache when any repository file changed.
+  4. *Why was build context unnecessarily large?* No `.dockerignore` file existed at the repository root to exclude git metadata, local databases, and temporary directories.
+  5. *Root Cause*: Omission of `.dockerignore`, absence of healthcheck dependencies in RedHat container image, and suboptimal Dockerfile instruction ordering.
+- **Applied Change / Fix**:
+  1. Created root `.dockerignore` excluding `.git`, `.worktrees`, `.agents`, `bin/`, `tmp/`, `*.db`, `*.sqlite*`, `*.log`, `.vscode/`, `.idea/`, and coverage artifacts.
+  2. Updated `docker/Dockerfile.redhat` to install `ca-certificates` and `curl-minimal` via `dnf install -y --nodocs`.
+  3. Reordered root `Dockerfile` to run `go mod download` and `go install ...` immediately after `COPY go.mod go.sum ./` before copying application source.
+  4. Added `RUN go mod download` to `docker/Dockerfile.redhat` and `docker/Dockerfile.ubuntu`.
+  5. Added `TestDockerHygieneAndIgnoreRules` in `docs/branding_test.go`.
+- **Result & Non-Regression Test**: Verified by `TestDockerHygieneAndIgnoreRules` and `python scripts/lint_dockerfile.py` passing cleanly (333 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
