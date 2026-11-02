@@ -320,6 +320,23 @@ This living governance register records all errors encountered, technical dead-e
   5. Added `TestConcurrentPresetActivationAndCommandExecution` in `internal/api/presets_test.go` asserting thread safety across concurrent goroutines activating presets, listing commands, and executing commands.
 - **Result & Non-Regression Test**: Verified by `TestConcurrentPresetActivationAndCommandExecution` and full test suite (128 passed in `internal/api` with 90.8% coverage, 310 passed across all 10 packages).
 
+### `RCA-028` — SQLite Database Locking and Concurrency Contention under Multi-Goroutine Load
+- **Date**: `2026-11-02`
+- **Observed Symptom**: Under concurrent execution of API commands, audit logging, and background workers, SQLite operations risked encountering `database is locked` or `busy` errors when multiple goroutines attempted simultaneous writes, or when concurrent readers blocked writers under default rollback journaling (`journal_mode=DELETE`).
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did concurrent database operations encounter `database is locked`?* Because SQLite default rollback journaling locks the entire database file during writes, blocking concurrent readers and failing concurrent writers immediately.
+  2. *Why did concurrent writers fail immediately instead of waiting?* SQLite's default busy timeout is 0 ms (`busy_timeout=0`), returning an immediate `busy` error if another connection holds a lock.
+  3. *Why did multiple connections attempt simultaneous writes within the same Go process?* Go's `database/sql` connection pool defaults to unbounded open connections (`maxOpen = 0`), opening multiple physical connections to the SQLite file across HTTP handler goroutines.
+  4. *Why is unbounded connection pooling problematic for SQLite?* SQLite is an embedded single-writer database engine; having multiple connections in the same process attempt concurrent writes causes self-contention and lock conflicts.
+  5. *Root Cause*: Lack of connection pool serialization (`SetMaxOpenConns(1)`), absence of Write-Ahead Logging (`journal_mode=WAL`), absence of a busy wait timeout (`busy_timeout=5000`), and unconfigured synchronous/foreign key pragmas in `internal/database/db.go`.
+- **Applied Change / Fix**:
+  1. Bounded the Go connection pool to `SetMaxOpenConns(1)`, `SetMaxIdleConns(1)`, and `SetConnMaxLifetime(time.Hour)` in `ConfigurePool`.
+  2. Configured WAL mode (`PRAGMA journal_mode=WAL;`), busy timeout (`PRAGMA busy_timeout=5000;`), synchronous NORMAL (`PRAGMA synchronous=NORMAL;`), and foreign keys (`PRAGMA foreign_keys=ON;`) in `applyPragmas`.
+  3. Implemented `BuildDSN` augmenting connection strings with DSN query options for driver-level connection initialization.
+  4. Implemented `GetPragma` and connection pool getters (`PoolStats`, `MaxOpenConns`, `MaxIdleConns`, `ConnMaxLifetime`, `BusyTimeout`) for runtime verification.
+  5. Added comprehensive concurrency tests in `internal/database/db_test.go` with 40 parallel goroutines verifying zero locking errors on both in-memory and SQL-backed stores.
+- **Result & Non-Regression Test**: Verified by `TestBuildDSN`, `TestDatabaseConnectionPoolAndGetters`, `TestDatabasePragmasAppliedAndQueryable`, `TestConcurrentActionHistoryAccessInMemory`, and `TestConcurrentActionHistoryAccessSQLBacked` in `internal/database/db_test.go` (100% pass across 12 tests in `internal/database` with 95.2% coverage; 320 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

@@ -15,6 +15,41 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-031` — Enable SQLite WAL Mode, Busy Timeout, and Connection Pool Limits
+- **Timestamp (UTC)**: `2026-11-02T01:50:00Z`
+- **GitHub Issue**: [#62](https://github.com/jmrenouard/api_executor/issues/62)
+- **Branch**: `feat/issue-62-sqlite-wal-mode-and-pool-limits`
+- **Request**:
+  - In `internal/database/db.go`, default SQLite connection opening used rollback journaling (`DELETE`), zero busy timeout, and unconstrained connection pooling on `*sql.DB`. In multi-goroutine and concurrent HTTP environments, concurrent write operations or simultaneous readers and writers risk encountering `database is locked` or `busy` errors.
+  - Implement SQLite WAL mode (`PRAGMA journal_mode=WAL;`), busy timeout (`PRAGMA busy_timeout=5000;`), synchronous NORMAL (`PRAGMA synchronous=NORMAL;`), and foreign keys enforcement (`PRAGMA foreign_keys=ON;`).
+  - Implement connection pool limits on `*sql.DB`: `SetMaxOpenConns(1)`, `SetMaxIdleConns(1)`, `SetConnMaxLifetime(1*time.Hour)`.
+  - Implement `BuildDSN` to augment SQLite connection strings with safe defaults while preserving custom overrides and `:memory:`.
+  - Ensure thread-safe in-memory SQLite (`:memory:`) and CGO-disabled environments continue to function seamlessly without breaking any test suite.
+  - Add comprehensive unit and concurrency tests in `internal/database/db_test.go` verifying pragma values, pool configuration, and concurrent access without lock errors.
+- **Changes**:
+  - Updated [`internal/database/db.go`](../internal/database/db.go):
+    - Defined connection pool constants (`DefaultMaxOpenConns=1`, `DefaultMaxIdleConns=1`, `DefaultConnMaxLifetime=1h`, `DefaultBusyTimeoutMs=5000`).
+    - Implemented `BuildDSN(dataSourceName string) string` augmenting DSN with `_journal_mode=WAL`, `_busy_timeout=5000`, `_synchronous=NORMAL`, and `_foreign_keys=ON`.
+    - Implemented `ConfigurePool(db *sql.DB)` applying `SetMaxOpenConns(1)`, `SetMaxIdleConns(1)`, and `SetConnMaxLifetime(time.Hour)`.
+    - Implemented `applyPragmas() error` executing WAL, busy timeout, synchronous NORMAL, and foreign keys ON pragmas.
+    - Implemented `GetPragma(name string) (string, error)` for query inspection across file, in-memory, and mock databases.
+    - Implemented connection pool inspection helpers (`PoolStats`, `MaxOpenConns`, `MaxIdleConns`, `ConnMaxLifetime`, `BusyTimeout`).
+    - Updated `NewDB` to use `BuildDSN`, `ConfigurePool`, and `applyPragmas`.
+    - Updated `Init` to apply pragmas and validate initialization.
+  - Updated [`internal/database/db_test.go`](../internal/database/db_test.go):
+    - Updated `mockSQLDriver` to handle `PRAGMA` statement execution and query inspection.
+    - Added `TestBuildDSN` testing empty, `:memory:`, plain file, existing query parameters, and custom overrides.
+    - Added `TestDatabaseConnectionPoolAndGetters` testing pool limits, stats, and nil receiver safety.
+    - Added `TestDatabasePragmasAppliedAndQueryable` testing pragma execution and queries across SQL-backed, in-memory, and nil databases.
+    - Added `TestConcurrentActionHistoryAccessInMemory` with 40 parallel reader and writer goroutines asserting zero errors and monotonic sorting.
+    - Added `TestConcurrentActionHistoryAccessSQLBacked` with 40 parallel reader and writer goroutines asserting zero lock errors and monotonic sorting.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-031`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-028`.
+- **Result**:
+  - Package test suite: 100% pass rate (`12 passed in 1 packages`, 95.2% statement coverage).
+  - Full project test suite: 100% pass rate (`320 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #62.
+
 ### `ACT-030` — Synchronize Command Slice Mutations and Enforce Admin Authorization on Preset and Plugin Mutations
 - **Timestamp (UTC)**: `2026-11-02T01:30:00Z`
 - **GitHub Issue**: [#60](https://github.com/jmrenouard/api_executor/issues/60)
