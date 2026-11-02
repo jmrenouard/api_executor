@@ -15,6 +15,32 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-036` — Optimize E2E Test Setup Directory Parsing and Deduplicate Workflow Governance Rules
+- **Timestamp (UTC)**: `2026-11-02T03:30:00Z`
+- **GitHub Issue**: [#72](https://github.com/jmrenouard/api_executor/issues/72)
+- **Branch**: `refactor/issue-72-optimize-e2e-setup-and-deduplicate-rules`
+- **Request**:
+  - In `tests/e2e/setup_test.go` (`setupE2ETestServer`), plugin discovery previously iterated all files in `plugins/` via `filepath.WalkDir` and called `pluginReg.LoadDeclarativeDirectory(filepath.Dir(path))` on every matching `.yaml`, `.yml`, or `.json` file. Because directories contain dozens of manifest files, this resulted in O(N^2) redundant parses (~7,800 repeated file reads), slowing down test setup.
+  - Optimize `setupE2ETestServer` by tracking visited directories in a `visitedDirs := make(map[string]bool)` lookup so `pluginReg.LoadDeclarativeDirectory(dir)` is called at most once per unique directory.
+  - In `.agents/rules/`, multiple redundant workflow rule files (`git-workflow.md`, `github-workflow.md`, `atomic-workflow.md`) overlapped in scope. Consolidate and deduplicate them: keep `atomic-workflow.md` as the single canonical source of truth for the atomic GitHub workflow (incorporating the 8-step lifecycle: Issue -> Branch -> TDD -> Registers -> Commit -> PR -> Merge -> Close with Comment) and remove redundant duplicate files (`git-workflow.md`, `github-workflow.md`).
+  - Ensure all governance rules and documentation remain 100% in English.
+  - Add non-regression unit tests in `tests/e2e/setup_test.go` (`TestE2ESetup_PluginDirectorySinglePassLoading`) and in `docs/branding_test.go` (`TestAgentRulesConsolidationAndDeduplication`) verifying directory loading and rule deduplication.
+- **Changes**:
+  - Updated [`tests/e2e/setup_test.go`](../tests/e2e/setup_test.go):
+    - Added `visitedDirs := make(map[string]bool)` caching visited manifest directories during `filepath.WalkDir`, ensuring single-pass `LoadDeclarativeDirectory` execution per folder.
+    - Added `TestE2ESetup_PluginDirectorySinglePassLoading` verifying that `e2eTestServer` initializes with 300+ plugins across 10 operational domains and serves valid catalog responses via REST.
+  - Updated [`.agents/rules/atomic-workflow.md`](../.agents/rules/atomic-workflow.md):
+    - Consolidated canonical 8-step atomic GitHub lifecycle into `atomic-workflow.md` with explicit instructions for issues, branches, TDD, registers, commits, PRs, merges, and issue comments.
+  - Removed `.agents/rules/git-workflow.md` and `.agents/rules/github-workflow.md` (redundant duplicates of `atomic-workflow.md`).
+  - Updated [`docs/branding_test.go`](../docs/branding_test.go):
+    - Added `TestAgentRulesConsolidationAndDeduplication` asserting that `.agents/rules/` contains only `atomic-workflow.md`, `english-only.md`, and `project-governance.md`, and that `atomic-workflow.md` contains all required atomic lifecycle markers.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-036`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-033`.
+- **Result**:
+  - Package test suites: 100% pass rate (`3 passed in docs`, `66 passed in tests/e2e`).
+  - Full project test suite: 100% pass rate (`336 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #72.
+
 ### `ACT-035` — Add Web Admin Console Error Boundaries, Coordinate Refreshes with Promise.allSettled, and Fix Auth Header in cURL Snippet
 - **Timestamp (UTC)**: `2026-11-02T03:10:00Z`
 - **GitHub Issue**: [#70](https://github.com/jmrenouard/api_executor/issues/70)

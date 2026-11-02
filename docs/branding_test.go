@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -139,5 +140,60 @@ func TestDockerHygieneAndIgnoreRules(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentRulesConsolidationAndDeduplication(t *testing.T) {
+	// Verify that redundant workflow rule files (git-workflow.md, github-workflow.md) have been removed
+	// and that atomic-workflow.md serves as canonical.
+	rulesDir := "../.agents/rules"
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", rulesDir, err)
+	}
+
+	expectedFiles := map[string]bool{
+		"atomic-workflow.md":    true,
+		"english-only.md":       true,
+		"project-governance.md": true,
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !expectedFiles[entry.Name()] {
+			t.Errorf("unexpected file in .agents/rules: %s (expected only deduplicated rules)", entry.Name())
+		}
+	}
+
+	for expected := range expectedFiles {
+		path := filepath.Join(rulesDir, expected)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected canonical rule file %s to exist: %v", expected, err)
+		}
+	}
+
+	atomicWorkflowBytes, err := os.ReadFile(filepath.Join(rulesDir, "atomic-workflow.md"))
+	if err != nil {
+		t.Fatalf("failed to read atomic-workflow.md: %v", err)
+	}
+	content := string(atomicWorkflowBytes)
+	for _, marker := range []string{
+		"One Correction / Feature = One Issue = One Branch = One PR = One Merge",
+		"Complete 8-Step GitHub Lifecycle per Atomic Item",
+		"Open an Atomic GitHub Issue",
+		"Create a Dedicated Atomic Branch",
+		"TDD Implementation & Verification",
+		"Update Governance Registers",
+		"Atomic Commit & Push",
+		"Open Atomic Pull Request",
+		"Merge Pull Request",
+		"Close Issue with Summary Comment",
+	} {
+		if !strings.Contains(content, marker) {
+			t.Errorf("expected atomic-workflow.md to contain marker %q", marker)
+		}
+	}
+}
+
 
 

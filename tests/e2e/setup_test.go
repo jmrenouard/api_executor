@@ -137,7 +137,8 @@ func setupE2ETestServer(t *testing.T) *e2eTestServer {
 		_ = pluginReg.Register(opsPlugin)
 	}
 
-	// Discover and load plugins from filesystem if available
+	// Discover and load plugins from filesystem if available (visiting each manifest directory once)
+	visitedDirs := make(map[string]bool)
 	for _, candidate := range []string{"plugins", "../../plugins", "../plugins"} {
 		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
 			_ = filepath.WalkDir(candidate, func(path string, d os.DirEntry, walkErr error) error {
@@ -146,7 +147,11 @@ func setupE2ETestServer(t *testing.T) *e2eTestServer {
 				}
 				ext := strings.ToLower(filepath.Ext(d.Name()))
 				if ext == ".yaml" || ext == ".yml" || ext == ".json" {
-					_, _ = pluginReg.LoadDeclarativeDirectory(filepath.Dir(path))
+					dir := filepath.Dir(path)
+					if !visitedDirs[dir] {
+						visitedDirs[dir] = true
+						_, _ = pluginReg.LoadDeclarativeDirectory(dir)
+					}
 				}
 				return nil
 			})
@@ -553,3 +558,24 @@ func httpGetMetrics(t *testing.T, srv *e2eTestServer) (int, string) {
 	}
 	return resp.StatusCode, string(bodyBytes)
 }
+
+func TestE2ESetup_PluginDirectorySinglePassLoading(t *testing.T) {
+	srv := setupE2ETestServer(t)
+	if srv == nil {
+		t.Fatalf("expected non-nil e2eTestServer")
+	}
+
+	plugins := srv.pluginReg.List()
+	if len(plugins) < 300 {
+		t.Fatalf("expected at least 300 registered plugins, got %d", len(plugins))
+	}
+
+	status, res := httpGetPlugins(t, srv, srv.adminPAT, "")
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 OK from httpGetPlugins, got %d: %s", status, res.Error)
+	}
+	if len(res.Plugins) < 300 {
+		t.Fatalf("expected at least 300 plugins returned via REST API, got %d", len(res.Plugins))
+	}
+}
+

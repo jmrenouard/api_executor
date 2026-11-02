@@ -414,6 +414,23 @@ This living governance register records all errors encountered, technical dead-e
   5. Added non-regression unit tests in `internal/api/web_console_test.go` (`TestWebAdministrationConsole_ResilienceGuarantees`).
 - **Result & Non-Regression Test**: Verified by `TestWebAdministrationConsole_ResilienceGuarantees` (130 tests passing in `internal/api` and 334 tests passing 100% across all 10 packages).
 
+### `RCA-033` — Quadratic Manifest File Parsing in E2E Test Setup and Redundant Duplicate Workflow Rule Files
+- **Date**: `2026-11-02`
+- **Observed Symptom**:
+  1. In `tests/e2e/setup_test.go` (`setupE2ETestServer`), initializing an ephemeral test server invoked `filepath.WalkDir` over `plugins/` and executed `pluginReg.LoadDeclarativeDirectory(filepath.Dir(path))` on every single manifest file. Because directories contained up to 32 YAML manifests each, `LoadDeclarativeDirectory` was redundantly called up to 32 times on the same folder, re-reading every file each time and causing ~7,800 unnecessary disk reads across E2E test runs.
+  2. In `.agents/rules/`, three separate files (`atomic-workflow.md`, `git-workflow.md`, `github-workflow.md`) codified the atomic workflow with overlapping formulations and slight differences in granularity, creating rule sprawl and maintenance divergence.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did E2E server setup re-parse directories dozens of times?* Because `filepath.WalkDir` triggered on individual file matches rather than directory entries, and invoked directory loading without caching previously visited folder paths.
+  2. *Why was directory loading invoked per-file?* Because the callback checked file extensions (`.yaml`, `.yml`, `.json`) before invoking `LoadDeclarativeDirectory(filepath.Dir(path))`.
+  3. *Why did multiple overlapping rule files exist in `.agents/rules/`?* Successive milestones introduced `git-workflow.md` and `github-workflow.md` alongside `atomic-workflow.md` without pruning redundant predecessors.
+  4. *What was the impact?* Increased E2E initialization latency and potential confusion regarding which workflow rule was canonical.
+  5. *Root Cause*: Lack of a directory visitation cache in `setup_test.go` and absence of rule consolidation to a single canonical file in `.agents/rules/`.
+- **Applied Change / Fix**:
+  1. Added `visitedDirs := make(map[string]bool)` in `setupE2ETestServer` (`tests/e2e/setup_test.go`) so `LoadDeclarativeDirectory(dir)` executes strictly once per unique directory.
+  2. Consolidated all atomic workflow guidelines into `atomic-workflow.md` and deleted redundant copies `git-workflow.md` and `github-workflow.md`.
+  3. Added non-regression tests in `tests/e2e/setup_test.go` (`TestE2ESetup_PluginDirectorySinglePassLoading`) and `docs/branding_test.go` (`TestAgentRulesConsolidationAndDeduplication`).
+- **Result & Non-Regression Test**: Verified by `TestE2ESetup_PluginDirectorySinglePassLoading` and `TestAgentRulesConsolidationAndDeduplication` (66 tests in `tests/e2e`, 3 tests in `docs`, and full repository test suite 336 unit + 66 E2E tests passing 100%).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
