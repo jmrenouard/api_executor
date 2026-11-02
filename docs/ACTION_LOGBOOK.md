@@ -15,6 +15,34 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-034` — Add Root .dockerignore, Install curl in RedHat Test Container, and Optimize Docker Layer Caching
+- **Timestamp (UTC)**: `2026-11-02T02:45:00Z`
+- **GitHub Issue**: [#68](https://github.com/jmrenouard/api_executor/issues/68)
+- **Branch**: `fix/issue-68-dockerignore-and-redhat-healthcheck`
+- **Request**:
+  - Create root `.dockerignore` excluding `.git/`, `.worktrees/`, `.agents/`, `*.log`, `*.db`, `*.sqlite*`, `bin/`, `tmp/`, `.vscode/`, `.idea/` to prevent transferring repository metadata, local databases, and temporary build files into Docker build contexts.
+  - Update `docker/Dockerfile.redhat` to install `ca-certificates` and `curl-minimal` via `dnf install -y --nodocs` so the healthcheck in `docker-compose.os-test.yml` (`test: ["CMD", "curl", "-k", "-f", "https://localhost:8080/api/v1/commands"]`) succeeds.
+  - Optimize root `Dockerfile` and OS test Dockerfiles builder layer caching by placing `RUN go mod download` immediately after `COPY go.mod go.sum ./` before copying the rest of the source code.
+  - Add unit verification in `docs/branding_test.go` asserting `.dockerignore` patterns, `Dockerfile` caching structure, and RedHat healthcheck dependencies.
+- **Changes**:
+  - Created [`.dockerignore`](../.dockerignore):
+    - Configured exclusions for `.git`, `.gitignore`, `.worktrees`, `.agents`, `bin/`, `tmp/`, `*.exe`, `*.test`, `*.out`, `*.db`, `*.sqlite*`, `*.log`, `.vscode/`, `.idea/`, `*.swp`, `*.swo`, `coverage.txt`, `coverage.html`, `profile.out`.
+  - Updated [`docker/Dockerfile.redhat`](../docker/Dockerfile.redhat):
+    - Added `RUN go mod download` in builder stage.
+    - Added `ca-certificates` and `curl-minimal` to `dnf install -y --nodocs` in UBI9 runtime image.
+  - Updated [`docker/Dockerfile.ubuntu`](../docker/Dockerfile.ubuntu):
+    - Added `RUN go mod download` in builder stage for consistent layer caching.
+  - Updated [`Dockerfile`](../Dockerfile):
+    - Placed `RUN go mod download` and `RUN go install github.com/swaggo/swag/cmd/swag@latest` before `COPY . .` to maximize layer cache hits when source code changes.
+  - Updated [`docs/branding_test.go`](../docs/branding_test.go):
+    - Added `TestDockerHygieneAndIgnoreRules` asserting root `.dockerignore` rules, root `Dockerfile` caching order, and `docker/Dockerfile.redhat` curl installation.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-034`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-031`.
+- **Result**:
+  - Package test suite: 100% pass rate (`2 passed in docs`).
+  - Full project test suite: 100% pass rate (`333 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #68.
+
 ### `ACT-033` — Harden Cryptographic HMAC Verification, Path Traversal Bounds, and MCP Admin Authorization
 - **Timestamp (UTC)**: `2026-11-02T02:25:00Z`
 - **GitHub Issue**: [#66](https://github.com/jmrenouard/api_executor/issues/66)

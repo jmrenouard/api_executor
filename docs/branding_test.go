@@ -84,3 +84,60 @@ func TestSVGAssetsAreValidXMLAndREADMEIncludesBranding(t *testing.T) {
 	}
 }
 
+func TestDockerHygieneAndIgnoreRules(t *testing.T) {
+	// 1. Verify root .dockerignore exists and excludes required patterns
+	dockerignoreBytes, err := os.ReadFile("../.dockerignore")
+	if err != nil {
+		t.Fatalf("failed to read ../.dockerignore: %v", err)
+	}
+	dockerignore := string(dockerignoreBytes)
+	requiredIgnores := []string{
+		".git",
+		".worktrees",
+		".agents",
+		"bin/",
+		"tmp/",
+		"*.db",
+		"*.sqlite*",
+		"*.log",
+		".vscode/",
+		".idea/",
+	}
+	for _, pattern := range requiredIgnores {
+		if !strings.Contains(dockerignore, pattern) {
+			t.Errorf("expected .dockerignore to contain %q", pattern)
+		}
+	}
+
+	// 2. Verify root Dockerfile layer caching optimization
+	rootDockerfile, err := os.ReadFile("../Dockerfile")
+	if err != nil {
+		t.Fatalf("failed to read ../Dockerfile: %v", err)
+	}
+	rootDF := string(rootDockerfile)
+	modDownloadIdx := strings.Index(rootDF, "RUN go mod download")
+	copyAllIdx := strings.Index(rootDF, "COPY . .")
+	if modDownloadIdx == -1 {
+		t.Errorf("expected root Dockerfile to contain 'RUN go mod download'")
+	}
+	if copyAllIdx == -1 {
+		t.Errorf("expected root Dockerfile to contain 'COPY . .'")
+	}
+	if modDownloadIdx > copyAllIdx {
+		t.Errorf("expected 'RUN go mod download' to appear before 'COPY . .'")
+	}
+
+	// 3. Verify docker/Dockerfile.redhat installs curl for container healthcheck
+	redhatDockerfile, err := os.ReadFile("../docker/Dockerfile.redhat")
+	if err != nil {
+		t.Fatalf("failed to read ../docker/Dockerfile.redhat: %v", err)
+	}
+	redhatDF := string(redhatDockerfile)
+	for _, marker := range []string{"ca-certificates", "curl-minimal", "procps-ng", "iproute"} {
+		if !strings.Contains(redhatDF, marker) {
+			t.Errorf("expected docker/Dockerfile.redhat to install %q", marker)
+		}
+	}
+}
+
+

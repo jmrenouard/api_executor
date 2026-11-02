@@ -6,13 +6,13 @@ WORKDIR /app
 
 # Copy go.mod and go.sum to download dependencies
 COPY go.mod go.sum ./
+RUN go mod download
+
+# Install swag tool for Swagger docs generation
+RUN go install github.com/swaggo/swag/cmd/swag@latest
 
 # Copy the rest of the source code
 COPY . .
-
-# First, get the dependencies for the project, including swag
-RUN go mod tidy
-RUN go install github.com/swaggo/swag/cmd/swag@latest
 
 # Generate Swagger docs
 RUN swag init -g cmd/server/main.go

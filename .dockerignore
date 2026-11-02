@@ -1,0 +1,32 @@
+# Version control
+.git
+.gitignore
+.worktrees
+
+# Agent workspace and team metadata
+.agents
+
+# Build artifacts and binaries
+bin/
+tmp/
+*.exe
+*.test
+*.out
+
+# Databases and temporary storage
+*.db
+*.sqlite*
+
+# Application logs
+*.log
+
+# Editor and IDE configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage and test profiles
+coverage.txt
+coverage.html
+profile.out
