@@ -15,6 +15,27 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-029` — Prevent Anonymous Authentication Privilege Escalation on Administrative Endpoints
+- **Timestamp (UTC)**: `2026-11-02T01:07:00Z`
+- **GitHub Issue**: [#58](https://github.com/jmrenouard/api_executor/issues/58)
+- **Branch**: `feat/issue-58-prevent-anonymous-privilege-escalation`
+- **Request**:
+  - In `internal/api/auth_handlers.go`, when `auth.require_auth: false` (default configuration), `resolvePrincipal` assigned `RoleAdmin` with wildcard scopes `["*"]` to anonymous requests.
+  - In administrative handlers (`CreateUserHandler`, `DeleteUserHandler`, `CreatePATHandler`, `CreateServiceAccountHandler`, `RotateServiceAccountSecretHandler`, `DeleteServiceAccountHandler`), the authorization check was written as `if p.Type != "anonymous" && p.Role != auth.RoleAdmin`.
+  - Because `p.Type` is `"anonymous"`, `p.Type != "anonymous"` evaluated to false, completely bypassing the forbidden check and allowing unauthenticated callers to create users, delete admin accounts, and issue credentials.
+  - Fix: Update `resolvePrincipal` so anonymous callers are assigned `Role: auth.RoleViewer` with explicit non-admin operational scopes (`commands:read`, `commands:execute`, `plugins:read`, `plugins:execute`, `mcp:access`, `files:read`, `audit:read`) instead of `RoleAdmin` with wildcard scopes `["*"]`.
+  - Fix: Update all administrative handlers in `internal/api/auth_handlers.go` to enforce `if p.Type == "anonymous" || p.Role != auth.RoleAdmin { writeJSONError(w, "Admin role required", http.StatusForbidden); return }` and forbid anonymous callers from issuing or revoking tokens (`AuthTokensHandler`).
+  - Unit tests: Add `TestAnonymousPrivilegeEscalationPrevention` in `internal/api/auth_test.go` verifying that anonymous callers receive HTTP 403 Forbidden across all 8 administrative endpoints, that authenticated administrators can still perform all administrative lifecycle actions, and that all existing tests pass with 100% non-regression.
+- **Changes**:
+  - Updated [`internal/api/auth_handlers.go`](../internal/api/auth_handlers.go): in `resolvePrincipal`, assigned `Role: auth.RoleViewer` with operational scopes (no admin role, no `*` wildcard); in `AuthUsersHandler`, `AuthTokensHandler`, `AuthServiceAccountsHandler`, and `AuthServiceAccountRotateHandler`, enforced `if p.Type == "anonymous" || p.Role != auth.RoleAdmin` and rejected anonymous token issuance/revocation with HTTP 403 Forbidden.
+  - Updated [`internal/api/auth_test.go`](../internal/api/auth_test.go): added `TestAnonymousPrivilegeEscalationPrevention` covering anonymous denial across user creation/update/deletion, PAT minting/revocation, service account creation/deletion/rotation, and admin success.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-029`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-026`.
+- **Result**:
+  - Package test suite: 100% pass rate (`127 passed in 1 packages`, statement coverage 91.0% in `internal/api`).
+  - Full project test suite: 100% pass rate (`309 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #58.
+
 ### `ACT-028` — Enforce Authentication on Administrative File, Command Listing, and Audit/Log Endpoints
 - **Timestamp (UTC)**: `2026-11-01T23:45:00Z`
 - **GitHub Issue**: [#56](https://github.com/jmrenouard/api_executor/issues/56)

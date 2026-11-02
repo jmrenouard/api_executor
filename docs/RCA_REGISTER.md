@@ -288,6 +288,21 @@ This living governance register records all errors encountered, technical dead-e
   3. Created `internal/api/endpoint_auth_test.go` verifying 100% enforcement across all 7 endpoints for unauthenticated requests, invalid tokens, Bearer/X-API-Token credentials, and backward compatibility when `RequireAuth: false`.
 - **Result & Non-Regression Test**: Verified by `TestProtectedEndpoints_RequireAuth_UnauthenticatedReturns401`, `TestProtectedEndpoints_RequireAuth_AuthenticatedSucceeds200`, `TestProtectedEndpoints_RequireAuthFalse_BackwardCompatibility`, and `TestProtectedEndpoints_RequireAuth_NilAuthManagerReturns401` in `internal/api/endpoint_auth_test.go` (100% pass across 126 tests in `internal/api` with 90.3% coverage; 308 tests passing 100% across all 10 packages).
 
+### `RCA-026` — Anonymous Authentication Privilege Escalation on Administrative Endpoints (CWE-284 / CWE-269)
+- **Date**: `2026-11-02`
+- **Observed Symptom**: In `internal/api/auth_handlers.go`, when `auth.require_auth: false` (default configuration), `resolvePrincipal` returned `auth.RoleAdmin` with wildcard scopes `["*"]` for anonymous requests. Furthermore, administrative handlers (`AuthUsersHandler` POST/PATCH/DELETE, `AuthTokensHandler` POST/DELETE, `AuthServiceAccountsHandler` POST/DELETE, `AuthServiceAccountRotateHandler` POST) checked `if p.Type != "anonymous" && p.Role != auth.RoleAdmin`, which evaluated to `false` for any anonymous caller (`p.Type == "anonymous"`), allowing unauthenticated remote clients to create admin users, delete user accounts, issue Personal Access Tokens, and generate third-party service account credentials.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why could unauthenticated callers create users and issue credentials?* Because the authorization check `if p.Type != "anonymous" && p.Role != auth.RoleAdmin` inverted the logic by assuming anonymous callers should not be checked for admin role, while `resolvePrincipal` also assigned `RoleAdmin` with wildcard scopes `["*"]` to anonymous requests.
+  2. *Why was `p.Type != "anonymous"` used in the conditional?* The author mistakenly intended "if authenticated but not admin, forbid", intending to exempt unauthenticated access in non-auth setups without realizing it opened administrative mutations to any unauthenticated caller.
+  3. *Why did `resolvePrincipal` assign `RoleAdmin` and wildcard scopes `["*"]` to anonymous requests?* When `RequireAuth: false` was implemented, `resolvePrincipal` granted full administrator privileges as a shortcut so general endpoints (e.g., command execution) wouldn't be rejected by `auth.Authorize`.
+  4. *What was the security impact?* Critical privilege escalation: any unauthenticated attacker could remotely take over the tool by creating admin users, deleting legitimate accounts, or minting API tokens and service account secrets.
+  5. *Root Cause*: Granting `RoleAdmin` with wildcard scopes `["*"]` to anonymous callers in `resolvePrincipal` combined with flawed boolean logic `p.Type != "anonymous"` that bypassed admin checks in administrative handlers.
+- **Applied Change / Fix**:
+  1. Updated `resolvePrincipal` in `internal/api/auth_handlers.go`: when `RequireAuth: false`, anonymous principals are assigned `Role: auth.RoleViewer` and explicit non-admin operational scopes (`commands:read`, `commands:execute`, `plugins:read`, `plugins:execute`, `mcp:access`, `files:read`, `audit:read`), stripping `RoleAdmin` and wildcard `*`.
+  2. Enforced strict administrative authorization across all mutation handlers in `internal/api/auth_handlers.go`: `if p.Type == "anonymous" || p.Role != auth.RoleAdmin { writeJSONError(w, "Admin role required...", http.StatusForbidden); return }` and blocked anonymous callers from issuing or revoking Personal Access Tokens.
+  3. Added `TestAnonymousPrivilegeEscalationPrevention` in `internal/api/auth_test.go` asserting HTTP 403 Forbidden across all 8 administrative endpoints for anonymous callers and verifying authenticated administrators retain full access.
+- **Result & Non-Regression Test**: Verified by `TestAnonymousPrivilegeEscalationPrevention` in `internal/api/auth_test.go` (127 unit tests in `internal/api` passing 100% with 91.0% coverage; 309 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
