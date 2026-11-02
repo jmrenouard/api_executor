@@ -36,12 +36,14 @@ func setupTestAPIEnvWithTLS(t *testing.T, tlsEnabled bool) (*APIEnv, *core.CertM
 	}
 
 	auditLogger, _ := audit.NewAuditLogger(cfg.Audit, nil, logger)
+	authMgr, _ := auth.NewManager(cfg.Auth)
 
 	env := &APIEnv{
 		Config:      cfg,
 		Logger:      logger,
 		CertManager: cm,
 		AuditLogger: auditLogger,
+		AuthManager: authMgr,
 	}
 	return env, cm
 }
@@ -115,8 +117,22 @@ func TestTLSRenewEndpoint(t *testing.T) {
 		t.Fatalf("expected 405 Method Not Allowed for GET /api/v1/tls/renew, got %d", getRec.Code)
 	}
 
-	// Act: POST /api/v1/tls/renew
+	_, _, adminTok, err := env.AuthManager.AuthenticateUser(env.Config.Auth.BootstrapUsername, env.Config.Auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
+
+	// Reject anonymous call on POST /api/v1/tls/renew
+	anonReq := httptest.NewRequest(http.MethodPost, "/api/v1/tls/renew", nil)
+	anonRec := httptest.NewRecorder()
+	router.ServeHTTP(anonRec, anonReq)
+	if anonRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for anonymous POST /api/v1/tls/renew, got %d", anonRec.Code)
+	}
+
+	// Act: POST /api/v1/tls/renew as Admin
 	postReq := httptest.NewRequest(http.MethodPost, "/api/v1/tls/renew", nil)
+	postReq.Header.Set("Authorization", "Bearer "+adminTok)
 	postRec := httptest.NewRecorder()
 	router.ServeHTTP(postRec, postReq)
 
@@ -188,8 +204,14 @@ func TestTLSEndpointsWhenDisabled(t *testing.T) {
 		t.Errorf("expected 404 on /api/v1/tls/certificate when TLS disabled, got %d", certRec.Code)
 	}
 
-	// Renew returns 400 when TLS disabled
+	_, _, adminTok, err := env.AuthManager.AuthenticateUser(env.Config.Auth.BootstrapUsername, env.Config.Auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
+
+	// Renew returns 400 when TLS disabled for authenticated admin
 	renewReq := httptest.NewRequest(http.MethodPost, "/api/v1/tls/renew", nil)
+	renewReq.Header.Set("Authorization", "Bearer "+adminTok)
 	renewRec := httptest.NewRecorder()
 	router.ServeHTTP(renewRec, renewReq)
 	if renewRec.Code != http.StatusBadRequest {

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go-admin-tool/internal/audit"
@@ -30,6 +31,54 @@ type APIEnv struct {
 	AuthManager    *auth.Manager
 	PluginRegistry *plugins.Registry
 	MCPServer      *mcp.Server
+	commandsMu     sync.RWMutex
+}
+
+// CommandsRLock acquires a read lock on the executor commands.
+func (env *APIEnv) CommandsRLock() {
+	env.commandsMu.RLock()
+}
+
+// CommandsRUnlock releases the read lock on the executor commands.
+func (env *APIEnv) CommandsRUnlock() {
+	env.commandsMu.RUnlock()
+}
+
+// CommandsLock acquires a write lock on the executor commands.
+func (env *APIEnv) CommandsLock() {
+	env.commandsMu.Lock()
+}
+
+// CommandsUnlock releases the write lock on the executor commands.
+func (env *APIEnv) CommandsUnlock() {
+	env.commandsMu.Unlock()
+}
+
+// GetCommands returns a safe copy of the configured executor commands.
+func (env *APIEnv) GetCommands() []core.CommandDefinition {
+	env.commandsMu.RLock()
+	defer env.commandsMu.RUnlock()
+	if env == nil || env.Config == nil {
+		return nil
+	}
+	cmds := make([]core.CommandDefinition, len(env.Config.Executor.Commands))
+	copy(cmds, env.Config.Executor.Commands)
+	return cmds
+}
+
+// FindCommand looks up a command definition by name under a read lock.
+func (env *APIEnv) FindCommand(name string) (core.CommandDefinition, bool) {
+	env.commandsMu.RLock()
+	defer env.commandsMu.RUnlock()
+	if env == nil || env.Config == nil {
+		return core.CommandDefinition{}, false
+	}
+	for _, cmd := range env.Config.Executor.Commands {
+		if cmd.Name == name {
+			return cmd, true
+		}
+	}
+	return core.CommandDefinition{}, false
 }
 
 // ExecuteCommandRequest defines the structure for the command execution request body.
@@ -321,20 +370,13 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	var cmdDef *core.CommandDefinition
-	for _, cmd := range env.Config.Executor.Commands {
-		if cmd.Name == req.Name {
-			cmdCopy := cmd
-			cmdDef = &cmdCopy
-			break
-		}
-	}
-
-	if cmdDef == nil {
+	cmdCopy, found := env.FindCommand(req.Name)
+	if !found {
 		recordActionCall(req.Name, "error", false, 0)
 		writeJSONError(w, "Command not found", http.StatusNotFound)
 		return
 	}
+	cmdDef := &cmdCopy
 
 	effectiveTimeout := env.Config.Executor.ResolveTimeout(*cmdDef, timeoutOverride)
 
@@ -543,7 +585,7 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 		Preset      bool   `json:"preset,omitempty"`
 	}
 	var commands []commandInfo
-	for _, c := range env.Config.Executor.Commands {
+	for _, c := range env.GetCommands() {
 		commands = append(commands, commandInfo{
 			Name:        c.Name,
 			Description: c.Description,
@@ -604,7 +646,7 @@ func (env *APIEnv) TLSRenewHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+	if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
 		if env.AuditLogger != nil {
 			_, _ = env.AuditLogger.Record(audit.AuditEvent{
 				Category:  "tls",

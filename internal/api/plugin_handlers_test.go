@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
 	"go-admin-tool/internal/plugins"
@@ -149,9 +150,19 @@ func TestPluginDeclarativeRegisterHandlerMetadataCompleteness(t *testing.T) {
 	}
 
 	reg := plugins.NewRegistry()
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+	_, _, adminTok, err := authMgr.AuthenticateUser(cfg.Auth.BootstrapUsername, cfg.Auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
+
 	env := &APIEnv{
 		Config:         cfg,
 		DB:             db,
+		AuthManager:    authMgr,
 		PluginRegistry: reg,
 	}
 	router := NewRouter(env)
@@ -172,8 +183,19 @@ func TestPluginDeclarativeRegisterHandlerMetadataCompleteness(t *testing.T) {
 		]
 	}`
 
+	// 1. Anonymous request must be forbidden
+	reqAnon := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/declarative", bytes.NewBufferString(specJSON))
+	reqAnon.Header.Set("Content-Type", "application/json")
+	recAnon := httptest.NewRecorder()
+	router.ServeHTTP(recAnon, reqAnon)
+	if recAnon.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403 Forbidden for anonymous caller, got %d: %s", recAnon.Code, recAnon.Body.String())
+	}
+
+	// 2. Authenticated Admin request succeeds with 201 Created
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/plugins/declarative", bytes.NewBufferString(specJSON))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminTok)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

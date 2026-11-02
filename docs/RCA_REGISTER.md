@@ -303,6 +303,23 @@ This living governance register records all errors encountered, technical dead-e
   3. Added `TestAnonymousPrivilegeEscalationPrevention` in `internal/api/auth_test.go` asserting HTTP 403 Forbidden across all 8 administrative endpoints for anonymous callers and verifying authenticated administrators retain full access.
 - **Result & Non-Regression Test**: Verified by `TestAnonymousPrivilegeEscalationPrevention` in `internal/api/auth_test.go` (127 unit tests in `internal/api` passing 100% with 91.0% coverage; 309 tests passing 100% across all 10 packages).
 
+### `RCA-027` — Concurrency Data Race on OS Preset Dynamic Activation and Residual Admin Check Bypasses
+- **Date**: `2026-11-02`
+- **Observed Symptom**: In `internal/api/presets_handlers.go`, `ActivatePresetsHandler` dynamically mutated `env.Config.Executor.Commands = core.MergeOSPresets(...)`. Concurrently, other request handler goroutines in `ExecuteCommandHandler` and `ListCommandsHandler` iterated over `env.Config.Executor.Commands` without mutex synchronization, causing a Go runtime data race on concurrent preset activation. In addition, `ActivatePresetsHandler`, `TLSRenewHandler`, and `PluginDeclarativeRegisterHandler` checked `if p.Type != "anonymous" && p.Role != auth.RoleAdmin`, which allowed unauthenticated anonymous callers to trigger live certificate rotations, declarative plugin registrations, and preset command expansions.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why was there a data race when activating OS presets?* `ActivatePresetsHandler` reassigned the slice header and mutated elements in `env.Config.Executor.Commands` while `ExecuteCommandHandler` and `ListCommandsHandler` read the slice concurrently from separate HTTP worker goroutines without synchronization.
+  2. *Why was `env.Config.Executor.Commands` not synchronized?* `Commands` was originally loaded once at server startup as a static configuration slice, and dynamic runtime mutation via `MergeOSPresets` was added in Milestone 2 without introducing concurrency primitives.
+  3. *Why could Prometheus metrics re-indexing cause deadlock if synchronized naively?* `initConfiguredActionMetrics` also iterates `env.Config.Executor.Commands`; acquiring the same mutex inside `initConfiguredActionMetrics` when already held by `ActivatePresetsHandler` would deadlock Go's non-reentrant `sync.RWMutex`.
+  4. *Why did anonymous callers bypass admin authorization on `POST /api/v1/presets/activate`, `POST /api/v1/tls/renew`, and `POST /api/v1/plugins/declarative`?* The inverted boolean check `if p.Type != "anonymous" && p.Role != auth.RoleAdmin` was left in these three handlers when ACT-029 patched user and token administrative handlers, allowing anonymous callers (`p.Type == "anonymous"`) to short-circuit the condition.
+  5. *Root Cause*: Lack of `sync.RWMutex` synchronization protecting `env.Config.Executor.Commands` during runtime mutation combined with residual flawed boolean authorization conditions (`p.Type != "anonymous"`) in administrative mutation endpoints.
+- **Applied Change / Fix**:
+  1. Added `commandsMu sync.RWMutex` to `APIEnv` in `internal/api/handlers.go` and implemented thread-safe accessors (`CommandsRLock`, `CommandsRUnlock`, `CommandsLock`, `CommandsUnlock`, `GetCommands`, `FindCommand`).
+  2. Protected command slice reads in `ExecuteCommandHandler` via `env.FindCommand` and `ListCommandsHandler` via `env.GetCommands`.
+  3. Protected command slice mutation in `ActivatePresetsHandler` using `env.commandsMu.Lock()`, and separated Prometheus re-indexing into `initConfiguredActionMetricsLocked` to prevent recursive mutex deadlock.
+  4. Enforced strict admin authorization across `ActivatePresetsHandler`, `TLSRenewHandler`, and `PluginDeclarativeRegisterHandler`: `if p.Type == "anonymous" || p.Role != auth.RoleAdmin { writeJSONError(w, "Admin role required...", http.StatusForbidden); return }` with audit logging.
+  5. Added `TestConcurrentPresetActivationAndCommandExecution` in `internal/api/presets_test.go` asserting thread safety across concurrent goroutines activating presets, listing commands, and executing commands.
+- **Result & Non-Regression Test**: Verified by `TestConcurrentPresetActivationAndCommandExecution` and full test suite (128 passed in `internal/api` with 90.8% coverage, 310 passed across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

@@ -15,6 +15,30 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-030` — Synchronize Command Slice Mutations and Enforce Admin Authorization on Preset and Plugin Mutations
+- **Timestamp (UTC)**: `2026-11-02T01:30:00Z`
+- **GitHub Issue**: [#60](https://github.com/jmrenouard/api_executor/issues/60)
+- **Branch**: `fix/issue-60-preset-activation-concurrency-race`
+- **Request**:
+  - In `internal/api/presets_handlers.go`, `ActivatePresetsHandler` dynamically mutated `env.Config.Executor.Commands = core.MergeOSPresets(...)`. Concurrently, other request handler goroutines in `ExecuteCommandHandler` and `ListCommandsHandler` iterated over `env.Config.Executor.Commands` without mutex synchronization, causing a Go data race.
+  - In `presets_handlers.go` (`ActivatePresetsHandler`), `handlers.go` (`TLSRenewHandler`), and `plugin_handlers.go` (`PluginDeclarativeRegisterHandler`), residual authorization checks used `if p.Type != "anonymous" && p.Role != auth.RoleAdmin`, allowing unauthenticated anonymous callers to bypass admin checks and perform administrative mutations.
+  - Fix: Add `commandsMu sync.RWMutex` to `APIEnv` and provide thread-safe methods (`CommandsRLock`, `CommandsRUnlock`, `CommandsLock`, `CommandsUnlock`, `GetCommands`, `FindCommand`).
+  - Fix: Protect command slice reads in `ExecuteCommandHandler` (`FindCommand`) and `ListCommandsHandler` (`GetCommands`), protect command slice writes in `ActivatePresetsHandler` (`env.commandsMu.Lock()`), and provide `initConfiguredActionMetricsLocked` to safely re-index Prometheus action metrics without deadlock.
+  - Fix: Enforce `if p.Type == "anonymous" || p.Role != auth.RoleAdmin` across `ActivatePresetsHandler`, `TLSRenewHandler`, and `PluginDeclarativeRegisterHandler`, returning HTTP 403 Forbidden to anonymous callers.
+  - Concurrency & Unit Tests: Add `TestConcurrentPresetActivationAndCommandExecution` in `internal/api/presets_test.go` asserting zero data races under heavy parallel activation, command listing, and execution, and update test assertions to verify strict admin enforcement.
+- **Changes**:
+  - Updated [`internal/api/handlers.go`](../internal/api/handlers.go): added `commandsMu sync.RWMutex` to `APIEnv`, thread-safe accessors (`CommandsRLock`, `CommandsRUnlock`, `CommandsLock`, `CommandsUnlock`, `GetCommands`, `FindCommand`), converted `ExecuteCommandHandler` to `FindCommand`, converted `ListCommandsHandler` to `GetCommands`, and enforced strict admin role check in `TLSRenewHandler`.
+  - Updated [`internal/api/presets_handlers.go`](../internal/api/presets_handlers.go): enforced `if p.Type == "anonymous" || p.Role != auth.RoleAdmin` returning HTTP 403 Forbidden with audit logging, and wrapped `MergeOSPresets` and `initConfiguredActionMetricsLocked` in write lock (`commandsMu.Lock()`).
+  - Updated [`internal/api/plugin_handlers.go`](../internal/api/plugin_handlers.go): enforced `if p.Type == "anonymous" || p.Role != auth.RoleAdmin` returning HTTP 403 Forbidden with audit logging in `PluginDeclarativeRegisterHandler`.
+  - Updated [`internal/api/router.go`](../internal/api/router.go): split `initConfiguredActionMetrics` into thread-safe read-locked wrapper and `initConfiguredActionMetricsLocked`.
+  - Updated test suites across [`internal/api/presets_test.go`](../internal/api/presets_test.go), [`internal/api/tls_test.go`](../internal/api/tls_test.go), [`internal/api/plugin_handlers_test.go`](../internal/api/plugin_handlers_test.go), [`internal/api/plugin_test.go`](../internal/api/plugin_test.go), and [`internal/api/web_console_test.go`](../internal/api/web_console_test.go) with anonymous 403 assertions, admin authentication, and concurrent race tests.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-030`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-027`.
+- **Result**:
+  - Package test suite: 100% pass rate (`128 passed in 1 packages`, statement coverage 90.8% in `internal/api`).
+  - Full project test suite: 100% pass rate (`310 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #60.
+
 ### `ACT-029` — Prevent Anonymous Authentication Privilege Escalation on Administrative Endpoints
 - **Timestamp (UTC)**: `2026-11-02T01:07:00Z`
 - **GitHub Issue**: [#58](https://github.com/jmrenouard/api_executor/issues/58)
