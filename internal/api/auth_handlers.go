@@ -24,8 +24,8 @@ func (env *APIEnv) resolvePrincipal(r *http.Request) (*auth.Principal, error) {
 			Type:   "anonymous",
 			ID:     "anonymous",
 			Name:   "anonymous",
-			Role:   auth.RoleAdmin,
-			Scopes: []string{"*"},
+			Role:   auth.RoleViewer,
+			Scopes: []string{"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read"},
 		}, nil
 	}
 	if env.AuthManager == nil {
@@ -33,8 +33,8 @@ func (env *APIEnv) resolvePrincipal(r *http.Request) (*auth.Principal, error) {
 			Type:   "anonymous",
 			ID:     "anonymous",
 			Name:   "anonymous",
-			Role:   auth.RoleAdmin,
-			Scopes: []string{"*"},
+			Role:   auth.RoleViewer,
+			Scopes: []string{"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read"},
 		}, nil
 	}
 	return env.AuthManager.AuthenticateCredential(rawToken)
@@ -142,7 +142,7 @@ func (env *APIEnv) AuthUsersHandler(w http.ResponseWriter, r *http.Request) {
 		}{Users: env.AuthManager.ListUsers()})
 
 	case http.MethodPost:
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
 			writeJSONError(w, "Admin role required to create users", http.StatusForbidden)
 			return
 		}
@@ -177,7 +177,7 @@ func (env *APIEnv) AuthUsersHandler(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(u)
 
 	case http.MethodPatch, http.MethodPut:
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
 			writeJSONError(w, "Admin role required to update users", http.StatusForbidden)
 			return
 		}
@@ -210,7 +210,7 @@ func (env *APIEnv) AuthUsersHandler(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(u)
 
 	case http.MethodDelete:
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
 			writeJSONError(w, "Admin role required to delete users", http.StatusForbidden)
 			return
 		}
@@ -279,7 +279,11 @@ func (env *APIEnv) AuthTokensHandler(w http.ResponseWriter, r *http.Request) {
 				req.UserID = "admin"
 			}
 		}
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if p.Type == "anonymous" {
+			writeJSONError(w, "Admin role required to issue Personal Access Tokens", http.StatusForbidden)
+			return
+		}
+		if p.Role != auth.RoleAdmin {
 			if !strings.EqualFold(strings.TrimSpace(req.UserID), p.Username) {
 				writeJSONError(w, "Admin role required to issue Personal Access Tokens for other users", http.StatusForbidden)
 				return
@@ -328,7 +332,11 @@ func (env *APIEnv) AuthTokensHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		id := strings.TrimSpace(r.URL.Query().Get("id"))
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if p.Type == "anonymous" {
+			writeJSONError(w, "Admin role required to revoke Personal Access Tokens", http.StatusForbidden)
+			return
+		}
+		if p.Role != auth.RoleAdmin {
 			if p.Type == "service_account" {
 				writeJSONError(w, "Service accounts cannot revoke Personal Access Tokens", http.StatusForbidden)
 				return
@@ -388,7 +396,7 @@ func (env *APIEnv) AuthServiceAccountsHandler(w http.ResponseWriter, r *http.Req
 		}{ServiceAccounts: env.AuthManager.ListServiceAccounts()})
 
 	case http.MethodPost:
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
 			writeJSONError(w, "Admin role required to create service accounts", http.StatusForbidden)
 			return
 		}
@@ -439,7 +447,7 @@ func (env *APIEnv) AuthServiceAccountsHandler(w http.ResponseWriter, r *http.Req
 		})
 
 	case http.MethodDelete:
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+		if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
 			writeJSONError(w, "Admin role required to delete service accounts", http.StatusForbidden)
 			return
 		}
@@ -482,7 +490,7 @@ func (env *APIEnv) AuthServiceAccountRotateHandler(w http.ResponseWriter, r *htt
 		writeJSONError(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
+	if p.Type == "anonymous" || p.Role != auth.RoleAdmin {
 		writeJSONError(w, "Admin role required to rotate service account keys", http.StatusForbidden)
 		return
 	}

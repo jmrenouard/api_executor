@@ -443,5 +443,237 @@ func TestAuthTokensPrivilegeEscalationPrevention(t *testing.T) {
 	}
 }
 
+func TestAnonymousPrivilegeEscalationPrevention(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+	cfg.Auth.Enabled = true
+	cfg.Auth.RequireAuth = false // Default configuration: anonymous calls permitted on public/general endpoints
+	cfg.Auth.BootstrapUsername = "admin"
+	cfg.Auth.BootstrapPassword = "admin-secret-password-xyz"
+
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+
+	auditLogger, err := audit.NewAuditLogger(cfg.Audit, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create audit logger: %v", err)
+	}
+
+	env := &APIEnv{
+		Config:      cfg,
+		AuthManager: authMgr,
+		AuditLogger: auditLogger,
+	}
+	router := NewRouter(env)
+
+	// 1. Verify GET /api/v1/auth/me for anonymous caller returns RoleViewer and no wildcard scope
+	reqMe := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	recMe := httptest.NewRecorder()
+	router.ServeHTTP(recMe, reqMe)
+	if recMe.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/auth/me, got %d", recMe.Code)
+	}
+	var meResp struct {
+		Principal *auth.Principal `json:"principal"`
+	}
+	if err := json.Unmarshal(recMe.Body.Bytes(), &meResp); err != nil {
+		t.Fatalf("failed to parse /api/v1/auth/me response: %v", err)
+	}
+	if meResp.Principal.Role == auth.RoleAdmin {
+		t.Fatalf("vulnerability detected: anonymous caller was assigned RoleAdmin")
+	}
+	if meResp.Principal.Role != auth.RoleViewer {
+		t.Errorf("expected anonymous role to be %q, got %q", auth.RoleViewer, meResp.Principal.Role)
+	}
+	for _, sc := range meResp.Principal.Scopes {
+		if sc == "*" || sc == "admin:*" {
+			t.Fatalf("vulnerability detected: anonymous caller was assigned wildcard/admin scope %q", sc)
+		}
+	}
+
+	// 2. Anonymous caller MUST receive HTTP 403 Forbidden for all administrative operations
+
+	// 2.1 User Creation: POST /api/v1/auth/users
+	createUserBody, _ := json.Marshal(map[string]any{
+		"username": "escalated-admin",
+		"password": "hacked-password-123",
+		"role":     "admin",
+	})
+	reqCreateUser := httptest.NewRequest(http.MethodPost, "/api/v1/auth/users", bytes.NewReader(createUserBody))
+	recCreateUser := httptest.NewRecorder()
+	router.ServeHTTP(recCreateUser, reqCreateUser)
+	if recCreateUser.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to create a user, got %d: %s",
+			recCreateUser.Code, recCreateUser.Body.String())
+	}
+
+	// 2.2 User Update: PATCH /api/v1/auth/users
+	patchUserBody, _ := json.Marshal(map[string]any{
+		"id":   "admin",
+		"role": "viewer",
+	})
+	reqPatchUser := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/users", bytes.NewReader(patchUserBody))
+	recPatchUser := httptest.NewRecorder()
+	router.ServeHTTP(recPatchUser, reqPatchUser)
+	if recPatchUser.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to update a user, got %d: %s",
+			recPatchUser.Code, recPatchUser.Body.String())
+	}
+
+	// 2.3 User Deletion: DELETE /api/v1/auth/users?id=admin
+	reqDelUser := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/users?id=admin", nil)
+	recDelUser := httptest.NewRecorder()
+	router.ServeHTTP(recDelUser, reqDelUser)
+	if recDelUser.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to delete a user, got %d: %s",
+			recDelUser.Code, recDelUser.Body.String())
+	}
+
+	// 2.4 Personal Access Token (PAT) Creation: POST /api/v1/auth/tokens
+	patBody, _ := json.Marshal(map[string]any{
+		"user_id": "admin",
+		"name":    "backdoor-token",
+		"scopes":  []string{"*"},
+	})
+	reqCreatePAT := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(patBody))
+	recCreatePAT := httptest.NewRecorder()
+	router.ServeHTTP(recCreatePAT, reqCreatePAT)
+	if recCreatePAT.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to issue a PAT, got %d: %s",
+			recCreatePAT.Code, recCreatePAT.Body.String())
+	}
+
+	// 2.5 Personal Access Token (PAT) Revocation: DELETE /api/v1/auth/tokens?id=some-id
+	reqDelPAT := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens?id=some-token-id", nil)
+	recDelPAT := httptest.NewRecorder()
+	router.ServeHTTP(recDelPAT, reqDelPAT)
+	if recDelPAT.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to revoke a PAT, got %d: %s",
+			recDelPAT.Code, recDelPAT.Body.String())
+	}
+
+	// 2.6 Service Account Creation: POST /api/v1/auth/service-accounts
+	saBody, _ := json.Marshal(map[string]any{
+		"name":            "backdoor-sa",
+		"service_name":    "rogue-service",
+		"allowed_actions": []string{"*"},
+	})
+	reqCreateSA := httptest.NewRequest(http.MethodPost, "/api/v1/auth/service-accounts", bytes.NewReader(saBody))
+	recCreateSA := httptest.NewRecorder()
+	router.ServeHTTP(recCreateSA, reqCreateSA)
+	if recCreateSA.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to create a service account, got %d: %s",
+			recCreateSA.Code, recCreateSA.Body.String())
+	}
+
+	// 2.7 Service Account Deletion: DELETE /api/v1/auth/service-accounts?id=some-id
+	reqDelSA := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/service-accounts?id=some-sa-id", nil)
+	recDelSA := httptest.NewRecorder()
+	router.ServeHTTP(recDelSA, reqDelSA)
+	if recDelSA.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to delete a service account, got %d: %s",
+			recDelSA.Code, recDelSA.Body.String())
+	}
+
+	// 2.8 Service Account Secret Key Rotation: POST /api/v1/auth/service-accounts/rotate?id=some-id
+	reqRotSA := httptest.NewRequest(http.MethodPost, "/api/v1/auth/service-accounts/rotate?id=some-sa-id", nil)
+	recRotSA := httptest.NewRecorder()
+	router.ServeHTTP(recRotSA, reqRotSA)
+	if recRotSA.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when anonymous caller tries to rotate service account keys, got %d: %s",
+			recRotSA.Code, recRotSA.Body.String())
+	}
+
+	// 3. Authenticated Admin CAN successfully perform administrative operations
+	_, _, adminToken, err := authMgr.AuthenticateUser("admin", "admin-secret-password-xyz")
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
+
+	// 3.1 Admin creates user -> 201 Created
+	reqAdminCreateUser := httptest.NewRequest(http.MethodPost, "/api/v1/auth/users", bytes.NewReader(createUserBody))
+	reqAdminCreateUser.Header.Set("Authorization", "Bearer "+adminToken)
+	recAdminCreateUser := httptest.NewRecorder()
+	router.ServeHTTP(recAdminCreateUser, reqAdminCreateUser)
+	if recAdminCreateUser.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for admin user creation, got %d: %s",
+			recAdminCreateUser.Code, recAdminCreateUser.Body.String())
+	}
+	var createdUser auth.User
+	_ = json.Unmarshal(recAdminCreateUser.Body.Bytes(), &createdUser)
+
+	// 3.2 Admin creates service account -> 201 Created
+	reqAdminCreateSA := httptest.NewRequest(http.MethodPost, "/api/v1/auth/service-accounts", bytes.NewReader(saBody))
+	reqAdminCreateSA.Header.Set("Authorization", "Bearer "+adminToken)
+	recAdminCreateSA := httptest.NewRecorder()
+	router.ServeHTTP(recAdminCreateSA, reqAdminCreateSA)
+	if recAdminCreateSA.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for admin SA creation, got %d: %s",
+			recAdminCreateSA.Code, recAdminCreateSA.Body.String())
+	}
+	var createdSA struct {
+		ServiceAccount auth.ServiceAccount `json:"service_account"`
+	}
+	_ = json.Unmarshal(recAdminCreateSA.Body.Bytes(), &createdSA)
+
+	// 3.3 Admin rotates service account key -> 200 OK
+	rotBody, _ := json.Marshal(map[string]any{"id": createdSA.ServiceAccount.ID})
+	reqAdminRotSA := httptest.NewRequest(http.MethodPost, "/api/v1/auth/service-accounts/rotate", bytes.NewReader(rotBody))
+	reqAdminRotSA.Header.Set("Authorization", "Bearer "+adminToken)
+	recAdminRotSA := httptest.NewRecorder()
+	router.ServeHTTP(recAdminRotSA, reqAdminRotSA)
+	if recAdminRotSA.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin SA rotation, got %d: %s",
+			recAdminRotSA.Code, recAdminRotSA.Body.String())
+	}
+
+	// 3.4 Admin deletes service account -> 200 OK
+	reqAdminDelSA := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/service-accounts?id="+createdSA.ServiceAccount.ID, nil)
+	reqAdminDelSA.Header.Set("Authorization", "Bearer "+adminToken)
+	recAdminDelSA := httptest.NewRecorder()
+	router.ServeHTTP(recAdminDelSA, reqAdminDelSA)
+	if recAdminDelSA.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin SA deletion, got %d: %s",
+			recAdminDelSA.Code, recAdminDelSA.Body.String())
+	}
+
+	// 3.5 Admin creates PAT -> 201 Created
+	reqAdminCreatePAT := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", bytes.NewReader(patBody))
+	reqAdminCreatePAT.Header.Set("Authorization", "Bearer "+adminToken)
+	recAdminCreatePAT := httptest.NewRecorder()
+	router.ServeHTTP(recAdminCreatePAT, reqAdminCreatePAT)
+	if recAdminCreatePAT.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for admin PAT creation, got %d: %s",
+			recAdminCreatePAT.Code, recAdminCreatePAT.Body.String())
+	}
+	var createdPAT struct {
+		TokenInfo auth.APIToken `json:"token_info"`
+	}
+	_ = json.Unmarshal(recAdminCreatePAT.Body.Bytes(), &createdPAT)
+
+	// 3.6 Admin revokes PAT -> 200 OK
+	reqAdminRevPAT := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens?id="+createdPAT.TokenInfo.ID, nil)
+	reqAdminRevPAT.Header.Set("Authorization", "Bearer "+adminToken)
+	recAdminRevPAT := httptest.NewRecorder()
+	router.ServeHTTP(recAdminRevPAT, reqAdminRevPAT)
+	if recAdminRevPAT.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin PAT revocation, got %d: %s",
+			recAdminRevPAT.Code, recAdminRevPAT.Body.String())
+	}
+
+	// 3.7 Admin deletes created user -> 200 OK
+	reqAdminDelUser := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/users?id="+createdUser.ID, nil)
+	reqAdminDelUser.Header.Set("Authorization", "Bearer "+adminToken)
+	recAdminDelUser := httptest.NewRecorder()
+	router.ServeHTTP(recAdminDelUser, reqAdminDelUser)
+	if recAdminDelUser.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin user deletion, got %d: %s",
+			recAdminDelUser.Code, recAdminDelUser.Body.String())
+	}
+}
+
+
 
 
