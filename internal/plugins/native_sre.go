@@ -35,6 +35,7 @@ func (p *PrometheusScraperPlugin) Actions() []PluginAction {
 			Parameters: []ActionParameter{
 				{Name: "url", Type: "string", Required: false, Default: "http://localhost:8080/metrics", Description: "Prometheus endpoint URL"},
 				{Name: "content", Type: "string", Required: false, Default: "", Description: "Direct exposition text if no URL"},
+				{Name: "allow_mock", Type: "bool", Required: false, Default: "false", Description: "Allow fallback to mock metrics if target unreachable (default false)"},
 			},
 		},
 		{
@@ -45,6 +46,7 @@ func (p *PrometheusScraperPlugin) Actions() []PluginAction {
 				{Name: "metric_name", Type: "string", Required: true, Description: "Metric name substring to search"},
 				{Name: "url", Type: "string", Required: false, Default: "http://localhost:8080/metrics", Description: "Prometheus endpoint URL"},
 				{Name: "content", Type: "string", Required: false, Default: "", Description: "Direct exposition text"},
+				{Name: "allow_mock", Type: "bool", Required: false, Default: "false", Description: "Allow fallback to mock metrics if target unreachable (default false)"},
 			},
 		},
 		{
@@ -54,6 +56,7 @@ func (p *PrometheusScraperPlugin) Actions() []PluginAction {
 			Parameters: []ActionParameter{
 				{Name: "url", Type: "string", Required: false, Default: "http://localhost:8080/metrics", Description: "Prometheus endpoint URL"},
 				{Name: "content", Type: "string", Required: false, Default: "", Description: "Direct exposition text"},
+				{Name: "allow_mock", Type: "bool", Required: false, Default: "false", Description: "Allow fallback to mock metrics if target unreachable (default false)"},
 			},
 		},
 	}
@@ -72,15 +75,18 @@ func (p *PrometheusScraperPlugin) getMetricsContent(ctx context.Context, params 
 	}
 
 	url := getStringParam(params, "url", "http://localhost:8080/metrics")
+	allowMock := getBoolParam(params, "allow_mock", false)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid prometheus scrape request for %s: %w", url, err)
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		// Provide mock self metrics if target is unreachable
-		return `# HELP api_executor_actions_total Total actions executed
+		if allowMock {
+			// Provide mock self metrics only when explicitly requested via allow_mock=true
+			return `# HELP api_executor_actions_total Total actions executed
 # TYPE api_executor_actions_total counter
 api_executor_actions_total{action="host-check",status="success"} 42
 api_executor_actions_total{action="sys-diag",status="success"} 18
@@ -88,11 +94,28 @@ api_executor_actions_total{action="sys-diag",status="success"} 18
 # TYPE api_executor_heap_bytes gauge
 api_executor_heap_bytes 8452100
 `, nil
+		}
+		return "", fmt.Errorf("prometheus scrape failed for %s: %w", url, err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if allowMock {
+			return `# HELP api_executor_actions_total Total actions executed
+# TYPE api_executor_actions_total counter
+api_executor_actions_total{action="host-check",status="success"} 42
+api_executor_actions_total{action="sys-diag",status="success"} 18
+# HELP api_executor_heap_bytes Current heap allocation
+# TYPE api_executor_heap_bytes gauge
+api_executor_heap_bytes 8452100
+`, nil
+		}
+		return "", fmt.Errorf("prometheus scrape returned non-2xx status code %d for %s", resp.StatusCode, url)
+	}
+
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to read prometheus scrape response from %s: %w", url, err)
 	}
 	return string(b), nil
 }
@@ -148,7 +171,16 @@ func parsePrometheusLines(raw string) []parsedMetric {
 func (p *PrometheusScraperPlugin) Execute(ctx context.Context, action string, params map[string]any, _ time.Duration) (PluginResult, error) {
 	start := time.Now()
 	normalized := strings.ReplaceAll(strings.TrimSpace(action), "-", "_")
-	content, _ := p.getMetricsContent(ctx, params)
+	content, err := p.getMetricsContent(ctx, params)
+	if err != nil {
+		return PluginResult{
+			PluginID:   p.ID(),
+			Action:     action,
+			Status:     "error",
+			DurationMs: time.Since(start).Milliseconds(),
+			Error:      err.Error(),
+		}, err
+	}
 	metrics := parsePrometheusLines(content)
 
 	switch normalized {

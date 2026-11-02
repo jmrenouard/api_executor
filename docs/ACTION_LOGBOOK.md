@@ -15,6 +15,37 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-032` — Replace Fake Mock Metrics with Genuine Errors in SRE Prometheus Scraper Plugin
+- **Timestamp (UTC)**: `2026-11-02T02:05:00Z`
+- **GitHub Issue**: [#64](https://github.com/jmrenouard/api_executor/issues/64)
+- **Branch**: `fix/issue-64-sre-scraper-genuine-errors`
+- **Request**:
+  - Eliminate fake mock metric generation in `internal/plugins/native_sre.go` and replace with genuine error handling when Prometheus scrape endpoints are unreachable or fail.
+  - When HTTP scrape fails or target is down, `PrometheusScraperPlugin` previously silently returned fake hardcoded Prometheus metrics (`api_executor_actions_total... 42`, `api_executor_heap_bytes 8452100`) while ignoring errors, masking real outages and violating system integrity and forensic honesty standards.
+  - Return explicit, genuine errors when scrape HTTP requests fail (network errors, timeouts, DNS failures, or HTTP non-2xx status codes like 500 and 404).
+  - Support optional mock mode only when explicitly requested via `allow_mock: true`, with authentic HTTP scraping and error propagation as the strict default.
+  - Add comprehensive unit tests using `httptest.Server` verifying authentic scrapes, non-2xx failures, unreachable endpoints, opt-in mock behavior, and zero hardcoded fallback metrics.
+- **Changes**:
+  - Updated [`internal/plugins/native_sre.go`](../internal/plugins/native_sre.go):
+    - Added `allow_mock` boolean parameter (default `"false"`) to `scrape_metrics`, `find_metric`, and `cardinality_check` plugin action metadata.
+    - Updated `getMetricsContent` to return genuine descriptive errors (`fmt.Errorf("prometheus scrape failed for %s: %w", url, err)` and `fmt.Errorf("prometheus scrape returned non-2xx status code %d for %s", resp.StatusCode, url)`).
+    - Removed unconditional silent fallback to fake mock metrics on network/HTTP failures; mock metrics are only provided if `allowMock` is explicitly `true`.
+    - Updated `Execute` in `PrometheusScraperPlugin` to inspect and propagate errors returned by `getMetricsContent`, returning `Status: "error"`, `Error: err.Error()`, and the genuine `err`.
+  - Created [`internal/plugins/native_sre_test.go`](../internal/plugins/native_sre_test.go):
+    - Added `TestPrometheusScraperPlugin_Metadata` verifying ID, Kind, Category, Description, and `allow_mock` parameters across all actions.
+    - Added `TestPrometheusScraperPlugin_RealScrapeSuccess` verifying authentic scrapes from live `httptest.Server` across `scrape_metrics`, `find_metric`, and `cardinality_check`.
+    - Added `TestPrometheusScraperPlugin_UnreachableTargetGenuineError` verifying genuine error returns and zero fake mock metric leakage.
+    - Added `TestPrometheusScraperPlugin_HTTP500GenuineError` and `TestPrometheusScraperPlugin_HTTP404GenuineError` asserting non-2xx error handling.
+    - Added `TestPrometheusScraperPlugin_InvalidURLGenuineError` asserting error handling on malformed URL inputs.
+    - Added `TestPrometheusScraperPlugin_ExplicitAllowMock` asserting opt-in mock behavior when `allow_mock` is `true` vs strict genuine error when `false`.
+    - Added `TestPrometheusScraperPlugin_DirectContentParam` and `TestPrometheusScraperPlugin_UnknownAction`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-032`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-029`.
+- **Result**:
+  - Package test suite: 100% pass rate (`69 passed in 1 packages`).
+  - Full project test suite: 100% pass rate (`329 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #64.
+
 ### `ACT-031` — Enable SQLite WAL Mode, Busy Timeout, and Connection Pool Limits
 - **Timestamp (UTC)**: `2026-11-02T01:50:00Z`
 - **GitHub Issue**: [#62](https://github.com/jmrenouard/api_executor/issues/62)
