@@ -139,8 +139,8 @@ func (env *APIEnv) MCPTracesHandler(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case http.MethodDelete:
-		if p.Type != "anonymous" && p.Role != auth.RoleAdmin {
-			writeJSONError(w, "Admin role required to clear MCP traces", http.StatusForbidden)
+		if p == nil || p.Type == "anonymous" || p.Role != auth.RoleAdmin {
+			writeJSONError(w, "Admin role required to clear traces", http.StatusForbidden)
 			return
 		}
 		cleared := env.MCPServer.ClearTraces()

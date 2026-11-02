@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
@@ -507,7 +508,7 @@ func (p *CryptoHashUtilityPlugin) Execute(_ context.Context, action string, para
 
 		matched := true
 		if expected != "" {
-			matched = (computed == expected)
+			matched = (subtle.ConstantTimeCompare([]byte(computed), []byte(expected)) == 1)
 		}
 
 		data := map[string]any{

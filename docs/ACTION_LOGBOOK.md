@@ -15,6 +15,40 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-033` — Harden Cryptographic HMAC Verification, Path Traversal Bounds, and MCP Admin Authorization
+- **Timestamp (UTC)**: `2026-11-02T02:25:00Z`
+- **GitHub Issue**: [#66](https://github.com/jmrenouard/api_executor/issues/66)
+- **Branch**: `feat/issue-66-crypto-path-and-mcp-security-hardening`
+- **Request**:
+  - Harden cryptographic HMAC verification with constant-time comparison in `internal/plugins/native_crypto.go`.
+  - Enforce strict directory boundary checks and path confinement in `internal/api/handlers.go` (`DownloadFileHandler`) to prevent sibling-directory prefix bypasses.
+  - Fix residual inverted administrative authorization check in `internal/api/mcp_handlers.go` on `DELETE /api/v1/mcp/traces`, rejecting anonymous and non-admin callers with HTTP 403 Forbidden while allowing admin callers with HTTP 200 OK.
+  - Add comprehensive unit tests covering HMAC match/mismatch/tampering, directory traversal and sibling path confinement, and MCP trace deletion authorization.
+- **Changes**:
+  - Updated [`internal/plugins/native_crypto.go`](../internal/plugins/native_crypto.go):
+    - Imported `crypto/subtle`.
+    - Updated `verify_hmac` action in `CryptoHashUtilityPlugin` to compare computed and expected HMAC digests using `subtle.ConstantTimeCompare([]byte(computed), []byte(expected)) == 1` to eliminate timing side-channels.
+  - Created [`internal/plugins/native_crypto_test.go`](../internal/plugins/native_crypto_test.go):
+    - Added `TestCryptoHashUtilityPlugin_VerifyHMAC_MatchingAndNonMatching` testing matching HMAC, uppercase hex HMAC, tampered single-byte mismatch, wrong-length mismatch, omitted expected HMAC, and missing required key.
+    - Added `TestCryptoHashUtilityPlugin_HashStringAndDetect` testing multi-algorithm digest generation and hash length detection.
+  - Updated [`internal/api/handlers.go`](../internal/api/handlers.go):
+    - Enhanced `DownloadFileHandler` path confinement using `filepath.Rel(absSecureDir, absFilePath)` verifying that relative paths do not begin with `..` and are not absolute.
+    - Added `baseWithSep` directory boundary prefix enforcement to prevent sibling directory prefix attacks (e.g. `/var/uploads_private`).
+  - Updated [`internal/api/files_test.go`](../internal/api/files_test.go):
+    - Added `TestDownloadFileHandler_DirectoryBoundaryAndSiblingConfinement` verifying valid file downloads, directory traversal path rejections (400/403), and sibling directory confinement.
+  - Updated [`internal/api/mcp_handlers.go`](../internal/api/mcp_handlers.go):
+    - Fixed residual inverted admin check on `DELETE /api/v1/mcp/traces` to strictly require `if p == nil || p.Type == "anonymous" || p.Role != auth.RoleAdmin`, returning HTTP 403 Forbidden with `"Admin role required to clear traces"`.
+  - Updated [`internal/api/mcp_test.go`](../internal/api/mcp_test.go):
+    - Updated step 5 to verify anonymous callers to `DELETE /api/v1/mcp/traces` are rejected with HTTP 403 Forbidden.
+    - Added admin caller test in step 7 verifying that users with `RoleAdmin` successfully clear retained traces with HTTP 200 OK.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-033`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-030`.
+- **Result**:
+  - `internal/plugins` package test suite: 100% pass rate (71 tests passing, 86.5% statement coverage).
+  - `internal/api` package test suite: 100% pass rate (129 tests passing, 90.7% statement coverage).
+  - Full project test suite: 100% pass rate (332 passed in 10 packages).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #66.
+
 ### `ACT-032` — Replace Fake Mock Metrics with Genuine Errors in SRE Prometheus Scraper Plugin
 - **Timestamp (UTC)**: `2026-11-02T02:05:00Z`
 - **GitHub Issue**: [#64](https://github.com/jmrenouard/api_executor/issues/64)
