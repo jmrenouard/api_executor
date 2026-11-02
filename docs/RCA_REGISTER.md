@@ -337,6 +337,23 @@ This living governance register records all errors encountered, technical dead-e
   5. Added comprehensive concurrency tests in `internal/database/db_test.go` with 40 parallel goroutines verifying zero locking errors on both in-memory and SQL-backed stores.
 - **Result & Non-Regression Test**: Verified by `TestBuildDSN`, `TestDatabaseConnectionPoolAndGetters`, `TestDatabasePragmasAppliedAndQueryable`, `TestConcurrentActionHistoryAccessInMemory`, and `TestConcurrentActionHistoryAccessSQLBacked` in `internal/database/db_test.go` (100% pass across 12 tests in `internal/database` with 95.2% coverage; 320 tests passing 100% across all 10 packages).
 
+### `RCA-029` — Fake Mock Metric Fallback and Ignored Scrape Errors in SRE Prometheus Scraper Plugin
+- **Date**: `2026-11-02`
+- **Observed Symptom**: In `internal/plugins/native_sre.go`, `PrometheusScraperPlugin` silently returned hardcoded Prometheus metrics (`api_executor_actions_total... 42`, `api_executor_heap_bytes 8452100`) when HTTP scraping failed, and discarded errors returned by `getMetricsContent` (`content, _ := p.getMetricsContent(ctx, params)`). Furthermore, non-2xx HTTP responses (e.g., 500, 404) were treated as valid exposition payloads without status validation.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did `scrape_metrics` return fake metrics on failure?* Because `getMetricsContent` caught `err != nil` from `client.Do(req)` and returned hardcoded sample metric text with a `nil` error to provide "mock self metrics".
+  2. *Why was mock self metrics returned by default?* Early prototyping intended to provide a working out-of-the-box demonstration without requiring a running Prometheus target.
+  3. *Why is this a system integrity and forensic honesty defect?* It masked actual network partitions, dead endpoints, or exporter failures, emitting false telemetry and deceiving operators into believing the target service was healthy.
+  4. *Why were non-2xx HTTP responses unhandled?* `resp.StatusCode` was never evaluated, reading error HTML/text bodies as if they were valid Prometheus exposition format.
+  5. *Root Cause*: Lack of strict error propagation in `Execute` and silent fallback to synthetic mock data instead of requiring explicit opt-in (`allow_mock: true`).
+- **Applied Change / Fix**:
+  1. Added `allow_mock` action parameter (default `"false"`) to `PrometheusScraperPlugin` actions.
+  2. Replaced default fake mock fallback in `getMetricsContent` with explicit error returns for network errors, timeouts, connection failures, and HTTP status codes outside 200-299.
+  3. Conditioned mock fallback strictly on `allow_mock: true`.
+  4. Evaluated and propagated `err` in `Execute`, returning `Status: "error"` and the genuine error.
+  5. Implemented comprehensive test coverage in `internal/plugins/native_sre_test.go` with `httptest.Server`.
+- **Result & Non-Regression Test**: Verified by `TestPrometheusScraperPlugin_RealScrapeSuccess`, `TestPrometheusScraperPlugin_UnreachableTargetGenuineError`, `TestPrometheusScraperPlugin_HTTP500GenuineError`, `TestPrometheusScraperPlugin_HTTP404GenuineError`, and `TestPrometheusScraperPlugin_ExplicitAllowMock` (69 tests passing in `internal/plugins`, full repository suite 329 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
