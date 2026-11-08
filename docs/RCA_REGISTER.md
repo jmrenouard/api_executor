@@ -447,6 +447,25 @@ This living governance register records all errors encountered, technical dead-e
   4. Added `TestAuthenticateCredential_O1HashIndexAndLifecycle` in `internal/auth/manager_test.go`.
 - **Result & Non-Regression Test**: Verified by `TestAuthenticateCredential_O1HashIndexAndLifecycle` in `internal/auth/manager_test.go` (5 tests passing in `internal/auth`, full suite 337 tests passing 100% across all 10 packages).
 
+### `RCA-035` — Per-Execution Regex Recompilation, Uncached Catalog Sorting, and Composite Parameter Stringification in Declarative Plugins
+- **Date**: `2026-11-08`
+- **Observed Symptom**:
+  1. `DeclarativePlugin.Execute` in `internal/plugins/declarative.go` called `regexp.Compile(paramDef.Pattern)` on every action execution despite `NewDeclarativePlugin` already compiling the same pattern at load time.
+  2. `Registry.ListFiltered` in `internal/plugins/plugin.go` reconstructed all 305 `PluginInfo` structs and executed `sort.Slice` (`O(N log N)`) on every catalog request.
+  3. Passing a composite value (`[]string` or `map[string]any`) into `params` converted it via `fmt.Sprintf("%v", v)` into `"[invalid slice input]"` or `"map[key:value]"`, which matched `docker-container-stats.yaml` because `^[a-zA-Z0-9. _\t-{}]+$` contained an unescaped hyphen creating an ASCII range from `\t` (`0x09`) to `{` (`0x7B`).
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why was `regexp.Compile` called on every execution?* `NewDeclarativePlugin` discarded the `*regexp.Regexp` returned during validation instead of storing it on `DeclarativePlugin`.
+  2. *Why did `ListFiltered` sort 305 plugins on every request?* `Registry` stored plugins only in an unordered `map[string]Plugin` without caching the sorted `[]PluginInfo` projection.
+  3. *Why did `docker-container-stats` accept slice and map inputs when Docker was running?* `DeclarativePlugin.Execute` did not check `reflect.Kind` before `fmt.Sprintf("%v", v)`, and `\t-{` in `docker-container-stats.yaml` matched `[`, `]`, and `:`.
+  4. *Why was this previously masked?* When the `docker` daemon was not running on the test host, subprocess execution failed with exit code 1, masking the validation pass.
+  5. *Root Cause*: Lack of pre-compiled regex storage, lack of sorted catalog caching in `Registry`, missing scalar-kind enforcement in `DeclarativePlugin.Execute`, and an unescaped hyphen in `docker-container-stats.yaml`.
+- **Applied Change / Fix**:
+  1. Stored pre-compiled `*regexp.Regexp` instances in `DeclarativePlugin.compiledRegex` during `NewDeclarativePlugin` and rejected composite `reflect.Kind` values in `DeclarativePlugin.Execute`.
+  2. Moved the literal hyphen to the end of the character class (`^[a-zA-Z0-9. _\t{}-]+$`) in `plugins/containerops/docker-container-stats.yaml`.
+  3. Cached the sorted `[]PluginInfo` catalog in `Registry.sortedCache` with automatic invalidation on `Register`, `RegisterOrReplace`, and `Unregister`.
+  4. Added `TestDeclarativePlugin_PrecompiledRegexAndRegistryCatalogCache` in `internal/plugins/plugins_test.go`.
+- **Result & Non-Regression Test**: Verified by `TestDeclarativePlugin_PrecompiledRegexAndRegistryCatalogCache` and `TestM2Adversarial_AllParameters_InvalidTypeRejection` (72 tests passing 100% in `internal/plugins`; full repository suite 338 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

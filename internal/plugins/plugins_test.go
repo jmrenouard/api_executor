@@ -1468,3 +1468,86 @@ func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
 	}
 }
 
+func TestDeclarativePlugin_PrecompiledRegexAndRegistryCatalogCache(t *testing.T) {
+	spec := DeclarativeModuleSpec{
+		ID:          "regex-cache-test",
+		Name:        "Regex Cache Test Plugin",
+		Version:     "1.0.0",
+		Category:    "SysAdmin",
+		Description: "Verifies pre-compiled regex cache and registry catalog cache invalidation",
+		Actions: []DeclarativeActionSpec{
+			{
+				Name:        "check-host",
+				Description: "Action with custom regex pattern",
+				Command:     "echo",
+				Args:        []string{"{{host}}", "{{port}}"},
+				Timeout:     "5s",
+				Parameters: []ActionParameter{
+					{
+						Name:     "host",
+						Type:     "string",
+						Required: true,
+						Pattern:  `^[a-z0-9.-]+$`,
+					},
+					{
+						Name:     "port",
+						Type:     "int",
+						Required: false,
+						Default:  "8080",
+						Pattern:  `^[0-9]{1,5}$`,
+					},
+				},
+			},
+		},
+	}
+
+	decl, err := NewDeclarativePlugin(spec)
+	if err != nil {
+		t.Fatalf("NewDeclarativePlugin failed: %v", err)
+	}
+	if decl.PrecompiledRegexCount() != 2 {
+		t.Errorf("expected PrecompiledRegexCount() == 2, got %d", decl.PrecompiledRegexCount())
+	}
+
+	reg := NewEmptyRegistry()
+	if reg.CatalogCachePopulated() {
+		t.Errorf("expected empty registry CatalogCachePopulated() == false before List()")
+	}
+	if err := reg.Register(decl); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	if reg.CatalogCachePopulated() {
+		t.Errorf("expected CatalogCachePopulated() == false immediately after Register")
+	}
+
+	list := reg.List()
+	if len(list) != 1 || list[0].ID != "regex-cache-test" {
+		t.Fatalf("unexpected List() result: %+v", list)
+	}
+	if !reg.CatalogCachePopulated() {
+		t.Errorf("expected CatalogCachePopulated() == true after List()")
+	}
+
+	// RegisterOrReplace invalidates cache
+	_ = reg.RegisterOrReplace(NewSystemDiagnosticsPlugin())
+	if reg.CatalogCachePopulated() {
+		t.Errorf("expected CatalogCachePopulated() == false after RegisterOrReplace")
+	}
+	if len(reg.List()) != 2 {
+		t.Errorf("expected 2 plugins after RegisterOrReplace, got %d", len(reg.List()))
+	}
+	if !reg.CatalogCachePopulated() {
+		t.Errorf("expected CatalogCachePopulated() == true after second List()")
+	}
+
+	// Unregister invalidates cache
+	reg.Unregister("sys-diagnostics")
+	if reg.CatalogCachePopulated() {
+		t.Errorf("expected CatalogCachePopulated() == false after Unregister")
+	}
+	if len(reg.List()) != 1 {
+		t.Errorf("expected 1 plugin after Unregister, got %d", len(reg.List()))
+	}
+}
+
+

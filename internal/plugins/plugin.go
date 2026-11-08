@@ -80,8 +80,10 @@ type Plugin interface {
 
 // Registry manages all registered declarative and advanced plugins.
 type Registry struct {
-	mu      sync.RWMutex
-	plugins map[string]Plugin
+	mu          sync.RWMutex
+	plugins     map[string]Plugin
+	sortedCache []PluginInfo
+	cacheValid  bool
 }
 
 // NewRegistry creates a plugin registry populated with default native Go plugins.
@@ -100,6 +102,16 @@ func NewEmptyRegistry() *Registry {
 	}
 }
 
+// CatalogCachePopulated reports whether the sorted plugin catalog cache is currently populated.
+func (r *Registry) CatalogCachePopulated() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.cacheValid
+}
+
 // Register adds a plugin to the registry, detecting duplicate IDs to prevent silent overwriting.
 func (r *Registry) Register(p Plugin) error {
 	if p == nil {
@@ -115,16 +127,22 @@ func (r *Registry) Register(p Plugin) error {
 		// Allow updating DatabaseExposurePlugin when binding a non-nil database instance
 		if dbExp, ok := p.(*DatabaseExposurePlugin); ok && dbExp.db != nil {
 			r.plugins[id] = p
+			r.cacheValid = false
+			r.sortedCache = nil
 			return nil
 		}
 		// Allow re-registering SystemDiagnosticsPlugin
 		if _, ok := p.(*SystemDiagnosticsPlugin); ok {
 			r.plugins[id] = p
+			r.cacheValid = false
+			r.sortedCache = nil
 			return nil
 		}
 		return fmt.Errorf("%w: plugin with ID %q is already registered", ErrDuplicatePlugin, id)
 	}
 	r.plugins[id] = p
+	r.cacheValid = false
+	r.sortedCache = nil
 	return nil
 }
 
@@ -140,6 +158,8 @@ func (r *Registry) RegisterOrReplace(p Plugin) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.plugins[id] = p
+	r.cacheValid = false
+	r.sortedCache = nil
 	return nil
 }
 
@@ -150,6 +170,8 @@ func (r *Registry) Unregister(id string) bool {
 	id = strings.TrimSpace(id)
 	if _, exists := r.plugins[id]; exists {
 		delete(r.plugins, id)
+		r.cacheValid = false
+		r.sortedCache = nil
 		return true
 	}
 	return false
@@ -163,21 +185,22 @@ func (r *Registry) Get(id string) (Plugin, bool) {
 	return p, ok
 }
 
-// List returns metadata for all registered plugins sorted by ID.
-func (r *Registry) List() []PluginInfo {
-	return r.ListFiltered("", "", "")
-}
-
-// ListFiltered returns metadata for registered plugins matching optional category, query, and pluginType filters, sorted by ID.
-func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo {
+func (r *Registry) getSortedCatalog() []PluginInfo {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	if r.cacheValid {
+		cached := r.sortedCache
+		r.mu.RUnlock()
+		return cached
+	}
+	r.mu.RUnlock()
 
-	category = strings.TrimSpace(strings.ToLower(category))
-	query = strings.TrimSpace(strings.ToLower(query))
-	pluginType = strings.TrimSpace(strings.ToLower(pluginType))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cacheValid {
+		return r.sortedCache
+	}
 
-	out := make([]PluginInfo, 0, len(r.plugins))
+	catalog := make([]PluginInfo, 0, len(r.plugins))
 	for _, p := range r.plugins {
 		pType := p.Type()
 		if pType == "" {
@@ -187,8 +210,7 @@ func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo
 				pType = "native"
 			}
 		}
-
-		info := PluginInfo{
+		catalog = append(catalog, PluginInfo{
 			ID:          p.ID(),
 			Name:        p.Name(),
 			Version:     p.Version(),
@@ -197,8 +219,37 @@ func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo
 			Category:    p.Category(),
 			Description: p.Description(),
 			Actions:     p.Actions(),
-		}
+		})
+	}
+	sort.Slice(catalog, func(i, j int) bool {
+		return catalog[i].ID < catalog[j].ID
+	})
+	r.sortedCache = catalog
+	r.cacheValid = true
+	return catalog
+}
 
+// List returns metadata for all registered plugins sorted by ID.
+func (r *Registry) List() []PluginInfo {
+	return r.ListFiltered("", "", "")
+}
+
+// ListFiltered returns metadata for registered plugins matching optional category, query, and pluginType filters, sorted by ID.
+func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo {
+	catalog := r.getSortedCatalog()
+
+	category = strings.TrimSpace(strings.ToLower(category))
+	query = strings.TrimSpace(strings.ToLower(query))
+	pluginType = strings.TrimSpace(strings.ToLower(pluginType))
+
+	if (category == "" || category == "all") && query == "" && (pluginType == "" || pluginType == "all") {
+		out := make([]PluginInfo, len(catalog))
+		copy(out, catalog)
+		return out
+	}
+
+	out := make([]PluginInfo, 0, len(catalog))
+	for _, info := range catalog {
 		// Filter by category
 		if category != "" && category != "all" {
 			pCat := strings.ToLower(info.Category)
@@ -250,9 +301,6 @@ func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo
 		out = append(out, info)
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].ID < out[j].ID
-	})
 	return out
 }
 
