@@ -15,6 +15,27 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-039` — Bound Subprocess Output Capture with `MaxCommandOutputBytes` to Prevent Memory Exhaustion
+- **Timestamp (UTC)**: `2026-11-08T22:10:00Z`
+- **GitHub Issue**: [#80](https://github.com/jmrenouard/api_executor/issues/80)
+- **Branch**: `perf/issue-80-bounded-command-output`
+- **Request**:
+  - In `internal/core/executor.go`, `ExecuteCommandWithTimeout` previously used `cmd.CombinedOutput()`, which buffered the entire subprocess stdout and stderr into an unbounded `bytes.Buffer` before returning, risking heap exhaustion if a subprocess produced hundreds of megabytes of output before its timeout expired.
+  - Bound combined subprocess output capture to `MaxCommandOutputBytes` (1 MiB) using a `limitedOutputBuffer` writer that discards excess bytes beyond the ceiling while allowing the subprocess to drain cleanly and appending a deterministic truncation notice (`\n...[output truncated at 1048576 bytes]`).
+  - Add unit verification in `internal/core/executor_test.go` (`TestLimitedOutputBufferAndMaxCommandOutputBytes`).
+- **Changes**:
+  - Updated [`internal/core/executor.go`](../internal/core/executor.go):
+    - Defined `MaxCommandOutputBytes = 1 << 20` (1 MiB) and `outputTruncationSuffix`.
+    - Implemented `limitedOutputBuffer` (`newLimitedOutputBuffer`, `Write`, `Truncated`, `String`) and wired `cmd.Stdout = outBuf` and `cmd.Stderr = outBuf` with `cmd.Run()` inside `ExecuteCommandWithTimeout`.
+  - Updated [`internal/core/executor_test.go`](../internal/core/executor_test.go):
+    - Added `TestLimitedOutputBufferAndMaxCommandOutputBytes` verifying exact boundary retention, truncation notice formatting, and normal execution under the limit.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-039`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-036`.
+- **Result**:
+  - Package test suite: 100% pass rate (`40 passed in internal/core`).
+  - Full project test suite: 100% pass rate (`339 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #80.
+
 ### `ACT-038` — Pre-compile Parameter Regexes, Cache Sorted Plugin Catalog, and Reject Composite Parameter Types
 - **Timestamp (UTC)**: `2026-11-08T22:03:00Z`
 - **GitHub Issue**: [#78](https://github.com/jmrenouard/api_executor/issues/78)
