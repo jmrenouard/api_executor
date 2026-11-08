@@ -59,6 +59,8 @@ type ChainVerificationResult struct {
 // AuditLogger manages tamper-evident SHA-256 hash-chained audit logging.
 type AuditLogger struct {
 	mu       sync.RWMutex
+	fileMu   sync.Mutex
+	file     *os.File
 	cfg      core.AuditConfig
 	db       *database.DB
 	logger   *core.Logger
@@ -109,9 +111,39 @@ func NewAuditLogger(cfg core.AuditConfig, db *database.DB, logger *core.Logger) 
 		if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create audit log directory: %w", err)
 		}
+		f, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open audit log file: %w", err)
+		}
+		al.file = f
 	}
 
 	return al, nil
+}
+
+// Close closes the underlying persistent audit log file handle if one is open.
+func (al *AuditLogger) Close() error {
+	if al == nil {
+		return nil
+	}
+	al.fileMu.Lock()
+	defer al.fileMu.Unlock()
+	if al.file != nil {
+		err := al.file.Close()
+		al.file = nil
+		return err
+	}
+	return nil
+}
+
+// HasOpenFile reports whether a persistent append file handle is currently open.
+func (al *AuditLogger) HasOpenFile() bool {
+	if al == nil {
+		return false
+	}
+	al.fileMu.Lock()
+	defer al.fileMu.Unlock()
+	return al.file != nil
 }
 
 func generateEventID() string {
@@ -145,11 +177,6 @@ func (al *AuditLogger) Record(ev AuditEvent) (AuditEvent, error) {
 		return ev, nil
 	}
 
-	al.mu.Lock()
-	defer al.mu.Unlock()
-
-	ev.ID = al.nextID
-	al.nextID++
 	if ev.EventID == "" {
 		ev.EventID = generateEventID()
 	}
@@ -171,6 +198,9 @@ func (al *AuditLogger) Record(ev AuditEvent) (AuditEvent, error) {
 		ev.Status = "ok"
 	}
 
+	al.mu.Lock()
+	ev.ID = al.nextID
+	al.nextID++
 	ev.PrevHash = al.lastHash
 	ev.EntryHash = computeEntryHash(ev)
 	al.lastHash = ev.EntryHash
@@ -181,13 +211,14 @@ func (al *AuditLogger) Record(ev AuditEvent) (AuditEvent, error) {
 	} else {
 		al.events = append(al.events, ev)
 	}
+	al.mu.Unlock()
 
 	if al.cfg.FilePath != "" {
-		f, err := os.OpenFile(al.cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err == nil {
-			_ = json.NewEncoder(f).Encode(ev)
-			_ = f.Close()
+		al.fileMu.Lock()
+		if al.file != nil {
+			_ = json.NewEncoder(al.file).Encode(ev)
 		}
+		al.fileMu.Unlock()
 	}
 
 	if al.db != nil && !al.db.IsInMemory() && al.db.DB != nil {

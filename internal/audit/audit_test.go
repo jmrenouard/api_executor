@@ -41,6 +41,10 @@ func TestAuditLoggerHashChainAndQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger failed: %v", err)
 	}
+	defer al.Close()
+	if !al.HasOpenFile() {
+		t.Errorf("expected persistent audit log file handle to be open when FilePath is configured")
+	}
 
 	// Empty chain verification
 	emptyVerify := al.VerifyChain()
@@ -166,5 +170,23 @@ func TestAuditLoggerHashChainAndQuery(t *testing.T) {
 	}
 	if v := smallAL.VerifyChain(); !v.Valid {
 		t.Errorf("expected sliding window chain to remain valid, got %+v", v)
+	}
+	if smallAL.HasOpenFile() {
+		t.Errorf("expected HasOpenFile()=false when FilePath is empty")
+	}
+	if err := smallAL.Close(); err != nil {
+		t.Errorf("expected Close() on non-file AuditLogger to succeed, got %v", err)
+	}
+	if err := al.Close(); err != nil {
+		t.Errorf("expected Close() on file-backed AuditLogger to succeed, got %v", err)
+	}
+	if al.HasOpenFile() {
+		t.Errorf("expected HasOpenFile()=false after Close()")
+	}
+	if err := nilAL.Close(); err != nil {
+		t.Errorf("expected Close() on nil AuditLogger to return nil, got %v", err)
+	}
+	if nilAL.HasOpenFile() {
+		t.Errorf("expected HasOpenFile()=false on nil AuditLogger")
 	}
 }

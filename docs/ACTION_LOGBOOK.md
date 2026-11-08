@@ -15,6 +15,34 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-040` — Persist Append File Handles in Audit & MCP, Decouple I/O from Memory Locks, and Use Direct `db.Exec`
+- **Timestamp (UTC)**: `2026-11-08T22:15:00Z`
+- **GitHub Issue**: [#82](https://github.com/jmrenouard/api_executor/issues/82)
+- **Branch**: `perf/issue-82-persistent-io-handles-and-exec`
+- **Request**:
+  - Persist open append file handles (`*os.File`) in `AuditLogger` (`internal/audit/audit.go`) and `mcp.Server` (`internal/mcp/server.go`) with clean `Close() error` and `HasOpenFile()` / `HasOpenTraceFile()` lifecycle methods invoked during server shutdown (`cmd/server/main.go`).
+  - Decouple JSONL file, SQLite, and structured-logger I/O from the in-memory slice lock (`al.mu`) in `AuditLogger.Record` so concurrent readers (`Query`, `VerifyChain`, `Count`) are not blocked by disk or SQLite writes.
+  - Replace `db.Prepare` + `defer stmt.Close()` in `DB.RecordAction` (`internal/database/db.go`) with direct `db.Exec`.
+- **Changes**:
+  - Updated [`internal/audit/audit.go`](../internal/audit/audit.go):
+    - Added `fileMu sync.Mutex` and `file *os.File` to `AuditLogger`, opened once in `NewAuditLogger` when `cfg.FilePath != ""`, and exposed `Close() error` and `HasOpenFile() bool`.
+    - Released `al.mu.Unlock()` immediately after appending to `al.events` in `Record` so JSONL file writes (`al.fileMu`), SQLite inserts (`al.db.Exec`), and structured logging execute outside the in-memory ring-buffer lock.
+  - Updated [`internal/mcp/server.go`](../internal/mcp/server.go):
+    - Added `fileMu sync.Mutex` and `traceFile *os.File` to `Server`, opened once in `NewServer` when `cfg.TraceFilePath != ""`, and exposed `Close() error` and `HasOpenTraceFile() bool`.
+    - Updated `recordTrace` to write JSONL traces to the persistent `s.traceFile` under `s.fileMu`.
+  - Updated [`internal/database/db.go`](../internal/database/db.go):
+    - Replaced per-call `db.Prepare` + `defer stmt.Close()` in `RecordAction` with direct `db.Exec`.
+  - Updated [`cmd/server/main.go`](../cmd/server/main.go):
+    - Wired `mcpServer.Close()` and `auditLogger.Close()` into `cleanup` during server shutdown.
+  - Updated [`internal/audit/audit_test.go`](../internal/audit/audit_test.go) and [`internal/mcp/server_test.go`](../internal/mcp/server_test.go):
+    - Verified `HasOpenFile()`, `HasOpenTraceFile()`, and `Close()` lifecycle.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-040`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-037`.
+- **Result**:
+  - Package test suites: 100% pass rate (`23 passed in 4 packages` across `internal/audit`, `internal/mcp`, `internal/database`, `cmd/server`).
+  - Full project test suite: 100% pass rate (`339 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #82.
+
 ### `ACT-039` — Bound Subprocess Output Capture with `MaxCommandOutputBytes` to Prevent Memory Exhaustion
 - **Timestamp (UTC)**: `2026-11-08T22:10:00Z`
 - **GitHub Issue**: [#80](https://github.com/jmrenouard/api_executor/issues/80)

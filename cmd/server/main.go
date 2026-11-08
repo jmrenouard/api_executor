@@ -73,7 +73,16 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 	}
 	logger.Info("Database initialized")
 
+	var auditLogger *audit.AuditLogger
+	var mcpServer *mcp.Server
+
 	cleanup := func() {
+		if mcpServer != nil {
+			_ = mcpServer.Close()
+		}
+		if auditLogger != nil {
+			_ = auditLogger.Close()
+		}
 		_ = db.Close()
 		_ = logger.Close()
 	}
@@ -84,7 +93,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		return nil, nil, nil, fmt.Errorf("failed to initialize TLS certificate manager: %w", err)
 	}
 
-	auditLogger, err := audit.NewAuditLogger(config.Audit, db, logger)
+	auditLogger, err = audit.NewAuditLogger(config.Audit, db, logger)
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("failed to initialize audit logger: %w", err)
@@ -128,7 +137,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		}
 	}
 
-	mcpServer, err := mcp.NewServer(
+	mcpServer, err = mcp.NewServer(
 		config.MCP,
 		config,
 		db,

@@ -77,6 +77,10 @@ func TestMCPServerFullLifecycleAndTraceRetention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
+	defer srv.Close()
+	if !srv.HasOpenTraceFile() {
+		t.Errorf("expected persistent MCP trace file handle to be open when TraceFilePath is configured")
+	}
 
 	// 1. initialize
 	initResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
@@ -223,6 +227,12 @@ func TestMCPServerFullLifecycleAndTraceRetention(t *testing.T) {
 	if cleared == 0 || len(srv.ListTraces(TraceFilter{})) != 0 {
 		t.Errorf("expected ClearTraces to empty trace buffer")
 	}
+	if err := srv.Close(); err != nil {
+		t.Errorf("expected srv.Close() to succeed, got %v", err)
+	}
+	if srv.HasOpenTraceFile() {
+		t.Errorf("expected HasOpenTraceFile()=false after srv.Close()")
+	}
 }
 
 func TestMCPServerToolsResourcesPromptsAndErrorBranches(t *testing.T) {
@@ -273,6 +283,10 @@ func TestMCPServerToolsResourcesPromptsAndErrorBranches(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer srv.Close()
+	if srv.HasOpenTraceFile() {
+		t.Errorf("expected HasOpenTraceFile()=false when TraceFilePath is empty")
 	}
 
 	callTool := func(name string, args map[string]any, authFn ToolAuthorizer) JSONRPCResponse {
@@ -475,6 +489,10 @@ func TestMCPServer_ResourcePluginsCatalog_300PlusPlugins(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer srv.Close()
+	if srv.HasOpenTraceFile() {
+		t.Errorf("expected HasOpenTraceFile()=false when TraceFilePath is empty")
 	}
 
 	// 1. Verify executor://plugins/catalog is declared in Resources()
