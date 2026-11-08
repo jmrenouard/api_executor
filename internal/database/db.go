@@ -255,13 +255,7 @@ func (db *DB) RecordAction(command, status, output string) (int64, error) {
 		return id, nil
 	}
 
-	stmt, err := db.Prepare("INSERT INTO action_history(timestamp, command, status, output) VALUES(?, ?, ?, ?)")
-	if err != nil {
-		return 0, err
-	}
-	defer stmt.Close()
-
-	res, err := stmt.Exec(time.Now().UTC(), command, status, output)
+	res, err := db.Exec("INSERT INTO action_history(timestamp, command, status, output) VALUES(?, ?, ?, ?)", time.Now().UTC(), command, status, output)
 	if err != nil {
 		return 0, err
 	}

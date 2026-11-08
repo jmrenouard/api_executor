@@ -482,6 +482,25 @@ This living governance register records all errors encountered, technical dead-e
   4. Added `TestLimitedOutputBufferAndMaxCommandOutputBytes` in `internal/core/executor_test.go`.
 - **Result & Non-Regression Test**: Verified by `TestLimitedOutputBufferAndMaxCommandOutputBytes` in `internal/core/executor_test.go` (40 tests passing 100% in `internal/core`; full repository suite 339 tests passing 100% across all 10 packages).
 
+### `RCA-037` — Per-Event `os.OpenFile`/`Close` Syscall Overhead Under Memory Lock and Per-Insert Statement Preparation
+- **Date**: `2026-11-08`
+- **Observed Symptom**:
+  1. `AuditLogger.Record` (`internal/audit/audit.go`) called `os.OpenFile` and `f.Close()` on every single audit event while holding `al.mu.Lock()`, and also executed `al.db.Exec` and `al.logger.LogStructured` inside `al.mu.Lock()`, blocking concurrent readers (`Query`, `VerifyChain`, `Count`) during disk and SQLite I/O.
+  2. `Server.recordTrace` (`internal/mcp/server.go`) called `os.MkdirAll`, `os.OpenFile`, and `f.Close()` on every MCP JSON-RPC trace event.
+  3. `DB.RecordAction` (`internal/database/db.go`) called `db.Prepare` + `defer stmt.Close()` on every insert instead of a single `db.Exec` call.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why were file descriptors opened and closed on every event?* `AuditLogger` and `mcp.Server` stored only the path string (`cfg.FilePath` / `cfg.TraceFilePath`) instead of retaining an open `*os.File` handle across the server lifecycle.
+  2. *Why did `AuditLogger.Record` block concurrent readers during I/O?* `defer al.mu.Unlock()` was placed at the top of `Record`, keeping the exclusive lock held across JSONL file writes, SQLite inserts, and structured log formatting.
+  3. *Why did `DB.RecordAction` prepare and close a statement on every call?* `RecordAction` used `db.Prepare` + `defer stmt.Close()` without caching the statement, whereas `db.Exec` allows `database/sql` drivers to execute parameterized inserts directly.
+  4. *Why must persistent file handles have explicit `Close()` lifecycle methods?* On Windows, open file handles inside `t.TempDir()` prevent temporary directory removal unless closed via `defer Close()` (cf. `RCA-011`).
+  5. *Root Cause*: Lack of persistent `*os.File` lifecycle management on `AuditLogger` and `mcp.Server`, overly broad mutex scope in `AuditLogger.Record`, and redundant per-call `db.Prepare` in `DB.RecordAction`.
+- **Applied Change / Fix**:
+  1. Added persistent `file *os.File` and `fileMu sync.Mutex` to `AuditLogger` (`internal/audit/audit.go`) and `traceFile *os.File` and `fileMu sync.Mutex` to `mcp.Server` (`internal/mcp/server.go`), with `Close() error` and `HasOpenFile()` / `HasOpenTraceFile()` methods wired into `cmd/server/main.go`.
+  2. Narrowed `al.mu.Lock()` in `AuditLogger.Record` strictly to hash-chain computation and in-memory ring-buffer insertion, performing file, SQLite, and logger I/O after `al.mu.Unlock()`.
+  3. Replaced `db.Prepare` + `defer stmt.Close()` in `DB.RecordAction` (`internal/database/db.go`) with direct `db.Exec`.
+  4. Updated `internal/audit/audit_test.go` and `internal/mcp/server_test.go` to verify persistent handle lifecycle and `Close()`.
+- **Result & Non-Regression Test**: Verified by `TestAuditLoggerHashChainAndQuery`, `TestMCPServerLifecycleAndAllTools`, and `TestDatabaseSQLDriverBackedExecutionAndErrors` (339 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

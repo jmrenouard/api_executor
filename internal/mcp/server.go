@@ -112,6 +112,8 @@ type TraceFilter struct {
 // Server implements a complete Model Context Protocol (MCP) server with trace retention and audit logging.
 type Server struct {
 	mu             sync.RWMutex
+	fileMu         sync.Mutex
+	traceFile      *os.File
 	cfg            core.MCPConfig
 	appConfig      *core.Config
 	db             *database.DB
@@ -177,7 +179,43 @@ func NewServer(
 		}
 	}
 
+	if cfg.TraceFilePath != "" {
+		if err := os.MkdirAll(filepath.Dir(cfg.TraceFilePath), 0755); err != nil {
+			return nil, fmt.Errorf("failed to create MCP trace directory: %w", err)
+		}
+		f, err := os.OpenFile(cfg.TraceFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open MCP trace file: %w", err)
+		}
+		s.traceFile = f
+	}
+
 	return s, nil
+}
+
+// Close closes the underlying persistent MCP trace file handle if one is open.
+func (s *Server) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
+	if s.traceFile != nil {
+		err := s.traceFile.Close()
+		s.traceFile = nil
+		return err
+	}
+	return nil
+}
+
+// HasOpenTraceFile reports whether a persistent trace file handle is currently open.
+func (s *Server) HasOpenTraceFile() bool {
+	if s == nil {
+		return false
+	}
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
+	return s.traceFile != nil
 }
 
 func generateTraceID() string {
@@ -931,11 +969,11 @@ func (s *Server) recordTrace(tr MCPTrace) {
 	s.mu.Unlock()
 
 	if s.cfg.TraceFilePath != "" {
-		_ = os.MkdirAll(filepath.Dir(s.cfg.TraceFilePath), 0755)
-		if f, err := os.OpenFile(s.cfg.TraceFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
-			_ = json.NewEncoder(f).Encode(tr)
-			_ = f.Close()
+		s.fileMu.Lock()
+		if s.traceFile != nil {
+			_ = json.NewEncoder(s.traceFile).Encode(tr)
 		}
+		s.fileMu.Unlock()
 	}
 
 	if s.db != nil && !s.db.IsInMemory() && s.db.DB != nil {
