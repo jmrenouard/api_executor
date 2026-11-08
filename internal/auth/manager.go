@@ -118,11 +118,13 @@ type Principal struct {
 
 // Manager manages users, personal access tokens, and third-party service accounts.
 type Manager struct {
-	mu              sync.RWMutex
-	cfg             core.AuthConfig
-	users           map[string]User
-	tokens          map[string]APIToken
-	serviceAccounts map[string]ServiceAccount
+	mu                   sync.RWMutex
+	cfg                  core.AuthConfig
+	users                map[string]User
+	tokens               map[string]APIToken
+	serviceAccounts      map[string]ServiceAccount
+	tokenByHash          map[string]string
+	serviceAccountByHash map[string]string
 }
 
 type persistedState struct {
@@ -134,10 +136,12 @@ type persistedState struct {
 // NewManager initializes the authentication manager and seeds bootstrap accounts if none exist.
 func NewManager(cfg core.AuthConfig) (*Manager, error) {
 	m := &Manager{
-		cfg:             cfg,
-		users:           make(map[string]User),
-		tokens:          make(map[string]APIToken),
-		serviceAccounts: make(map[string]ServiceAccount),
+		cfg:                  cfg,
+		users:                make(map[string]User),
+		tokens:               make(map[string]APIToken),
+		serviceAccounts:      make(map[string]ServiceAccount),
+		tokenByHash:          make(map[string]string),
+		serviceAccountByHash: make(map[string]string),
 	}
 
 	if cfg.StorePath != "" {
@@ -180,11 +184,50 @@ func NewManager(cfg core.AuthConfig) (*Manager, error) {
 			}
 			m.mu.Lock()
 			m.tokens[tok.ID] = tok
+			if tok.TokenHash != "" {
+				m.tokenByHash[tok.TokenHash] = tok.ID
+			}
 			m.mu.Unlock()
 		}
 	}
 
 	return m, nil
+}
+
+// rebuildHashIndicesLocked reconstructs O(1) lookup maps from active tokens and service accounts.
+func (m *Manager) rebuildHashIndicesLocked() {
+	m.tokenByHash = make(map[string]string, len(m.tokens))
+	for id, tok := range m.tokens {
+		if !tok.Revoked && tok.TokenHash != "" {
+			m.tokenByHash[tok.TokenHash] = id
+		}
+	}
+	m.serviceAccountByHash = make(map[string]string, len(m.serviceAccounts))
+	for id, sa := range m.serviceAccounts {
+		if sa.KeyHash != "" {
+			m.serviceAccountByHash[sa.KeyHash] = id
+		}
+	}
+}
+
+// TokenIndexSize returns the number of active tokens indexed for O(1) lookup.
+func (m *Manager) TokenIndexSize() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.tokenByHash)
+}
+
+// ServiceAccountIndexSize returns the number of service accounts indexed for O(1) lookup.
+func (m *Manager) ServiceAccountIndexSize() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.serviceAccountByHash)
 }
 
 func randomHex(bytesLen int) string {
@@ -281,6 +324,7 @@ func (m *Manager) loadFromFile(path string) error {
 	if state.ServiceAccounts != nil {
 		m.serviceAccounts = state.ServiceAccounts
 	}
+	m.rebuildHashIndicesLocked()
 	return nil
 }
 
@@ -403,6 +447,9 @@ func (m *Manager) DeleteUser(id string) error {
 	delete(m.users, id)
 	for tid, tok := range m.tokens {
 		if tok.UserID == id {
+			if tok.TokenHash != "" {
+				delete(m.tokenByHash, tok.TokenHash)
+			}
 			delete(m.tokens, tid)
 		}
 	}
@@ -461,6 +508,10 @@ func (m *Manager) CreateToken(userID, name string, scopes []string, ttl time.Dur
 		CreatedAt:   time.Now().UTC(),
 	}
 	m.tokens[tok.ID] = tok
+	if m.tokenByHash == nil {
+		m.tokenByHash = make(map[string]string)
+	}
+	m.tokenByHash[tok.TokenHash] = tok.ID
 	m.saveIfNeededLocked()
 	return tok.PublicToken(), rawToken, nil
 }
@@ -483,6 +534,9 @@ func (m *Manager) RevokeToken(id string) error {
 	tok, ok := m.tokens[id]
 	if !ok {
 		return ErrNotFound
+	}
+	if tok.TokenHash != "" {
+		delete(m.tokenByHash, tok.TokenHash)
 	}
 	tok.Revoked = true
 	m.tokens[id] = tok
@@ -532,6 +586,10 @@ func (m *Manager) CreateServiceAccount(name, serviceName, description string, sc
 
 	m.mu.Lock()
 	m.serviceAccounts[sa.ID] = sa
+	if m.serviceAccountByHash == nil {
+		m.serviceAccountByHash = make(map[string]string)
+	}
+	m.serviceAccountByHash[sa.KeyHash] = sa.ID
 	m.saveIfNeededLocked()
 	m.mu.Unlock()
 
@@ -547,10 +605,17 @@ func (m *Manager) RotateServiceAccountKey(id string) (ServiceAccount, string, er
 	if !ok {
 		return ServiceAccount{}, "", ErrNotFound
 	}
+	if sa.KeyHash != "" {
+		delete(m.serviceAccountByHash, sa.KeyHash)
+	}
 	rawKey := "gat_svc_" + randomHex(24)
 	sa.KeyPrefix = rawKey[:16]
 	sa.KeyHash = hashSecret(rawKey)
 	m.serviceAccounts[id] = sa
+	if m.serviceAccountByHash == nil {
+		m.serviceAccountByHash = make(map[string]string)
+	}
+	m.serviceAccountByHash[sa.KeyHash] = sa.ID
 	m.saveIfNeededLocked()
 	return sa.PublicServiceAccount(), rawKey, nil
 }
@@ -570,15 +635,19 @@ func (m *Manager) ListServiceAccounts() []ServiceAccount {
 func (m *Manager) DeleteServiceAccount(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.serviceAccounts[id]; !ok {
+	sa, ok := m.serviceAccounts[id]
+	if !ok {
 		return ErrNotFound
+	}
+	if sa.KeyHash != "" {
+		delete(m.serviceAccountByHash, sa.KeyHash)
 	}
 	delete(m.serviceAccounts, id)
 	m.saveIfNeededLocked()
 	return nil
 }
 
-// AuthenticateCredential validates a raw user token (`gat_pat_...`) or service account key (`gat_svc_...`).
+// AuthenticateCredential validates a raw user token (`gat_pat_...`) or service account key (`gat_svc_...`) in O(1) via hash lookup.
 func (m *Manager) AuthenticateCredential(rawCredential string) (*Principal, error) {
 	cred := strings.TrimSpace(rawCredential)
 	if cred == "" {
@@ -590,16 +659,17 @@ func (m *Manager) AuthenticateCredential(rawCredential string) (*Principal, erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 1. Check user tokens
-	for id, tok := range m.tokens {
-		if constantTimeEqualsHex(candHash, tok.TokenHash) {
+	// 1. O(1) lookup in user tokens index
+	if id, found := m.tokenByHash[candHash]; found {
+		if tok, exists := m.tokens[id]; exists && constantTimeEqualsHex(candHash, tok.TokenHash) {
 			if tok.Revoked {
+				delete(m.tokenByHash, candHash)
 				return nil, ErrInvalidToken
 			}
 			if tok.ExpiresAt != nil && now.After(*tok.ExpiresAt) {
 				return nil, ErrInvalidToken
 			}
-			if u, exists := m.users[tok.UserID]; exists && !u.Active {
+			if u, uExists := m.users[tok.UserID]; uExists && !u.Active {
 				return nil, ErrAccountDisabled
 			}
 			tok.LastUsedAt = &now
@@ -616,9 +686,9 @@ func (m *Manager) AuthenticateCredential(rawCredential string) (*Principal, erro
 		}
 	}
 
-	// 2. Check third-party service accounts
-	for id, sa := range m.serviceAccounts {
-		if constantTimeEqualsHex(candHash, sa.KeyHash) {
+	// 2. O(1) lookup in third-party service accounts index
+	if id, found := m.serviceAccountByHash[candHash]; found {
+		if sa, exists := m.serviceAccounts[id]; exists && constantTimeEqualsHex(candHash, sa.KeyHash) {
 			if !sa.Active {
 				return nil, ErrAccountDisabled
 			}
