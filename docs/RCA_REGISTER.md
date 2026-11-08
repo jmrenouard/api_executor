@@ -466,6 +466,22 @@ This living governance register records all errors encountered, technical dead-e
   4. Added `TestDeclarativePlugin_PrecompiledRegexAndRegistryCatalogCache` in `internal/plugins/plugins_test.go`.
 - **Result & Non-Regression Test**: Verified by `TestDeclarativePlugin_PrecompiledRegexAndRegistryCatalogCache` and `TestM2Adversarial_AllParameters_InvalidTypeRejection` (72 tests passing 100% in `internal/plugins`; full repository suite 338 tests passing 100% across all 10 packages).
 
+### `RCA-036` — Unbounded Subprocess Output Buffering (`cmd.CombinedOutput()`) Risking Heap Exhaustion
+- **Date**: `2026-11-08`
+- **Observed Symptom**: In `internal/core/executor.go`, `ExecuteCommandWithTimeout` invoked `cmd.CombinedOutput()`, which reads all child stdout and stderr into an unbounded `bytes.Buffer` in memory, followed by `string(output)` allocation and double retention inside `database.RecordAction` and `audit.Record`. A verbose or runaway command producing hundreds of megabytes of output before its timeout expired could exhaust server memory (OOM).
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why could a subprocess exhaust Go heap memory before its timeout fired?* Because `os/exec.Cmd.CombinedOutput()` uses an unrestricted `bytes.Buffer` that grows until EOF or process termination.
+  2. *Why was a timeout alone insufficient to bound memory?* Within a 15–30 second execution window, a fast local command can write hundreds of megabytes per second to stdout/stderr pipes.
+  3. *Why was memory pressure amplified downstream?* Converting `[]byte` to `string(output)` duplicated the buffer on the heap, and storing that string in both the in-memory `action_history` slice and the `AuditLogger` ring buffer retained the oversized payload.
+  4. *Why can't the pipe simply be closed once the limit is reached?* Closing the child's stdout/stderr pipe while it is still running causes `SIGPIPE` / broken-pipe failures in legitimate commands; excess bytes after the cap must be drained and discarded (`len(p)` returned) while marking the output as truncated.
+  5. *Root Cause*: Use of unbounded `cmd.CombinedOutput()` instead of a bounded `io.Writer` (`limitedOutputBuffer`) capped at `MaxCommandOutputBytes` (1 MiB).
+- **Applied Change / Fix**:
+  1. Defined `MaxCommandOutputBytes = 1 << 20` (1 MiB) and implemented `limitedOutputBuffer` in `internal/core/executor.go`.
+  2. Replaced `cmd.CombinedOutput()` in `ExecuteCommandWithTimeout` with `outBuf := newLimitedOutputBuffer(MaxCommandOutputBytes)` attached to `cmd.Stdout` and `cmd.Stderr` followed by `cmd.Run()`.
+  3. Appended a deterministic truncation suffix (`\n...[output truncated at 1048576 bytes]`) when output exceeds `MaxCommandOutputBytes`.
+  4. Added `TestLimitedOutputBufferAndMaxCommandOutputBytes` in `internal/core/executor_test.go`.
+- **Result & Non-Regression Test**: Verified by `TestLimitedOutputBufferAndMaxCommandOutputBytes` in `internal/core/executor_test.go` (40 tests passing 100% in `internal/core`; full repository suite 339 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

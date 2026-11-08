@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -311,3 +312,34 @@ func TestExecuteCommandFailureVsSystemError(t *testing.T) {
 		t.Errorf("expected IsCommandSystemError(err)=true for missing binary, got false (err=%v)", err)
 	}
 }
+
+func TestLimitedOutputBufferAndMaxCommandOutputBytes(t *testing.T) {
+	if MaxCommandOutputBytes != 1<<20 {
+		t.Fatalf("expected MaxCommandOutputBytes == 1048576, got %d", MaxCommandOutputBytes)
+	}
+
+	buf := newLimitedOutputBuffer(64)
+	chunk := strings.Repeat("A", 40)
+	if n, err := buf.Write([]byte(chunk)); err != nil || n != 40 {
+		t.Fatalf("unexpected first Write result: n=%d err=%v", n, err)
+	}
+	if buf.Truncated() {
+		t.Errorf("expected Truncated() == false after 40/64 bytes")
+	}
+
+	// Second write exceeds the 64-byte cap; Write must still report full len(p) to avoid broken-pipe errors in os/exec
+	if n, err := buf.Write([]byte(chunk)); err != nil || n != 40 {
+		t.Fatalf("unexpected second Write result: n=%d err=%v", n, err)
+	}
+	if !buf.Truncated() {
+		t.Errorf("expected Truncated() == true after 80/64 bytes")
+	}
+	out := buf.String()
+	if !strings.HasPrefix(out, strings.Repeat("A", 64)) {
+		t.Errorf("expected prefix of 64 'A' chars, got %q", out)
+	}
+	if !strings.Contains(out, "[output truncated: exceeded 64 bytes limit]") {
+		t.Errorf("expected truncation suffix in output, got %q", out)
+	}
+}
+
