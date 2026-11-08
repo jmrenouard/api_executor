@@ -15,6 +15,28 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-041` — Publish Release v2.0.0 and Technical Deep-Dive Articles on jmrenouard.fr
+- **Timestamp (UTC)**: `2026-11-08T23:05:00Z`
+- **GitHub Issue**: Release Publication (`v2.0.0`)
+- **Branch**: `main` (Tag `v2.0.0`)
+- **Request**:
+  - Author and publish official release notes in `docs/release_notes_v2.0.0.md` detailing the v2.0.0 release of API Executor (`go-admin-tool`), consolidating zero-trust execution, 305+ plugins across 10 domains, and the four major performance optimizations (PRs #77, #79, #81, #83).
+  - Draft and publish two comprehensive technical deep-dive articles (English and French) for jmrenouard.fr in `docs/articles/` with valid YAML frontmatter, covering the shift to agentic MCP workloads, architectural challenges, the four performance optimizations with code references, and production verification metrics.
+  - Cut annotated git tag `v2.0.0` and publish official semantic release on GitHub using `gh release create`.
+  - Verify that the full project test suite executes and passes 100% across all 10 packages with $\ge 80\%$ statement coverage.
+- **Changes**:
+  - Created [`docs/release_notes_v2.0.0.md`](release_notes_v2.0.0.md):
+    - Detailed platform capabilities, Model Context Protocol (MCP) server implementation, 305+ plugins, cryptographic SHA-256 tamper-evident audit trail, and test verification summary.
+    - Documented all 4 performance optimizations: O(1) auth hash indexing (PR #77), regex precompilation & sorted catalog cache (PR #79), bounded subprocess output buffer (PR #81), and persistent file handles / lock decoupling / direct db.Exec (PR #83).
+  - Added [`docs/articles/2026-11-08-optimizing-api-executor-for-scale-and-mcp-workloads.en.md`](articles/2026-11-08-optimizing-api-executor-for-scale-and-mcp-workloads.en.md) (626 lines) with English YAML frontmatter and technical architecture breakdown.
+  - Added [`docs/articles/2026-11-08-optimisation-api-executor-haute-performance-mcp.fr.md`](articles/2026-11-08-optimisation-api-executor-haute-performance-mcp.fr.md) (625 lines) with French YAML frontmatter and matching technical depth.
+  - Tagged `v2.0.0` with annotated release message and published GitHub release via `gh release create`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-041`.
+- **Result**:
+  - Full project test suite: 100% pass rate (`339 passed in 10 packages`), coverage $\ge 80\%$ across all packages.
+  - Annotated git tag: `v2.0.0` created and pushed to origin.
+  - GitHub Release: `v2.0.0` published successfully and verified via `gh release view v2.0.0`.
+
 ### `ACT-040` — Persist Append File Handles in Audit & MCP, Decouple I/O from Memory Locks, and Use Direct `db.Exec`
 - **Timestamp (UTC)**: `2026-11-08T22:15:00Z`
 - **GitHub Issue**: [#82](https://github.com/jmrenouard/api_executor/issues/82)
