@@ -15,6 +15,33 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-038` — Pre-compile Parameter Regexes, Cache Sorted Plugin Catalog, and Reject Composite Parameter Types
+- **Timestamp (UTC)**: `2026-11-08T22:03:00Z`
+- **GitHub Issue**: [#78](https://github.com/jmrenouard/api_executor/issues/78)
+- **Branch**: `perf/issue-78-plugins-regex-and-catalog-cache`
+- **Request**:
+  - Pre-compile parameter validation regular expressions inside `NewDeclarativePlugin` (`internal/plugins/declarative.go`) so `DeclarativePlugin.Execute` evaluates pre-compiled `*regexp.Regexp` instances in `O(1)` without runtime `regexp.Compile` overhead.
+  - Reject non-scalar composite parameter types (slices, maps, structs) in `DeclarativePlugin.Execute` before string conversion, and fix the unescaped hyphen in `plugins/containerops/docker-container-stats.yaml` (`^[a-zA-Z0-9. _\t{}-]+$`).
+  - Cache the sorted `[]PluginInfo` catalog snapshot in `Registry` (`internal/plugins/plugin.go`) and invalidate on `Register`, `RegisterOrReplace`, and `Unregister` to eliminate repeated `O(N log N)` sorting across 305 plugins on every catalog query.
+  - Add unit verification in `internal/plugins/plugins_test.go` (`TestDeclarativePlugin_PrecompiledRegexAndRegistryCatalogCache`).
+- **Changes**:
+  - Updated [`internal/plugins/declarative.go`](../internal/plugins/declarative.go):
+    - Added `compiledRegex map[string]*regexp.Regexp` to `DeclarativePlugin`, populated during `NewDeclarativePlugin`, and exposed `PrecompiledRegexCount()`.
+    - Added composite `reflect.Kind` check in `DeclarativePlugin.Execute` rejecting slices, maps, structs, arrays, functions, channels, and pointers prior to regex validation.
+    - Used pre-compiled regex instances during parameter validation in `DeclarativePlugin.Execute`.
+  - Updated [`plugins/containerops/docker-container-stats.yaml`](../plugins/containerops/docker-container-stats.yaml):
+    - Moved literal hyphen to the end of the character class (`^[a-zA-Z0-9. _\t{}-]+$`) to prevent an unintended ASCII range (`\t` to `{`).
+  - Updated [`internal/plugins/plugin.go`](../internal/plugins/plugin.go):
+    - Added `sortedCache []PluginInfo` and `cacheValid bool` to `Registry`, implemented `getSortedCatalog()` and `CatalogCachePopulated()`, and invalidated the cache on `Register`, `RegisterOrReplace`, and `Unregister`.
+  - Updated [`internal/plugins/plugins_test.go`](../internal/plugins/plugins_test.go):
+    - Added `TestDeclarativePlugin_PrecompiledRegexAndRegistryCatalogCache` asserting pre-compiled regex count and catalog cache population/invalidation.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-038`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-035`.
+- **Result**:
+  - Package test suite: 100% pass rate (`72 passed in internal/plugins`).
+  - Full project test suite: 100% pass rate (`338 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #78.
+
 ### `ACT-037` — Optimize Credential Authentication with O(1) Hash Indexing
 - **Timestamp (UTC)**: `2026-11-08T21:57:00Z`
 - **GitHub Issue**: [#76](https://github.com/jmrenouard/api_executor/issues/76)

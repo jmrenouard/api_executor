@@ -20,5 +20,5 @@ actions:
     type: string
     required: false
     default: "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
-    pattern: "^[a-zA-Z0-9. _\t-{}]+$"
+    pattern: "^[a-zA-Z0-9. _\t{}-]+$"
     description: Format template string

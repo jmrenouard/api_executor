@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -41,10 +42,15 @@ type DeclarativeModuleSpec struct {
 
 // DeclarativePlugin executes declaratively configured command actions with strict parameter validation.
 type DeclarativePlugin struct {
-	spec DeclarativeModuleSpec
+	spec          DeclarativeModuleSpec
+	compiledRegex map[string]*regexp.Regexp
 }
 
-// NewDeclarativePlugin validates a DeclarativeModuleSpec and constructs a DeclarativePlugin.
+func regexCacheKey(actionName, paramName string) string {
+	return actionName + "\x00" + paramName
+}
+
+// NewDeclarativePlugin validates a DeclarativeModuleSpec, pre-compiles parameter regexes, and constructs a DeclarativePlugin.
 func NewDeclarativePlugin(spec DeclarativeModuleSpec) (*DeclarativePlugin, error) {
 	spec.ID = strings.TrimSpace(spec.ID)
 	spec.Name = strings.TrimSpace(spec.Name)
@@ -60,19 +66,33 @@ func NewDeclarativePlugin(spec DeclarativeModuleSpec) (*DeclarativePlugin, error
 	if len(spec.Actions) == 0 {
 		return nil, fmt.Errorf("declarative plugin %q must define at least one action", spec.ID)
 	}
+	compiled := make(map[string]*regexp.Regexp)
 	for _, a := range spec.Actions {
 		if strings.TrimSpace(a.Name) == "" || strings.TrimSpace(a.Command) == "" {
 			return nil, fmt.Errorf("declarative plugin %q has an action with empty name or command", spec.ID)
 		}
 		for _, p := range a.Parameters {
 			if p.Pattern != "" {
-				if _, err := regexp.Compile(p.Pattern); err != nil {
+				re, err := regexp.Compile(p.Pattern)
+				if err != nil {
 					return nil, fmt.Errorf("invalid regex pattern %q on parameter %q: %w", p.Pattern, p.Name, err)
 				}
+				compiled[regexCacheKey(a.Name, p.Name)] = re
 			}
 		}
 	}
-	return &DeclarativePlugin{spec: spec}, nil
+	return &DeclarativePlugin{
+		spec:          spec,
+		compiledRegex: compiled,
+	}, nil
+}
+
+// PrecompiledRegexCount returns the number of pre-compiled parameter validation regular expressions.
+func (p *DeclarativePlugin) PrecompiledRegexCount() int {
+	if p == nil {
+		return 0
+	}
+	return len(p.compiledRegex)
 }
 
 func (p *DeclarativePlugin) ID() string          { return p.spec.ID }
@@ -126,6 +146,17 @@ func (p *DeclarativePlugin) Execute(_ context.Context, actionName string, params
 		var rawVal string
 		if params != nil {
 			if v, exists := params[paramDef.Name]; exists && v != nil {
+				rv := reflect.ValueOf(v)
+				switch rv.Kind() {
+				case reflect.Slice, reflect.Map, reflect.Struct, reflect.Array, reflect.Func, reflect.Chan, reflect.Ptr:
+					err := fmt.Errorf("parameter %q rejected non-scalar composite type %T", paramDef.Name, v)
+					return PluginResult{
+						PluginID: p.ID(),
+						Action:   actionName,
+						Status:   "error",
+						Error:    err.Error(),
+					}, err
+				}
 				rawVal = fmt.Sprintf("%v", v)
 			}
 		}
@@ -143,11 +174,15 @@ func (p *DeclarativePlugin) Execute(_ context.Context, actionName string, params
 		if rawVal != "" {
 			re := defaultSafeParamRegex
 			if paramDef.Pattern != "" {
-				compiled, err := regexp.Compile(paramDef.Pattern)
-				if err != nil {
-					return PluginResult{PluginID: p.ID(), Action: actionName, Status: "error", Error: err.Error()}, err
+				if cached, ok := p.compiledRegex[regexCacheKey(actionName, paramDef.Name)]; ok && cached != nil {
+					re = cached
+				} else {
+					compiled, err := regexp.Compile(paramDef.Pattern)
+					if err != nil {
+						return PluginResult{PluginID: p.ID(), Action: actionName, Status: "error", Error: err.Error()}, err
+					}
+					re = compiled
 				}
-				re = compiled
 			}
 			// Reject shell metacharacters or unsafe tokens
 			if strings.ContainsAny(rawVal, ";&|$`><\n\r") || strings.Contains(rawVal, "../") || strings.Contains(rawVal, "..\\") || !re.MatchString(rawVal) {
