@@ -431,6 +431,22 @@ This living governance register records all errors encountered, technical dead-e
   3. Added non-regression tests in `tests/e2e/setup_test.go` (`TestE2ESetup_PluginDirectorySinglePassLoading`) and `docs/branding_test.go` (`TestAgentRulesConsolidationAndDeduplication`).
 - **Result & Non-Regression Test**: Verified by `TestE2ESetup_PluginDirectorySinglePassLoading` and `TestAgentRulesConsolidationAndDeduplication` (66 tests in `tests/e2e`, 3 tests in `docs`, and full repository test suite 336 unit + 66 E2E tests passing 100%).
 
+### `RCA-034` — Linear O(N) Credential Scan Under Exclusive Lock on Every Authenticated HTTP Request
+- **Date**: `2026-11-08`
+- **Observed Symptom**: In `internal/auth/manager.go`, `Manager.AuthenticateCredential` iterated linearly over every entry in `m.tokens` and `m.serviceAccounts` while holding `m.mu.Lock()`, causing `O(N)` authentication latency and lock contention as the number of issued Personal Access Tokens and Service Accounts grew.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did credential authentication scale as O(N)?* Because `AuthenticateCredential` ranged over the full `m.tokens` and `m.serviceAccounts` maps keyed by entity ID (`tok_...`, `svc_...`) rather than credential hash.
+  2. *Why were the maps keyed only by entity ID?* Administrative CRUD operations (`RevokeToken`, `DeleteServiceAccount`, `RotateServiceAccountKey`) reference credentials by their public ID rather than their secret hash.
+  3. *Why did this become a hot-path bottleneck?* Every authenticated API request invokes `resolvePrincipal` -> `AuthenticateCredential`, making credential lookup the most frequently executed path in the server.
+  4. *Why was lock contention amplified?* `AuthenticateCredential` acquires `m.mu.Lock()` to update `LastUsedAt` and `UseCount` / `CallCount`; holding that lock during a linear scan serialized concurrent HTTP requests.
+  5. *Root Cause*: Absence of secondary `O(1)` hash-to-ID lookup indices (`tokenByHash` and `serviceAccountByHash`) on `auth.Manager`.
+- **Applied Change / Fix**:
+  1. Added `tokenByHash` and `serviceAccountByHash` maps to `auth.Manager` in `internal/auth/manager.go` and implemented `rebuildHashIndicesLocked()`.
+  2. Synchronized index insertions, updates, and evictions across `NewManager`, `loadFromFile`, `DeleteUser`, `CreateToken`, `RevokeToken`, `CreateServiceAccount`, `RotateServiceAccountKey`, and `DeleteServiceAccount`.
+  3. Updated `AuthenticateCredential` to perform `O(1)` hash lookup followed by `constantTimeEqualsHex` verification.
+  4. Added `TestAuthenticateCredential_O1HashIndexAndLifecycle` in `internal/auth/manager_test.go`.
+- **Result & Non-Regression Test**: Verified by `TestAuthenticateCredential_O1HashIndexAndLifecycle` in `internal/auth/manager_test.go` (5 tests passing in `internal/auth`, full suite 337 tests passing 100% across all 10 packages).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

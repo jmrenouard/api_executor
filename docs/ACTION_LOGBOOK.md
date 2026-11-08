@@ -15,6 +15,29 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-037` — Optimize Credential Authentication with O(1) Hash Indexing
+- **Timestamp (UTC)**: `2026-11-08T21:57:00Z`
+- **GitHub Issue**: [#76](https://github.com/jmrenouard/api_executor/issues/76)
+- **Branch**: `perf/issue-76-auth-o1-hash-indexing`
+- **Request**:
+  - In `internal/auth/manager.go`, `Manager.AuthenticateCredential` previously performed an `O(N)` linear scan over all stored Personal Access Tokens (`m.tokens`) and Service Accounts (`m.serviceAccounts`) on every authenticated HTTP request.
+  - Introduce `O(1)` secondary hash lookup indices (`tokenByHash` and `serviceAccountByHash`) synchronized across token creation, revocation, user deletion, service account creation/rotation/deletion, and file persistence reload.
+  - Add unit verification in `internal/auth/manager_test.go` (`TestAuthenticateCredential_O1HashIndexAndLifecycle`).
+- **Changes**:
+  - Updated [`internal/auth/manager.go`](../internal/auth/manager.go):
+    - Added `tokenByHash` (`TokenHash -> token.ID`) and `serviceAccountByHash` (`KeyHash -> sa.ID`) lookup maps to `Manager`.
+    - Implemented `rebuildHashIndicesLocked()`, `TokenIndexSize()`, and `ServiceAccountIndexSize()`.
+    - Synchronized hash index entries across `NewManager`, `loadFromFile`, `DeleteUser`, `CreateToken`, `RevokeToken`, `CreateServiceAccount`, `RotateServiceAccountKey`, and `DeleteServiceAccount`.
+    - Updated `AuthenticateCredential` to resolve credentials in `O(1)` via hash index lookup while preserving `constantTimeEqualsHex` comparison, revocation, expiration, and active-user checks.
+  - Updated [`internal/auth/manager_test.go`](../internal/auth/manager_test.go):
+    - Added `TestAuthenticateCredential_O1HashIndexAndLifecycle` verifying `O(1)` index consistency across 100 PATs and 100 service accounts, key rotation index updates, revocation/deletion cleanup, and persistence reload.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-037`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-034`.
+- **Result**:
+  - Package test suite: 100% pass rate (`5 passed in internal/auth`).
+  - Full project test suite: 100% pass rate (`337 passed in 10 packages`).
+  - Pull Request opened and merged to `main` with atomic commit closing Issue #76.
+
 ### `ACT-036` — Optimize E2E Test Setup Directory Parsing and Deduplicate Workflow Governance Rules
 - **Timestamp (UTC)**: `2026-11-02T03:30:00Z`
 - **GitHub Issue**: [#72](https://github.com/jmrenouard/api_executor/issues/72)

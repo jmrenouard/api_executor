@@ -289,4 +289,120 @@ func TestExtractTokenFromRequestHeaders(t *testing.T) {
 	}
 }
 
+func TestAuthenticateCredential_O1HashIndexAndLifecycle(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "auth_store_indexed.json")
+	mgr, err := NewManager(core.AuthConfig{
+		Enabled:           true,
+		RequireAuth:       true,
+		BootstrapUsername: "admin",
+		BootstrapPassword: "admin-password-123",
+		BootstrapToken:    "gat_pat_bootstrap_indexed_token",
+		StorePath:         storePath,
+	})
+	if err != nil {
+		t.Fatalf("NewManager failed: %v", err)
+	}
+
+	if mgr.TokenIndexSize() != 1 {
+		t.Fatalf("expected initial TokenIndexSize() == 1 (bootstrap token), got %d", mgr.TokenIndexSize())
+	}
+
+	u, err := mgr.CreateUser("perf-op", "perf-pass-123", "Perf Operator", "perf@example.com", RoleOperator)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+
+	const count = 100
+	rawPATs := make([]string, count)
+	patIDs := make([]string, count)
+	rawSAKeys := make([]string, count)
+	saIDs := make([]string, count)
+
+	for i := 0; i < count; i++ {
+		tok, rawPAT, err := mgr.CreateToken(u.ID, "pat", []string{"commands:read"}, time.Hour)
+		if err != nil {
+			t.Fatalf("CreateToken %d failed: %v", i, err)
+		}
+		rawPATs[i] = rawPAT
+		patIDs[i] = tok.ID
+
+		sa, rawKey, err := mgr.CreateServiceAccount("sa", "svc", "desc", []string{"commands:read"}, []string{"*"}, time.Hour)
+		if err != nil {
+			t.Fatalf("CreateServiceAccount %d failed: %v", i, err)
+		}
+		rawSAKeys[i] = rawKey
+		saIDs[i] = sa.ID
+	}
+
+	if mgr.TokenIndexSize() != count+1 {
+		t.Errorf("expected TokenIndexSize() == %d, got %d", count+1, mgr.TokenIndexSize())
+	}
+	if mgr.ServiceAccountIndexSize() != count {
+		t.Errorf("expected ServiceAccountIndexSize() == %d, got %d", count, mgr.ServiceAccountIndexSize())
+	}
+
+	// Authenticate every PAT and Service Account via O(1) index
+	for i := 0; i < count; i++ {
+		if p, err := mgr.AuthenticateCredential(rawPATs[i]); err != nil || p.ID != patIDs[i] {
+			t.Fatalf("AuthenticateCredential PAT %d failed: p=%+v err=%v", i, p, err)
+		}
+		if p, err := mgr.AuthenticateCredential(rawSAKeys[i]); err != nil || p.ID != saIDs[i] {
+			t.Fatalf("AuthenticateCredential SA %d failed: p=%+v err=%v", i, p, err)
+		}
+	}
+
+	// Rotate SA 0: old hash must be evicted from index, new hash indexed
+	_, rotatedKey, err := mgr.RotateServiceAccountKey(saIDs[0])
+	if err != nil {
+		t.Fatalf("RotateServiceAccountKey failed: %v", err)
+	}
+	if mgr.ServiceAccountIndexSize() != count {
+		t.Errorf("expected ServiceAccountIndexSize() to remain %d after rotation, got %d", count, mgr.ServiceAccountIndexSize())
+	}
+	if _, err := mgr.AuthenticateCredential(rawSAKeys[0]); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("expected old rotated SA key to fail with ErrInvalidToken, got %v", err)
+	}
+	if _, err := mgr.AuthenticateCredential(rotatedKey); err != nil {
+		t.Errorf("expected rotated SA key to succeed, got %v", err)
+	}
+
+	// Revoke PAT 0 and delete SA 0: index entries must be cleaned up
+	if err := mgr.RevokeToken(patIDs[0]); err != nil {
+		t.Fatalf("RevokeToken failed: %v", err)
+	}
+	if mgr.TokenIndexSize() != count {
+		t.Errorf("expected TokenIndexSize() == %d after revoking 1 token, got %d", count, mgr.TokenIndexSize())
+	}
+	if err := mgr.DeleteServiceAccount(saIDs[0]); err != nil {
+		t.Fatalf("DeleteServiceAccount failed: %v", err)
+	}
+	if mgr.ServiceAccountIndexSize() != count-1 {
+		t.Errorf("expected ServiceAccountIndexSize() == %d after deleting 1 SA, got %d", count-1, mgr.ServiceAccountIndexSize())
+	}
+
+	// Reload manager from disk and verify indices are rebuilt accurately
+	reloaded, err := NewManager(core.AuthConfig{
+		Enabled:   true,
+		StorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("NewManager reload failed: %v", err)
+	}
+	if reloaded.ServiceAccountIndexSize() != count-1 {
+		t.Errorf("expected reloaded ServiceAccountIndexSize() == %d, got %d", count-1, reloaded.ServiceAccountIndexSize())
+	}
+	if _, err := reloaded.AuthenticateCredential(rawPATs[1]); err != nil {
+		t.Errorf("expected persisted PAT 1 to authenticate after reload: %v", err)
+	}
+
+	// Delete user: all remaining user tokens must be removed from index
+	if err := reloaded.DeleteUser(u.ID); err != nil {
+		t.Fatalf("DeleteUser failed: %v", err)
+	}
+	if _, err := reloaded.AuthenticateCredential(rawPATs[1]); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("expected deleted user's token to fail with ErrInvalidToken, got %v", err)
+	}
+}
+
+
 
