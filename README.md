@@ -13,6 +13,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/jmrenouard/api_executor/releases/latest"><img src="https://img.shields.io/github/v/release/jmrenouard/api_executor?style=flat-square&logo=github" alt="GitHub Release" /></a>
+  <a href="https://hub.docker.com/r/jmrenouard/api_executor"><img src="https://img.shields.io/docker/v/jmrenouard/api_executor?sort=semver&style=flat-square&logo=docker&logoColor=white" alt="Docker Image Version" /></a>
   <a href="docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md"><img src="https://img.shields.io/badge/Security-HTTPS%2FTLS_1.3_Default-10b981?style=flat-square" alt="HTTPS/TLS Default" /></a>
   <a href="internal/api/router.go"><img src="https://img.shields.io/badge/Prometheus-Per--Action_Telemetry-38bdf8?style=flat-square" alt="Prometheus Per-Action Telemetry" /></a>
   <a href="internal/mcp/server.go"><img src="https://img.shields.io/badge/MCP-2024--11--05_JSON--RPC_2.0-a78bfa?style=flat-square" alt="MCP Server" /></a>
@@ -132,7 +134,21 @@ go build -o bin/go-admin-tool ./cmd/server
 
 Open **`https://localhost:8080`** in your browser to access the **Web Administration Console**, **`https://localhost:8080/metrics`** for Prometheus telemetry, or **`https://localhost:8080/swagger/index.html`** for OpenAPI documentation.
 
-### 2. Test Predefined Ubuntu & RedHat OS Tasks via Docker
+### 2. Run Pre-Built Container Image from Docker Hub
+
+```bash
+# Pull the latest hardened multi-arch image (linux/amd64, linux/arm64)
+docker pull jmrenouard/api_executor:latest
+
+# Run container with HTTPS exposed on port 8080
+docker run -d -p 8080:8080 --name api-executor jmrenouard/api_executor:latest
+```
+
+### 3. Download Pre-Compiled Standalone Binaries
+
+Download pre-compiled binaries for Linux (amd64, arm64), macOS (arm64), and Windows (amd64) directly from [GitHub Releases](https://github.com/jmrenouard/api_executor/releases/latest), verified with cryptographic `SHA256SUMS.txt`.
+
+### 4. Test Predefined Ubuntu & RedHat OS Tasks via Docker
 
 ```bash
 # Build and launch both Ubuntu 22.04 (:8443) and RedHat UBI9 (:8444) targets

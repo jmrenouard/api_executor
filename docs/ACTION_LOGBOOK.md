@@ -13,6 +13,29 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-052` — Release Automation, Go Cross-Compilation Matrix, and Multi-Arch Docker Hub Publishing
+- **Timestamp (UTC)**: `2026-11-10T00:50:00Z`
+- **GitHub Issue**: [#104](https://github.com/jmrenouard/api_executor/issues/104)
+- **Branch**: `feat/issue-104-release-automation-and-dockerhub`
+- **Request**:
+  - Implement GitHub Actions CI and Release pipelines for `api_executor`:
+    1. Create `.github/workflows/ci.yml` for testing PRs and pushes to main.
+    2. Create `.github/workflows/release.yml` triggered strictly on published GitHub releases (`on: release: types: [published]`).
+    3. Multi-platform cross-compilation matrix for Go binaries (linux/amd64, linux/arm64, darwin/arm64, windows/amd64) with archive bundling and cryptographic `SHA256SUMS.txt`.
+    4. Automated multi-architecture Docker Hub publishing (`linux/amd64,linux/arm64`) to `jmrenouard/api_executor` with semantic tags and conditional `:latest` (non-prerelease only).
+    5. Standard Shields.io GitHub Release and Docker Hub badges in `README.md`.
+- **Changes**:
+  - Created [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+  - Created [`.github/workflows/release.yml`](../.github/workflows/release.yml).
+  - Updated [`README.md`](../README.md) with Shields.io badges and Docker Hub / Release download quickstarts.
+  - Recorded `ACT-052` in [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md).
+- **Result**:
+  - 100% test pass on Go unit and E2E test suites (454/454 tests passing).
+  - GitHub Issue [#104](https://github.com/jmrenouard/api_executor/issues/104).
+  - Pull Request merged into `main`.
+
+---
+
 ### `ACT-051` — Dockerfile Build Fix, Standard OCI Labels, and Multi-Architecture Hardening
 - **Timestamp (UTC)**: `2026-11-09T21:35:00Z`
 - **GitHub Issue**: [#102](https://github.com/jmrenouard/api_executor/issues/102)
