@@ -38,3 +38,95 @@ To make `api_executor` immediately usable across enterprise Linux fleets and tes
   - `ubuntu-os-release`, `ubuntu-kernel-uname`, `ubuntu-dpkg-packages`, `ubuntu-apt-simulated-upgrade`, `ubuntu-apt-sources`, `ubuntu-disk-space`, `ubuntu-memory-stats`, `ubuntu-process-snapshot`, `ubuntu-network-sockets`, `ubuntu-passwd-accounts`.
 - **RedHat / RHEL / Rocky / UBI 9 (`redhat/ubi9:latest`)**:
   - `redhat-os-release`, `redhat-system-release`, `redhat-rpm-qa`, `redhat-rpm-verify-crypto`, `redhat-dnf-repolist`, `redhat-disk-space`, `redhat-memory-stats`, `redhat-process-snapshot`, `redhat-kernel-uname`, `redhat-passwd-accounts`.
+
+---
+
+## 5. Asynchronous Action Execution Architecture & Security Analysis
+
+The **Asynchronous Execution Subsystem** (`internal/jobs/`) decouples long-running operational commands, multi-domain plugin workflows, and database queries from synchronous HTTP server goroutines.
+
+### 5.1 Subsystem Architecture & Components
+
+```text
+HTTP Client / Web Console (Tab 9)
+             │
+             ▼
+┌───────────────────────────────────────────────┐
+│              internal/api/                     │
+│  POST /api/v1/jobs ──► RBAC Scope & Action     │
+│  GET  /api/v1/jobs ──► List & Query Filter    │
+│  GET  /api/v1/jobs/{id}/logs ──► Chunked Log   │
+│  POST /api/v1/jobs/{id}/cancel ──► Cancel Job │
+└──────────────────────┬────────────────────────┘
+                       │
+                       ▼
+┌───────────────────────────────────────────────┐
+│              internal/jobs/                   │
+│                                               │
+│  ┌─────────────────────────────────────────┐  │
+│  │     JobQueue (container/heap Priority)  │  │
+│  │  High > Normal > Low (FIFO Tie-Breaker) │  │
+│  │  Capacity Bound: 1000 (ErrQueueFull)   │  │
+│  └────────────────────┬────────────────────┘  │
+│                       │                       │
+│                       ▼                       │
+│  ┌─────────────────────────────────────────┐  │
+│  │    WorkerPool (Bounded Goroutines)      │  │
+│  │  Consumes jobs, passes Context & Buffer │  │
+│  └────────────────────┬────────────────────┘  │
+│                       │                       │
+│        ┌──────────────┴──────────────┐        │
+│        ▼                             ▼        │
+│  ┌───────────┐                 ┌───────────┐  │
+│  │ Core Exec │                 │  Plugins  │  │
+│  │ (Process  │                 │ (Native / │  │
+│  │  Group)   │                 │ Declarat.)│  │
+│  └─────┬─────┘                 └─────┬─────┘  │
+│        └──────────────┬──────────────┘        │
+│                       ▼                       │
+│  ┌─────────────────────────────────────────┐  │
+│  │     JobLogBuffer (2 MiB Max, Thread-Safe)│  │
+│  │  Simultaneous Subprocess Write & Read   │  │
+│  └─────────────────────────────────────────┘  │
+└──────────────────────┬────────────────────────┘
+                       │
+                       ▼
+┌───────────────────────────────────────────────┐
+│              Persistence & Audit               │
+│  JobStore (SQLite / In-Memory Fallback)       │
+│  AuditLogger (SHA-256 Chained Hash Log)        │
+│  Prometheus Metrics (Gauges & Normalized Path)│
+└───────────────────────────────────────────────┘
+```
+
+1. **Job Data Model (`internal/jobs/job.go`)**:
+   - Manages state machine transitions: `queued` -> `running` -> `completed` | `failed` | `cancelled` | `timed_out`.
+   - Immutable terminal state guarantees: once terminal, a job cannot be transitioned or modified (`IsTerminal() == true`).
+   - Thread-safe access via `sync.RWMutex` protecting concurrent serialization (`MarshalJSON()`), state queries, and cancellation flags.
+2. **Priority Heap Queue (`internal/jobs/queue.go`)**:
+   - Implements `container/heap.Interface` across three discrete priority tiers: `High` (level 3), `Normal` (level 2), `Low` (level 1).
+   - Monotonic sequence counter (`queueSeq`) provides strict FIFO ordering among jobs within the same priority tier, completely preventing starvation of normal/low priority jobs during burst traffic.
+   - Bounded capacity (`QueueCapacity = 1000`) returns `ErrQueueFull` (`429 Too Many Requests`), protecting server heap from unbounded memory exhaustion.
+3. **Bounded Worker Pool (`internal/jobs/worker.go`)**:
+   - Fixed pool of worker goroutines (default: 4) continuously processing jobs from the queue channel.
+   - Synchronous graceful draining on server shutdown (`Engine.Shutdown(ctx)`), allowing active jobs up to the shutdown context deadline to complete.
+4. **Concurrency-Safe Live Log Buffer (`internal/jobs/job.go`)**:
+   - Concurrency-safe byte buffer supporting simultaneous subprocess write streaming and client HTTP chunked offset reading (`ReadChunk(offset)`).
+   - Bounded memory safety (`MaxLogBytesPerJob = 2 MiB`): once log exceeds 2 MiB, excess bytes are discarded, and the `truncated` flag is set to `true`.
+   - EOF propagation: setting job completion notifies log readers that no further data will be appended.
+5. **Persistent Job History Store (`internal/jobs/store.go`)**:
+   - SQLite table `job_history` with indexed queries on `status`, `action`, `actor_id`, and `created_at`.
+   - Zero-CGO in-memory fallback store (`MemoryJobStore`) supporting identical filtering semantics when running with `CGO_ENABLED=0`.
+   - Background retention pruner running every 10 minutes, pruning records older than `MaxJobAge` (7 days) or exceeding `MaxRetainedJobs` (10,000).
+
+### 5.2 Security Controls & Threat Mitigations
+
+| Threat Vector | Severity | Vulnerability Risk | Implemented Defense Mechanism |
+|---|---|---|---|
+| **Queue Exhaustion DoS** | **HIGH** | Unauthenticated or malicious clients submitting millions of background jobs to exhaust memory. | Bounded queue capacity (`QueueCapacity = 1000`). When full, `Enqueue` immediately returns `ErrQueueFull`, translating to HTTP `429 Too Many Requests`. |
+| **Unauthorized Action Execution** | **CRITICAL** | Callers executing unauthorized system commands or sensitive plugins asynchronously. | **Two-Tier RBAC Authorization**: Caller must possess the `jobs:submit` scope, AND must satisfy the underlying action authorization check (`commands:execute` for command jobs; `plugins:execute` for plugin jobs). Third-party service accounts are additionally checked against their `allowed_actions` whitelist. |
+| **Orphan Grandchild Process Leaks** | **HIGH** | Cancelled or timed-out background jobs leaving subprocesses executing indefinitely in the background. | Process group isolation: on cancellation or timeout expiration, the execution context is cancelled, triggering `taskkill /T /F` on Windows and `syscall.Kill(-pid, SIGKILL)` on Unix to terminate all descendants. |
+| **Log Buffer Memory Exhaustion** | **HIGH** | A rogue subprocess generating gigabytes of continuous stdout logs, causing an out-of-memory crash. | Hard memory ceiling (`MaxLogBytesPerJob = 2 MiB`). Any bytes beyond 2 MiB are dropped, and `truncated: true` is reported to clients. |
+| **Audit Non-Repudiation** | **HIGH** | Inability to prove who submitted or cancelled a background task and its exact parameters. | Cryptographic SHA-256 hash chaining under category `"job"` for every lifecycle event (`job.enqueued`, `job.started`, `job.completed`, `job.failed`, `job.cancelled`). |
+| **Prometheus Cardinality DoS** | **HIGH** | Dynamic job IDs in request URLs (`/api/v1/jobs/<id>/logs`) generating unbounded Prometheus metric labels. | Route normalization in `normalizeMetricPath`: dynamic IDs are collapsed to `/api/v1/jobs/:id`, `/api/v1/jobs/:id/logs`, and `/api/v1/jobs/:id/cancel`. |
+

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"go-admin-tool/internal/api"
+	"go-admin-tool/internal/core"
+	"go-admin-tool/internal/jobs"
 )
 
 func TestResolveConfigPathAndInitializeServerEnv(t *testing.T) {
@@ -557,6 +562,330 @@ server:
 	}
 }
 
+func TestInitializeServerEnv_DatabaseInitError(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "bad-db.yaml")
+	cfgContent := `
+server:
+  port: 19090
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: ""
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
 
+	if _, _, _, err := initializeServerEnv(cfgPath); err == nil {
+		t.Errorf("expected error when database path is empty")
+	}
+}
 
+func TestInitializeServerEnv_AuditLoggerInitError(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "bad-audit.yaml")
+	cfgContent := fmt.Sprintf(`
+server:
+  port: 19092
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+audit:
+  file_path: %q
+`, tmpDir)
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	if _, _, _, err := initializeServerEnv(cfgPath); err == nil {
+		t.Errorf("expected error when audit.file_path points to a directory")
+	}
+}
+
+func TestInitializeServerEnv_SecureDirMkdirError(t *testing.T) {
+	tmpDir := t.TempDir()
+	barrierFile := filepath.Join(tmpDir, "file-not-dir")
+	if err := os.WriteFile(barrierFile, []byte("blocker"), 0600); err != nil {
+		t.Fatalf("failed to create barrier file: %v", err)
+	}
+	invalidSecureDir := filepath.Join(barrierFile, "sub-dir")
+
+	cfgPath := filepath.Join(tmpDir, "bad-securedir.yaml")
+	cfgContent := fmt.Sprintf(`
+server:
+  port: 19094
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+file_server:
+  enabled: true
+  secure_dir: %q
+`, invalidSecureDir)
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv should not fail fatally on MkdirAll failure: %v", err)
+	}
+	defer cleanup()
+	if env == nil {
+		t.Fatal("expected non-nil APIEnv")
+	}
+}
+
+func TestRunServerWithContext_InitializeError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := runServerWithContext(ctx, "nonexistent-config-file.yaml", func(srv *http.Server, tlsEnabled bool) error {
+		return nil
+	})
+	if err == nil {
+		t.Errorf("expected error from runServerWithContext on missing config")
+	}
+}
+
+func TestRunServerWithContext_ServeFnError(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "serve-err.yaml")
+	cfgContent := `
+server:
+  port: 19093
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := runServerWithContext(ctx, cfgPath, func(srv *http.Server, tlsEnabled bool) error {
+		return errors.New("simulated immediate startup error")
+	})
+	if err == nil {
+		t.Errorf("expected error from runServerWithContext when serveFn fails immediately")
+	}
+}
+
+func TestBuildHTTPServer_Error(t *testing.T) {
+	cm, err := core.NewCertManager(core.TLSConfig{Enabled: false}, "localhost")
+	if err != nil {
+		t.Fatalf("failed to create CertManager: %v", err)
+	}
+	env := &api.APIEnv{
+		Config: &core.Config{
+			Server: core.ServerConfig{
+				Host: "127.0.0.1",
+				Port: 8080,
+				TLS:  core.TLSConfig{Enabled: true},
+			},
+		},
+		CertManager: cm,
+	}
+	srv, err := buildHTTPServer(env, http.NewServeMux())
+	if err == nil || srv != nil {
+		t.Fatalf("expected error from buildHTTPServer when CertManager TLS is disabled, got %v", err)
+	}
+}
+
+func TestInitializeServerEnv_DeclarativeDirInvalidFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	declDir := filepath.Join(tmpDir, "invalid-plugins")
+	if err := os.MkdirAll(declDir, 0755); err != nil {
+		t.Fatalf("failed to create declDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(declDir, "bad.yaml"), []byte(":::invalid-yaml:::"), 0600); err != nil {
+		t.Fatalf("failed to write invalid yaml: %v", err)
+	}
+
+	cfgPath := filepath.Join(tmpDir, "decl-invalid.yaml")
+	cfgContent := fmt.Sprintf(`
+server:
+  port: 19095
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+plugins:
+  enabled: true
+  declarative_dir: %q
+`, declDir)
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv should continue despite declarative plugin warning: %v", err)
+	}
+	defer cleanup()
+	if env == nil {
+		t.Fatal("expected non-nil APIEnv")
+	}
+}
+
+func TestRunServerWithContext_ShutdownAbnormalServeExit(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "shutdown-abnormal.yaml")
+	cfgContent := `
+server:
+  port: 19096
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+
+	go func() {
+		<-started
+		cancel()
+	}()
+
+	err := runServerWithContext(ctx, cfgPath, func(srv *http.Server, tlsEnabled bool) error {
+		close(started)
+		<-ctx.Done()
+		return errors.New("abnormal server shutdown failure")
+	})
+	if err == nil {
+		t.Errorf("expected error from runServerWithContext on abnormal serveFn return during shutdown")
+	}
+}
+
+func TestInitializeServerEnv_JobExecutorExecution(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "job-exec.yaml")
+	cfgContent := `
+server:
+  port: 19097
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+command_executor:
+  enabled: true
+  commands:
+    - name: "echo-test"
+      command: "whoami"
+plugins:
+  enabled: true
+  enable_sys_diag: true
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv failed: %v", err)
+	}
+	defer cleanup()
+
+	// 1. Enqueue command job
+	cmdJob, err := env.JobEngine.Enqueue(jobs.JobRequest{
+		Type:     jobs.TypeCommand,
+		Action:   "echo-test",
+		Priority: jobs.PriorityHigh,
+	})
+	if err != nil {
+		t.Fatalf("failed to enqueue command job: %v", err)
+	}
+
+	// 2. Enqueue plugin job
+	pluginJob, err := env.JobEngine.Enqueue(jobs.JobRequest{
+		Type:     jobs.TypePlugin,
+		PluginID: "sys-diagnostics",
+		Action:   "runtime_stats",
+		Priority: jobs.PriorityHigh,
+	})
+	if err != nil {
+		t.Fatalf("failed to enqueue plugin job: %v", err)
+	}
+
+	// 3. Wait for jobs to complete
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		j1, _ := env.JobEngine.GetJob(cmdJob.ID)
+		j2, _ := env.JobEngine.GetJob(pluginJob.ID)
+		if j1 != nil && j1.Status.IsTerminal() && j2 != nil && j2.Status.IsTerminal() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// 4. Command not found
+	missingCmdJob, err := env.JobEngine.Enqueue(jobs.JobRequest{
+		Type:     jobs.TypeCommand,
+		Action:   "nonexistent-cmd-action",
+		Priority: jobs.PriorityHigh,
+	})
+	if err == nil {
+		for time.Now().Before(deadline) {
+			j, _ := env.JobEngine.GetJob(missingCmdJob.ID)
+			if j != nil && j.Status.IsTerminal() {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	// 5. Unsupported job type
+	unsupportedJob, err := env.JobEngine.Enqueue(jobs.JobRequest{
+		Type:     jobs.JobType("unsupported"),
+		Action:   "dummy",
+		Priority: jobs.PriorityHigh,
+	})
+	if err == nil {
+		for time.Now().Before(deadline) {
+			j, _ := env.JobEngine.GetJob(unsupportedJob.ID)
+			if j != nil && j.Status.IsTerminal() {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
+func TestRunServerWithContext_DefaultServeFn(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "default-serve.yaml")
+	cfgContent := `
+server:
+  port: 19098
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_ = runServerWithContext(ctx, cfgPath, nil)
+}
 

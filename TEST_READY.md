@@ -1,6 +1,6 @@
 # E2E Test Suite Readiness Report (`TEST_READY.md`)
 
-## Status: READY FOR EXECUTION — Milestone 4 Certified
+## Status: READY FOR EXECUTION — Milestone 5 Certified
 
 The End-to-End (E2E) opaque-box test suite for the **API Executor (`go-admin-tool`)** asynchronous action execution, priority queue, chunked live logging, telemetry, and hybrid 300+ plugin ecosystem has been expanded, verified, and certified ready for continuous verification across all operational milestones.
 
@@ -38,7 +38,7 @@ go test -v -count=1 -cover ./...
 | | - Feature 4: Declarative Plugin Execution (`POST /api/v1/plugins/execute`) | | 5 tests | PASS |
 | | - Feature 5: MCP Integration (`POST /api/v1/mcp`) | | 5 tests | PASS |
 | | - Feature 6: Asynchronous Jobs & Queue Management (`/api/v1/jobs/*`) | | 6 tests | PASS |
-| **Tier 2** | **Boundary & Corner Cases** | `tests/e2e/tier2_boundary_test.go` | **34 tests** (38 with subtests) | **PASS (100%)** |
+| **Tier 2** | **Boundary & Corner Cases** | `tests/e2e/tier2_boundary_test.go` | **23 test functions** (38 test runs with 15 subtests) | **PASS (100%)** |
 | | - Empty parameters, unknown categories, unknown search queries | | 3 tests | PASS |
 | | - Missing plugin ID, missing action, 404 on unknown plugin/action | | 4 tests | PASS |
 | | - Shell metacharacter injection prevention (`;`, `|`, `&`, `$()`, etc.) | | 7 tests | PASS |
@@ -91,10 +91,27 @@ The test suite exercises the following public endpoints over real HTTP loopback 
 
 ---
 
-## 4. Verification Results Summary
+## 4. Verification Results & Statement Coverage Summary
 
 - **Local E2E Execution Result**: `ok go-admin-tool/tests/e2e` (88/88 tests passed, 0 failures, 0 skips, ~6.5s).
-- **Full Repository Suite**: 461/461 passed across 11 packages (`internal/core`, `internal/database`, `internal/audit`, `internal/auth`, `internal/plugins`, `internal/jobs`, `internal/mcp`, `internal/api`, `cmd/server`, `docs`, `tests/e2e`).
+- **Full Repository Suite**: 461/461 passed across all 11 packages (100% pass rate).
+- **Static Analysis**: `go vet ./...` exits with code 0 (0 warnings, 0 copylocks).
 - **Operating Environments Tested**: Windows (PowerShell/cmd) and Linux (POSIX).
 - **Dependencies**: Zero external daemons required. Ephemeral in-memory SQLite and isolated port listeners.
+
+### Per-Package Statement Coverage Matrix (`go test -cover ./...`)
+
+| Package | Statement Coverage | Governance Threshold | Status | Description |
+|---|---|---|---|---|
+| `cmd/server` | **86.6%** | >= 80% | **PASS** | Server startup, error branches, graceful shutdown, and CLI configuration |
+| `docs` | **100.0%** | >= 80% | **PASS** | Documentation tests and OpenAPI schema declarations |
+| `internal/api` | **84.3%** | >= 80% | **PASS** | REST handlers, async jobs API, RBAC, Prometheus metrics, and Web Console |
+| `internal/audit` | **94.2%** | >= 80% | **PASS** | SHA-256 hash chaining, SQLite audit persistence, and file append logger |
+| `internal/auth` | **92.0%** | >= 80% | **PASS** | RBAC users, Personal Access Tokens, and scoped Service Accounts |
+| `internal/core` | **86.0%** | >= 80% | **PASS** | Process-group command execution, hierarchical timeouts, and TLS cert manager |
+| `internal/database` | **94.6%** | >= 80% | **PASS** | SQLite persistence with pure-Go in-memory engine fallback (`CGO_ENABLED=0`) |
+| `internal/jobs` | **85.5%** | >= 80% | **PASS** | Priority heap queue, worker pool concurrency, chunked log buffer, SQLite store |
+| `internal/mcp` | **92.7%** | >= 80% | **PASS** | JSON-RPC 2.0 Model Context Protocol tools, resources, and trace store |
+| `internal/plugins` | **83.3%** | >= 80% | **PASS** | 24 native plugins, declarative YAML loader, and regex-guarded runner |
+| `tests/e2e` | [no statements] | N/A | **PASS** | Test harness and 4-tier E2E test suite (100% test code) |
 

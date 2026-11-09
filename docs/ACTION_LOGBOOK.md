@@ -13,6 +13,49 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-048` — Asynchronous Action Execution Architecture Documentation, OpenAPI/Swagger Specifications, 100% Test Pass Verification, and Living Governance Registers (Milestone 5)
+- **Timestamp (UTC)**: `2026-11-09T12:05:00Z`
+- **GitHub Issue**: [#96](https://github.com/jmrenouard/api_executor/issues/96)
+- **Branch**: `docs/issue-96-async-docs-and-governance`
+- **Request**:
+  - Complete Milestone 5 of the asynchronous action execution architecture for API Executor (`go-admin-tool`), fulfilling the user follow-up request ("Ajouter des tests unitaires et fonctionnels, organiser le tout, Mettre à jour la documentation"):
+    1. Verify 100% pass across all repository unit and E2E tests (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`) with zero warnings under `go vet ./...`.
+    2. Add targeted unit tests in `cmd/server/main_test.go` to bring statement coverage of `cmd/server` above the 80% governance threshold (achieved 86.6%, ensuring all 11 repository packages exceed 80% coverage).
+    3. Update `README.md` to document the asynchronous execution engine, REST API endpoints (`/api/v1/jobs/*`), background command/plugin submission, live chunked log streaming, job cancellation, Web Administration Console Tab 9, and Prometheus telemetry.
+    4. Update OpenAPI 3.0 / Swagger 2.0 specifications (`docs/swagger.yaml`, `docs/swagger.json`, and `docs/docs.go`) with all 6 asynchronous job endpoints (`POST /api/v1/jobs`, `GET /api/v1/jobs`, `GET /api/v1/jobs/{id}`, `GET /api/v1/jobs/{id}/logs`, `POST /api/v1/jobs/{id}/cancel`, `GET /api/v1/jobs/queue`) and schemas (`SubmitJobRequest`, `JobResponse`, `JobListResponse`, `JobLogsResponse`, `JobCancelResponse`, `QueueStatsResponse`).
+    5. Update architectural documentation in `docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md` to describe the decoupled priority heap queue (`internal/jobs`), bounded worker pool, real-time chunked log buffer, process-group cancellation, two-tier RBAC (`jobs:submit`, `jobs:read`, `jobs:cancel`), Prometheus metric normalization (`/api/v1/jobs/:id`), and cryptographic SHA-256 tamper-evident audit chaining.
+    6. Update living governance registers (`docs/ACTION_LOGBOOK.md` and `docs/RCA_REGISTER.md`) and mark Milestone 5 as `DONE` in `PROJECT.md`.
+- **Changes**:
+  - Modified [`cmd/server/main_test.go`](../cmd/server/main_test.go): added unit tests for `initializeServerEnv` error branches (database path, audit file path, secure dir failure, job executor execution) and `runServerWithContext` error paths (startup error, default serveFn, abnormal exit), raising statement coverage from 72.0% to 86.6%.
+  - Modified [`README.md`](../README.md):
+    - Documented Asynchronous Execution Engine in Key Capabilities (Section 10).
+    - Added Asynchronous Job REST API documentation and cURL examples for job submission, status polling, chunked log tailing, cancellation, and queue telemetry.
+    - Updated Pure Web Administration Console section to document Tab 9 ("9. Async Jobs & Queue").
+    - Added `internal/jobs/` to repository architecture layout tree.
+    - Updated Complete REST API Summary table with 6 asynchronous endpoints.
+  - Modified [`docs/swagger.yaml`](swagger.yaml), [`docs/swagger.json`](swagger.json), and [`docs/docs.go`](docs.go):
+    - Added paths: `/api/v1/jobs`, `/api/v1/jobs/{id}`, `/api/v1/jobs/{id}/logs`, `/api/v1/jobs/{id}/cancel`, and `/api/v1/jobs/queue`.
+    - Added definitions: `api.SubmitJobRequest`, `api.SubmitJobResponse`, `api.JobListResponse`, `api.JobLogsResponse`, `api.CancelJobResponse`, `api.QueueStatsResponse`, `jobs.Job`.
+  - Modified [`docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md`](SECURITY_AND_ARCHITECTURE_ANALYSIS.md):
+    - Added Section 5 detailing Asynchronous Job Engine & Queue Architecture, process-tree termination, memory limits, RBAC security, Prometheus cardinality bounds, and SHA-256 audit trail integration.
+  - Modified [`TEST_READY.md`](../TEST_READY.md):
+    - Certified Milestone 5 readiness, corrected Tier 2 test function count, and added per-package statement coverage audit matrix.
+  - Modified [`docs/RCA_REGISTER.md`](RCA_REGISTER.md):
+    - Added `RCA-042` (Process-Tree Cancellation Latency on Windows Under Multi-Core Test Concurrency).
+    - Added `IMP-007` (Unbounded Dynamic Job ID or Action Labels in Prometheus Metrics).
+    - Added `IMP-008` (Raw String Interpolation or Unbounded In-Memory Buffering for Live Process Log Streaming).
+    - Updated `APP-001` (SQLite and pure-Go in-memory store for `job_history`) and `APP-003` (cryptographic SHA-256 audit verification for job category).
+    - Added `IDEA-009` (Job Dependency DAG & Workflow Chaining) and `IDEA-010` (Web Console Live Output Terminal via xterm.js).
+  - Modified [`PROJECT.md`](../PROJECT.md):
+    - Marked Milestone 5 as `DONE` (100% verification, docs, OpenAPI, registers).
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md):
+    - Recorded `ACT-048`.
+- **Result**:
+  - `go test -v -cover ./...`: 100% pass across all 11 packages (461/461 tests passing, coverage >=80% on all packages).
+  - `go test -v ./tests/e2e/...`: 100% pass (88/88 tests passing across all 4 tiers).
+  - `go vet ./...`: exit code 0 (zero copylocks, zero formatting warnings).
+  - GitHub Issue [#96](https://github.com/jmrenouard/api_executor/issues/96).
+
 ### `ACT-047` — 4-Tier End-to-End (E2E) Test Suite Expansion for Asynchronous Action Execution, Job Queue, and Live Logs (Milestone 4)
 - **Timestamp (UTC)**: `2026-11-09T10:25:00Z`
 - **GitHub Issue**: [#94](https://github.com/jmrenouard/api_executor/issues/94)
