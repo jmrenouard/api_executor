@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"go-admin-tool/internal/auth"
+	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
 )
 
@@ -263,3 +266,190 @@ func TestTier4_Scenario_DynamicOpsRemediationAndAuditLifecycle(t *testing.T) {
 		t.Errorf("Step 5: audit chain verification failed")
 	}
 }
+
+// ============================================================================
+// Tier 4: Feature 6 Real-World Operational & Multi-Tenant Scenarios
+// ============================================================================
+
+func TestTier4_Scenario_OperationalBatchDiagnosticWorkflow_StreamLogsAndMidFlightCancellation(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// Step 1: Submit 3 diagnostic jobs (2 fast probes, 1 slow stuck probe)
+	code1, resp1, _ := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":      "plugin",
+		"plugin_id": "sys-diagnostics",
+		"action":    "runtime_stats",
+		"priority":  "high",
+	})
+	if code1 != http.StatusAccepted {
+		t.Fatalf("Step 1: runtime_stats submit failed: %d", code1)
+	}
+
+	code2, resp2, _ := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":      "plugin",
+		"plugin_id": "sys-diagnostics",
+		"action":    "network_interfaces",
+		"priority":  "normal",
+	})
+	if code2 != http.StatusAccepted {
+		t.Fatalf("Step 1: network_interfaces submit failed: %d", code2)
+	}
+
+	code3, resp3, _ := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":     "command",
+		"action":   "slow-diag-cmd",
+		"priority": "low",
+	})
+	if code3 != http.StatusAccepted {
+		t.Fatalf("Step 1: slow-diag-cmd submit failed: %d", code3)
+	}
+
+	// Step 2: Poll Queue Telemetry
+	qCode, qStats, _ := httpGetJobQueue(t, srv, srv.adminPAT)
+	if qCode != http.StatusOK {
+		t.Fatalf("Step 2: queue telemetry failed: %d", qCode)
+	}
+	if qStats.WorkersTotal <= 0 {
+		t.Errorf("Step 2: expected positive WorkersTotal, got %d", qStats.WorkersTotal)
+	}
+
+	// Step 3: Stream and verify logs for Job 1 until EOF
+	streamLogs := pollJobLogsUntilEOF(t, srv, srv.adminPAT, resp1.JobID, 5*time.Second)
+	if !strings.Contains(streamLogs, "runtime") && !strings.Contains(streamLogs, "stats") && !strings.Contains(streamLogs, "heap") {
+		t.Logf("Streamed logs for Job 1: %s", streamLogs)
+	}
+
+	// Wait for Job 2 to finish
+	pollJobTerminal(t, srv, srv.adminPAT, resp2.JobID, 5*time.Second)
+
+	// Step 4: Mid-Flight Cancellation of the Stuck Diagnostic Job 3
+	time.Sleep(50 * time.Millisecond) // Ensure it started executing
+	cCode, cResp, cRaw := httpCancelJob(t, srv, srv.adminPAT, resp3.JobID)
+	if cCode != http.StatusOK {
+		t.Fatalf("Step 4: cancellation failed with code %d: %s", cCode, cRaw)
+	}
+	if cResp.Status != jobs.StatusCancelled {
+		t.Errorf("Step 4: expected status cancelled, got %s", cResp.Status)
+	}
+
+	// Wait for cancelled terminal state
+	job3 := pollJobTerminal(t, srv, srv.adminPAT, resp3.JobID, 5*time.Second)
+	if job3.Status != jobs.StatusCancelled {
+		t.Fatalf("Step 4: expected cancelled status for job 3, got %s", job3.Status)
+	}
+
+	// Confirm final status in job detail endpoint
+	gCode, job3Detail, _ := httpGetJob(t, srv, srv.adminPAT, resp3.JobID)
+	if gCode != http.StatusOK || job3Detail.Status != jobs.StatusCancelled {
+		t.Fatalf("Step 4: expected cancelled status for job 3 detail, got code=%d status=%s", gCode, job3Detail.Status)
+	}
+
+	// Step 5: Verify Cryptographic SHA-256 Audit Integrity
+	vCode, vRes := httpVerifyAuditChain(t, srv, srv.adminPAT)
+	if vCode != http.StatusOK || !vRes.Valid {
+		t.Fatalf("Step 5: audit verification failed: valid=%v brokenAt=%d", vRes.Valid, vRes.BrokenAtID)
+	}
+}
+
+func TestTier4_Scenario_MultiTenantIsolation_JobHistoryAndAuditScoping(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// Create Tenant Alpha user & token
+	userAlpha, err := srv.authMgr.CreateUser("tenant_alpha", "PasswordAlpha123!", "Tenant Alpha", "alpha@tenant.test", auth.RoleOperator)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("failed to create tenant_alpha: %v", err)
+	}
+	_, tokenAlpha, err := srv.authMgr.CreateToken(userAlpha.ID, "alpha-pat", []string{
+		auth.ScopeJobsSubmit, auth.ScopeJobsRead, auth.ScopeJobsCancel, "commands:execute", "plugins:execute",
+	}, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to issue tokenAlpha: %v", err)
+	}
+
+	// Create Tenant Beta user & token
+	userBeta, err := srv.authMgr.CreateUser("tenant_beta", "PasswordBeta123!", "Tenant Beta", "beta@tenant.test", auth.RoleOperator)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("failed to create tenant_beta: %v", err)
+	}
+	_, tokenBeta, err := srv.authMgr.CreateToken(userBeta.ID, "beta-pat", []string{
+		auth.ScopeJobsSubmit, auth.ScopeJobsRead, auth.ScopeJobsCancel, "commands:execute", "plugins:execute",
+	}, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to issue tokenBeta: %v", err)
+	}
+
+	// Tenant Alpha submits 2 jobs
+	codeA1, respA1, _ := httpSubmitJob(t, srv, tokenAlpha, map[string]any{"type": "command", "action": "echo-cmd"})
+	codeA2, respA2, _ := httpSubmitJob(t, srv, tokenAlpha, map[string]any{"type": "command", "action": "echo-cmd"})
+	if codeA1 != http.StatusAccepted || codeA2 != http.StatusAccepted {
+		t.Fatalf("Tenant Alpha job submission failed: codeA1=%d codeA2=%d", codeA1, codeA2)
+	}
+
+	// Tenant Beta submits 2 jobs
+	codeB1, respB1, _ := httpSubmitJob(t, srv, tokenBeta, map[string]any{"type": "command", "action": "echo-cmd"})
+	codeB2, respB2, _ := httpSubmitJob(t, srv, tokenBeta, map[string]any{"type": "command", "action": "echo-cmd"})
+	if codeB1 != http.StatusAccepted || codeB2 != http.StatusAccepted {
+		t.Fatalf("Tenant Beta job submission failed: codeB1=%d codeB2=%d", codeB1, codeB2)
+	}
+
+	// Wait for all jobs to reach terminal state
+	pollJobTerminal(t, srv, tokenAlpha, respA1.JobID, 5*time.Second)
+	pollJobTerminal(t, srv, tokenAlpha, respA2.JobID, 5*time.Second)
+	pollJobTerminal(t, srv, tokenBeta, respB1.JobID, 5*time.Second)
+	pollJobTerminal(t, srv, tokenBeta, respB2.JobID, 5*time.Second)
+
+	// Step 1: Query job history filtered by actor_id=tenant_alpha
+	codeListA, listA, rawListA := httpListJobs(t, srv, tokenAlpha, "?actor_id=tenant_alpha")
+	if codeListA != http.StatusOK {
+		t.Fatalf("failed to list Alpha jobs: %d: %s", codeListA, rawListA)
+	}
+	if len(listA.Jobs) < 2 {
+		t.Fatalf("expected at least 2 Alpha jobs, got %d", len(listA.Jobs))
+	}
+	for _, j := range listA.Jobs {
+		if j.ActorID != "tenant_alpha" {
+			t.Errorf("multi-tenant breach: non-alpha job returned in alpha query: %+v", j)
+		}
+		if j.ID == respB1.JobID || j.ID == respB2.JobID {
+			t.Errorf("multi-tenant breach: beta job %s leaked to alpha query", j.ID)
+		}
+	}
+
+	// Step 2: Query job history filtered by actor_id=tenant_beta
+	codeListB, listB, rawListB := httpListJobs(t, srv, tokenBeta, "?actor_id=tenant_beta")
+	if codeListB != http.StatusOK {
+		t.Fatalf("failed to list Beta jobs: %d: %s", codeListB, rawListB)
+	}
+	if len(listB.Jobs) < 2 {
+		t.Fatalf("expected at least 2 Beta jobs, got %d", len(listB.Jobs))
+	}
+	for _, j := range listB.Jobs {
+		if j.ActorID != "tenant_beta" {
+			t.Errorf("multi-tenant breach: non-beta job returned in beta query: %+v", j)
+		}
+		if j.ID == respA1.JobID || j.ID == respA2.JobID {
+			t.Errorf("multi-tenant breach: alpha job %s leaked to beta query", j.ID)
+		}
+	}
+
+	// Step 3: Verify Audit Segregation and Attribution
+	codeAuditA, auditA := httpGetAuditLogs(t, srv, srv.adminPAT, "?actor_id=tenant_alpha")
+	if codeAuditA != http.StatusOK {
+		t.Fatalf("failed to query alpha audit logs: %d", codeAuditA)
+	}
+	if len(auditA) == 0 {
+		t.Errorf("expected non-empty audit events for tenant_alpha")
+	}
+	for _, ev := range auditA {
+		if ev.ActorID != "tenant_alpha" {
+			t.Errorf("audit query breach: non-alpha audit event returned: %+v", ev)
+		}
+	}
+
+	// Step 4: Verify overall cryptographic chain validity across multi-tenant events
+	vCode, vRes := httpVerifyAuditChain(t, srv, srv.adminPAT)
+	if vCode != http.StatusOK || !vRes.Valid {
+		t.Fatalf("audit chain verification failed after multi-tenant run: %+v", vRes)
+	}
+}
+

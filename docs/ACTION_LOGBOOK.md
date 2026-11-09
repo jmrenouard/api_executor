@@ -13,6 +13,32 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-047` — 4-Tier End-to-End (E2E) Test Suite Expansion for Asynchronous Action Execution, Job Queue, and Live Logs (Milestone 4)
+- **Timestamp (UTC)**: `2026-11-09T10:25:00Z`
+- **GitHub Issue**: [#94](https://github.com/jmrenouard/api_executor/issues/94)
+- **Branch**: `test/issue-94-4-tier-e2e-async-jobs`
+- **Request**:
+  - Implement Milestone 4 of the asynchronous action execution architecture for API Executor (`go-admin-tool`), expanding the End-to-End (E2E) opaque-box test suite across all 4 tiers in `tests/e2e/`.
+  - Wire `jobs.Engine` into `tests/e2e/setup_test.go` and implement client helpers for `/api/v1/jobs/*`.
+  - Add 22 new tests across Tiers 1–4 covering command/plugin submission, status polling, pagination, log chunk tailing, cancellation, RBAC scopes, scoped service accounts, Prometheus metrics, SHA-256 audit chaining, and batch prioritization.
+  - Update `TEST_INFRA.md` and `TEST_READY.md`.
+  - Mark Milestone 4 DONE in `PROJECT.md`.
+- **Changes**:
+  - Modified [`tests/e2e/setup_test.go`](../tests/e2e/setup_test.go): wired `JobEngine`, cross-platform test commands, HTTP and polling helpers (`httpSubmitJob`, `httpGetJob`, `httpListJobs`, `httpGetJobLogs`, `httpCancelJob`, `httpGetJobQueue`, `pollJobTerminal`, `pollJobLogsUntilEOF`), and graceful worker pool shutdown.
+  - Modified [`tests/e2e/tier1_feature_test.go`](../tests/e2e/tier1_feature_test.go): added 6 Feature 6 tests covering command and plugin submission, status transitions, pagination & status filtering, queue telemetry, and chunked log streaming until EOF.
+  - Modified [`tests/e2e/tier2_boundary_test.go`](../tests/e2e/tier2_boundary_test.go): added 9 boundary tests covering missing required fields, invalid job type, plugin job without plugin_id, 404s on non-existent job ID across subroutes, 409 Conflict on cancelling already terminal job, negative pagination sanitization, malformed JSON body, timeout enforcement (`timed_out`), and queue capacity backpressure (HTTP 429 Too Many Requests).
+  - Modified [`tests/e2e/tier3_cross_feature_test.go`](../tests/e2e/tier3_cross_feature_test.go): added 5 cross-feature tests covering two-tier RBAC scopes and service account action allowlists, cryptographic SHA-256 audit hash chaining across job lifecycle (`job.enqueued` -> `job.started` -> `job.completed`/`job.cancelled`) and verify endpoint, Prometheus telemetry invariants and dynamic route normalization (`/api/v1/jobs/:id/logs`), high-concurrency 30-goroutine priority heap race, and async job cancellation with immediate subprocess group termination.
+  - Modified [`tests/e2e/tier4_real_world_test.go`](../tests/e2e/tier4_real_world_test.go): added 2 production scenarios covering SRE operational batch diagnostic workflow with chunked log streaming & mid-flight cancellation, and enterprise multi-tenant isolation with actor-scoped queries and audit segregation.
+  - Modified [`TEST_INFRA.md`](../TEST_INFRA.md): documented Feature 6 test architecture across all four tiers, updated `e2eTestServer` construction, and credentials matrix.
+  - Modified [`TEST_READY.md`](../TEST_READY.md): published updated readiness breakdown certifying 88 E2E tests passing (100% pass) and 461 full repository tests.
+  - Modified [`PROJECT.md`](../PROJECT.md): marked Milestone 4 as DONE.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded ACT-047.
+- **Result**:
+  - `go test -v ./tests/e2e/...`: 100% pass (88/88 tests passing, zero failures).
+  - `go test -v -cover ./...`: 100% pass (461/461 tests passing across all 11 packages).
+  - `go vet ./...`: exit code 0 (zero warnings).
+  - GitHub Issue [#94](https://github.com/jmrenouard/api_executor/issues/94).
+
 ### `ACT-046` — Web Administration Console Tab 9 Integration and Web Console Test Suite Expansion (Milestone 3)
 - **Timestamp (UTC)**: `2026-11-09T09:45:00Z`
 - **GitHub Issue**: [#92](https://github.com/jmrenouard/api_executor/issues/92)
