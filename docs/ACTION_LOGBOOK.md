@@ -7,13 +7,64 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 1. Ongoing Actions (`IN PROGRESS`)
 
-| Action ID | Timestamp (UTC) | Atomic Issue | Branch | Request Summary |
-|---|---|---|---|---|
-| *(None — all requested atomic actions completed and merged)* | — | — | — | — |
+*(None — all requested atomic actions completed and merged)*
 
 ---
 
 ## 2. Completed Actions (`COMPLETED`)
+
+### `ACT-044` — Async Job REST API Endpoints, RBAC Scopes, Prometheus Metrics, and Audit Integration (Milestone 2)
+- **Timestamp (UTC)**: `2026-11-09T08:50:00Z`
+- **GitHub Issue**: [#88](https://github.com/jmrenouard/api_executor/issues/88)
+- **Branch**: `feat/issue-88-async-job-rest-api-rbac-and-metrics`
+- **Request**:
+  - Implement Milestone 2 of the asynchronous action execution architecture for API Executor (`go-admin-tool`), exposing REST API endpoints for job submission, query, log streaming, cancellation, and queue telemetry with RBAC authorization, Prometheus metrics, and SHA-256 audit logging.
+  - Decouple telemetry reporting via `jobs.MetricsReporter` interface in `internal/jobs/engine.go` to prevent cyclic package imports between `jobs` and `api`.
+  - Add RBAC scopes `jobs:submit`, `jobs:read`, `jobs:cancel` to `internal/auth/manager.go`, granting Operator all 3, Viewer `jobs:read`, and Service `jobs:submit` and `jobs:read`.
+  - Add `JobEngine *jobs.Engine` field to `api.APIEnv` and assign permissions to anonymous fallback principal when `RequireAuth == false`.
+  - Create `internal/api/job_metrics.go` defining Prometheus gauges (`job_queue_depth`, `job_workers_active`, `job_workers_total`), counters (`job_executions_total` with `status`, `action`), and histogram (`job_execution_duration_seconds` with `action`), implementing `jobs.MetricsReporter`.
+  - Create `internal/api/job_handlers.go` implementing DTOs and 6 endpoints:
+    - `POST /api/v1/jobs` (202 Accepted, Location header, two-tier RBAC validating `jobs:submit` and command/plugin execution scope).
+    - `GET /api/v1/jobs` (status/type/action/actor_id filters, limit, offset, pagination).
+    - `GET /api/v1/jobs/{id}` (job details, 200 or 404).
+    - `GET /api/v1/jobs/{id}/logs?offset=...` (chunked live log stream, next_offset, truncated, eof).
+    - `POST /api/v1/jobs/{id}/cancel` (cancellation, 200 or 409 Conflict if terminal).
+    - `GET /api/v1/jobs/queue` (queue stats telemetry).
+  - Update `internal/api/router.go`: register `/api/v1/jobs` and `/api/v1/jobs/queue` in `knownStaticPaths`, update `normalizeMetricPath` to normalize dynamic job paths to `/api/v1/jobs`, `/api/v1/jobs/queue`, `/api/v1/jobs/:id`, `/api/v1/jobs/:id/logs`, `/api/v1/jobs/:id/cancel` preventing Prometheus cardinality explosion, and mount routes on mux.
+  - Wire production runtime in `cmd/server/main.go`: initialize `JobStore`, construct job executor bridging `core.ExecuteCommandWithContext` and `plugins.Registry.Execute`, instantiate and start `jobs.Engine`, inject `api.NewJobMetricsReporter()`, wire `apiEnv.JobEngine`, and register graceful shutdown in `cleanup()`.
+  - Write comprehensive unit tests in `internal/api/job_handlers_test.go` and `internal/api/router_test.go`.
+- **Changes**:
+  - Modified [`internal/jobs/engine.go`](../internal/jobs/engine.go):
+    - Added `MetricsReporter` interface and `SetMetricsReporter`/`GetMetricsReporter`.
+    - Wired reporter hooks into `Enqueue`, `CancelJob`, and `handleJobExecution`.
+  - Modified [`internal/auth/manager.go`](../internal/auth/manager.go):
+    - Defined scope constants `ScopeJobsSubmit = "jobs:submit"`, `ScopeJobsRead = "jobs:read"`, `ScopeJobsCancel = "jobs:cancel"`.
+    - Updated `defaultScopesForRole` to grant appropriate scopes to `operator`, `viewer`, and `service` roles.
+  - Modified [`internal/api/handlers.go`](../internal/api/handlers.go):
+    - Added `JobEngine *jobs.Engine` field to `APIEnv`.
+  - Modified [`internal/api/auth_handlers.go`](../internal/api/auth_handlers.go):
+    - Added `jobs:submit`, `jobs:read`, `jobs:cancel` to anonymous principal scopes when `RequireAuth == false`.
+  - Created [`internal/api/job_metrics.go`](../internal/api/job_metrics.go):
+    - Implemented Prometheus metrics and `jobs.MetricsReporter` integration.
+  - Created [`internal/api/job_handlers.go`](../internal/api/job_handlers.go):
+    - Implemented DTOs, RBAC checks, audit rejection logging, and handlers for all 6 endpoints.
+  - Modified [`internal/api/router.go`](../internal/api/router.go):
+    - Added static routes and normalized dynamic job paths in `normalizeMetricPath`. Mounted handlers.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go):
+    - Bootstrapped `jobs.Engine` with database store, executor, metrics reporter, and graceful shutdown.
+  - Created [`internal/api/job_handlers_test.go`](../internal/api/job_handlers_test.go):
+    - 18 comprehensive tests covering all endpoints, 400, 401, 403, 404, 409, 429, log chunking, metrics, and audit integration.
+  - Modified [`internal/api/router_test.go`](../internal/api/router_test.go):
+    - Added table test cases for job route normalization and verified Prometheus metric path isolation.
+  - Modified [`internal/jobs/m1_stress_challenge_test.go`](../internal/jobs/m1_stress_challenge_test.go):
+    - Applied 800ms Windows cancellation latency threshold under full multi-core suite load.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-044`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-040`, `APP-010`, and `IDEA-008`.
+- **Result**:
+  - `go vet ./...` exits with code 0 (zero copylocks warnings, clean static analysis).
+  - `go test -v -cover ./...` passes 100% (420/420 tests passing across all 11 packages).
+  - Statement coverage: `internal/api` at 84.1%, `internal/jobs` at 85.5% (both exceeding 80% requirement).
+  - GitHub Issue [#88](https://github.com/jmrenouard/api_executor/issues/88), PR pending.
 
 ### `ACT-043` — Resolve Copylocks Violations, Log Buffer Memory Leak, and pruneTicker Data Race (Milestone 1 Iteration 2 Remediation)
 - **Timestamp (UTC)**: `2026-11-09T08:40:00Z`

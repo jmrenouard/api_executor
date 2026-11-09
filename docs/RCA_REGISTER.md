@@ -536,6 +536,19 @@ This living governance register records all errors encountered, technical dead-e
   4. Added `SetResultData(res)` and `GetResultData()` to `Job`, and guarded worker terminal transitions in `WorkerPool.runJob`.
 - **Result & Non-Regression Test**: Verified by `TestEngineLogBufferEvictionOnEnqueueFailure`, `TestEngineLogBufferPruning`, and `TestChallenger_Engine_ShutdownPruneLoopNilPointerRace` under `go test -v -race` in WSL (0 races, 0 panics).
 
+### `RCA-040` — Trailing Slash Normalization Inversion for Static Job Path in `normalizeMetricPath`
+- **Date**: `2026-11-09`
+- **Observed Symptom**: Requests to `/api/v1/jobs/` (with a trailing slash) were classified as `"other"` instead of being normalized to `"/api/v1/jobs"` in Prometheus metrics, failing `TestNormalizeMetricPath/jobs_with_trailing_slash`.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why was `/api/v1/jobs/` normalized to "other"?* Because `normalizeMetricPath` evaluated `trimmed := strings.TrimSuffix(path, "/")` resulting in `"/api/v1/jobs"`, and then called `sub := strings.TrimPrefix(trimmed, "/api/v1/jobs/")`.
+  2. *Why did TrimPrefix fail?* Because `trimmed` was `"/api/v1/jobs"`, which does not contain the trailing slash required by the prefix pattern `"/api/v1/jobs/"`.
+  3. *What happened next?* `sub` retained the full string `"/api/v1/jobs"`, and `strings.Split(sub, "/")` produced 4 elements (`["", "api", "v1", "jobs"]`).
+  4. *Why did that return "other"?* Because `len(parts) == 4`, falling through the segment boundary checks.
+  5. *Root Cause*: Attempting to trim a trailing-slash prefix on a string that had already been stripped of trailing slashes without checking for exact equality with the base route.
+- **Applied Change / Fix**:
+  Added an explicit equality check `if trimmed == "/api/v1/jobs" { return "/api/v1/jobs" }` immediately after stripping the trailing slash in `internal/api/router.go`.
+- **Result & Non-Regression Test**: Verified by `TestNormalizeMetricPath` (63 table cases passing 100%) and `TestPrometheusMetricJobRouteNormalization`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -573,7 +586,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-007` | `web/static` | Single-file zero-build Web Administration Console (`web/static/index.html`) using Alpine.js and Tailwind CSS via CDN. | Requires no Node.js/npm build step; air-gapped deployments without internet access need vendored static CSS/JS assets. | Vendor Alpine.js and compiled CSS into `web/static/vendor/` for offline air-gapped environments. |
 | `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Fully fulfilled and replaced in Milestones 2, 3, and 5 by 281 live filesystem declarative plugin YAML manifests and 24 native pure-Go plugins (total 305/306 plugins). |
 | `APP-009` | `internal/jobs` | In-memory log buffer retained per active job bounded to 2 MiB (`DefaultMaxLogBytes = 2 MiB`), with completed log eviction upon engine pruning. | Bounded memory consumption; historical logs after memory eviction rely on output summaries stored in `JobStore`. | Add persistent chunked log archive to disk or object storage if unbounded historical log retrieval is needed (`IDEA-007`). |
-
+| `APP-010` | `internal/api` | In-memory chunked log streaming via `JobLogBuffer` returns `eof=true` and empty chunk after buffer eviction, relying on output summary in `JobStore`. | Historical logs after buffer eviction cannot be re-streamed byte-for-byte via the chunked log endpoint. | Add persistent chunked log archive to disk or object storage (`IDEA-007`). |
 
 ---
 
@@ -588,3 +601,4 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-005` | `P3` | `internal/mcp` | Streamable HTTP / SSE notification stream and stdio CLI bridge for local desktop MCP hosts. |
 | `IDEA-006` | `P3` | `web/static` | Virtualized catalog scrolling / infinite scroll for Web Console Tab 5 when plugin ecosystem scales beyond 1,000 plugins. |
 | `IDEA-007` | `P2` | `internal/jobs` | Distributed Redis / PostgreSQL queue backend and persistent S3/MinIO chunked log streaming for multi-node deployments. |
+| `IDEA-008` | `P2` | `internal/api` | WebSocket / Server-Sent Events (SSE) live push streaming endpoint (`/api/v1/jobs/{id}/stream`) for real-time output and status updates without client HTTP offset polling. |

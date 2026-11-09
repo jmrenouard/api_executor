@@ -1,26 +1,34 @@
-# Project: API Executor 300+ Plugins Ecosystem Expansion
+# Project: Asynchronous Action Execution, Job Queue, Logs, and Audit History
 
 ## Architecture
-The API Executor (`go-admin-tool`) plugin architecture uses a hybrid model combining high-performance native Go plugins with declarative YAML/JSON command plugins, exposed uniformly via REST API, MCP server, and a pure HTML5/Alpine.js Web Administration Console:
+The API Executor (`go-admin-tool`) asynchronous execution architecture decouples long-running operations from synchronous HTTP request threads using a bounded in-memory priority queue, a dedicated worker pool, real-time chunked log capture, persistent SQLite history with in-memory fallback, and cryptographic SHA-256 tamper-evident audit chaining:
 
-- **Core Plugin Engine (`internal/plugins/`)**:
-  - `Registry`: Thread-safe registry (`sync.RWMutex`) with duplicate-detection, category-aware indexing, and in-memory multi-attribute filtering (`ListFiltered`).
-  - `Plugin` Interface: Enriched with `Category() string` and `Type() string` (native vs declarative), while preserving backward compatibility with `Kind() PluginKind`.
-  - `PluginInfo`: Serializes `id`, `name`, `version`, `kind`, `type`, `category`, `description`, `actions`.
-  - Recursive Declarative Loader: Uses `filepath.WalkDir` to discover plugins across domain subdirectories (`plugins/<domain>/`), inferring default category from directory names when omitted.
-  - Safe Subprocess Execution: Direct `exec.CommandContext` argv execution without shell interpreters (`sh`, `bash`, `cmd`), strictly validating parameter types, regex patterns, and metacharacter blacklists.
-- **Native Go Plugins**: 24 distinct pure-Go plugins across 10 domains using standard library packages (`crypto/*`, `net`, `net/http`, `os`, `database/sql`, `regexp`, `time`), zero CGO dependencies.
-- **Declarative Plugins Catalog (`plugins/`)**: 280 declarative YAML plugins organized across 10 operational domains (28 plugins per domain).
-- **API & MCP Integration (`internal/api/`, `internal/mcp/`)**:
-  - `GET /api/v1/plugins`: Supports query parameters `?category=...&q=...&type=...`.
-  - `POST /api/v1/plugins/execute`: Uniform execution with RBAC, Prometheus metrics, and SHA-256 hash-chained audit logging.
-  - `internal/mcp/`: Meta-Tool Pattern (`execute_plugin`) and `executor://plugins/catalog` resource, preventing LLM context-window token overflow.
+- **Core Execution Primitives (`internal/core/`)**:
+  - `ExecuteCommandWithContext(ctx, cmdDef, timeout, liveWriter)`: Propagates parent/job contexts directly to `exec.CommandContext`, configuring process group termination (`taskkill /T /F` on Windows, `syscall.Kill(-pid, SIGKILL)` on Unix) and piping stdout/stderr into both the internal buffer and the live `JobLogBuffer`.
+- **Asynchronous Job Engine (`internal/jobs/`)**:
+  - `Job`: Data model capturing `ID`, `Type` (`command` | `plugin`), `Action`, `PluginID`, `Parameters`, `Priority`, `Status` (`queued`, `running`, `completed`, `failed`, `cancelled`, `timed_out`), timestamps, duration, actor attribution, and output summary.
+  - `JobQueue`: Thread-safe priority queue (`container/heap`) with three priority tiers (High, Normal, Low) and FIFO ordering within tiers, with backpressure capacity (`ErrQueueFull`).
+  - `WorkerPool`: Bounded worker goroutines consuming jobs from the queue with graceful draining on server shutdown.
+  - `JobLogBuffer`: Concurrency-safe byte buffer supporting simultaneous subprocess writes and client chunked reads (`ReadChunk(offset)`) with EOF notifications and memory bounds (`MaxLogBytesPerJob = 2 MiB`).
+  - `JobStore`: SQLite table `job_history` with indexed queries (`status`, `action`, `actor_id`, `created_at`) and thread-safe in-memory fallback (`CGO_ENABLED=0`), plus background retention pruning.
+- **REST API Endpoints (`internal/api/`)**:
+  - `POST /api/v1/jobs`: Submit command or plugin action for background execution (returns `202 Accepted` with `job_id` and poll URLs).
+  - `GET /api/v1/jobs`: List active and historical jobs with filtering and pagination.
+  - `GET /api/v1/jobs/{id}`: Inspect detailed job metadata and execution state.
+  - `GET /api/v1/jobs/{id}/logs`: Tail live/captured logs with byte offset tracking.
+  - `POST /api/v1/jobs/{id}/cancel`: Abort a queued or running job with immediate subprocess termination.
+  - `GET /api/v1/jobs/queue`: Inspect queue depth and worker pool telemetry.
+  - Prometheus path normalization in `normalizeMetricPath` and bounded metric labels.
+  - RBAC verification (`jobs:submit`, `jobs:read`, `jobs:cancel`) and service account action scoping.
+- **Cryptographic Audit Trail (`internal/audit/`)**:
+  - Every job lifecycle transition (`job.enqueued`, `job.started`, `job.completed`, `job.failed`, `job.cancelled`) records a SHA-256 hash-chained `AuditEvent` (`category: "job"`), preserving tamper-evident chain verification.
 - **Web Administration Console (`web/static/index.html`)**:
-  - Tab 5 upgraded to a responsive Master-Detail layout featuring instant keyword search, 10 domain category pills, type toggles, pagination, and dynamic parameter forms.
-- **Governance & Atomic Workflow**:
-  - Strict 1 Item = 1 GitHub Issue = 1 Dedicated Branch = 1 PR = 1 Merge = Close Issue with summary comment.
-  - English-only policy across code, comments, docs, commit messages, and PRs.
-  - Living registers in `docs/ACTION_LOGBOOK.md` and `docs/RCA_REGISTER.md`.
+  - Tab 9: `9. Async Jobs & Queue` featuring worker telemetry badges, job submission card (command/plugin), interactive execution history table with status badges, and a live log viewer modal with auto-refresh poll loop (1s/2s) and cancel button.
+- **Mandatory Repository Governance**:
+  - Strict atomicity: 1 feature/fix = 1 GitHub Issue = 1 Branch = 1 PR = 1 Merge = Close Issue with summary comment.
+  - English-only across all code, comments, issues, PRs, comments, and documentation.
+  - Pre-commit test pass: 100% passing `go test -v -cover ./...`.
+  - Living registers: `docs/ACTION_LOGBOOK.md` and `docs/RCA_REGISTER.md`.
 
 ---
 
@@ -30,27 +38,18 @@ Every required feature from the survey and requirements is cataloged and assigne
 
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Category & Type Metadata in `PluginInfo` & `Plugin` | Enrich plugin metadata with `category` and `type` ("native" / "declarative") | M1 | Survey 1, 2, 3 |
-| 2 | Recursive Declarative Directory Loader | Upgrade `LoadDeclarativeDirectory` to use `filepath.WalkDir` for domain subdirectories | M1 | Survey 2, 3 |
-| 3 | Filtered Plugin Listing in Registry | Add `Registry.ListFiltered(category, q, pluginType)` with case-insensitive matching | M1 | Survey 1, 3 |
-| 4 | API Query Parameter Filtering on `GET /api/v1/plugins` | Handle `?category=...`, `?q=...`, and `?type=...` in `PluginsListHandler` | M1 | Survey 3 |
-| 5 | 24 Native Go Plugins Across 10 Domains | Implement 24 pure-Go plugins (zero CGO) across all 10 domains with unit tests | M1 | Survey 1 |
-| 6 | SysAdmin Declarative Plugin Pack (28 plugins) | System, CPU, memory, storage, process, and kernel inspection plugins | M2 | Survey 2 |
-| 7 | NetOps Declarative Plugin Pack (28 plugins) | Interfaces, routes, ARP, ping, traceroute, DNS, firewall, and curl plugins | M2 | Survey 2 |
-| 8 | SecOps Declarative Plugin Pack (28 plugins) | Auth logs, sudo, SUID, permissions, AppArmor/SELinux, and audit plugins | M2 | Survey 2 |
-| 9 | ContainerOps Declarative Plugin Pack (28 plugins) | Docker, containerd, crictl, Podman container, image, and network plugins | M2 | Survey 2 |
-| 10 | Kubernetes Declarative Plugin Pack (28 plugins) | K8s nodes, pods, services, ingress, PVCs, events, and Helm releases | M2 | Survey 2 |
-| 11 | DataOps Declarative Plugin Pack (28 plugins) | SQLite, PostgreSQL, MySQL, Redis, MongoDB, Elasticsearch, and backup checks | M3 | Survey 2 |
-| 12 | DevOps & CI/CD Declarative Plugin Pack (28 plugins) | Git status, commits, tags, Go/Node/Python/Rust/Cargo/make/linters | M3 | Survey 2 |
-| 13 | SRE & Observability Declarative Plugin Pack (28 plugins) | Prometheus scrape, Loki, OpenTelemetry, SLO latency, logs, FinOps | M3 | Survey 2 |
-| 14 | AIOps & LLM/MCP Declarative Plugin Pack (28 plugins) | NVIDIA GPU, CUDA, Ollama, vLLM, TGI, MCP client, vector DBs, datasets | M3 | Survey 2 |
-| 15 | Web & Crypto Utilities Declarative Pack (28 plugins) | HTTP latency, headers, SSL/TLS, X.509, SHA/MD5, JWT, base64, JSON/YAML | M3 | Survey 2 |
-| 16 | Web Console Tab 5 Search, Filtering & Pagination | Upgrade Tab 5 in `web/static/index.html` with search, pills, pagination & forms | M4 | Survey 3 |
-| 17 | MCP Catalog & Meta-Tool Compatibility | Verify `executor://plugins/catalog` and `execute_plugin` with 300+ plugins | M4 | Survey 3 |
-| 18 | E2E Test Suite (Tiers 1-4) | Comprehensive opaque-box test suite for 300+ plugins, producing `TEST_READY.md` | E2E Track | Requirements |
-| 19 | 100% E2E Pass & Test Coverage Verification | Pass 100% E2E tests, verify `>= 80%` statement coverage, and zero duplicate IDs | M5 | Requirements |
-| 20 | Live MCP Playwright Web Console Validation | Automated browser verification of Tab 5 loading, filtering, and execution | M5 | Requirements |
-| 21 | Governance Registers & Documentation | Update `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md`, and `README.md` | M5 | Governance |
+| 1 | Execution Engine Context & Live Stream Support | `ExecuteCommandWithContext` accepting context, timeout, and `io.Writer` live logger | M1 | Survey 1 |
+| 2 | Priority Job Queue & Worker Pool | `internal/jobs` package with `JobQueue` (heap), `WorkerPool`, and lifecycle state machine | M1 | Survey 1, 2 |
+| 3 | Concurrency-Safe Live & Captured Log Buffer | `JobLogBuffer` for real-time subprocess stdout/stderr capture and offset-based chunk reads | M1 | Survey 1, 2 |
+| 4 | Persistent Job History & SQLite / In-Memory Store | `job_history` table, indexed queries, in-memory fallback, and retention pruner | M1 | Survey 2 |
+| 5 | Asynchronous REST API Handlers | `POST /api/v1/jobs`, `GET /api/v1/jobs`, `GET /api/v1/jobs/{id}`, `GET /api/v1/jobs/{id}/logs`, `POST /api/v1/jobs/{id}/cancel`, `GET /api/v1/jobs/queue` | M2 | Survey 3 |
+| 6 | RBAC Authorization for Async Actions | Scopes `jobs:submit`, `jobs:read`, `jobs:cancel`, and service account allowed actions check | M2 | Survey 3 |
+| 7 | Prometheus Telemetry for Async Jobs | Metrics `job_queue_depth`, `job_workers_active`, `job_executions_total`, duration histogram, route normalization | M2 | Survey 3 |
+| 8 | SHA-256 Tamper-Evident Audit Integration | Cryptographic chaining of job lifecycle events under `Category: "job"` | M2 | Survey 2, 3 |
+| 9 | Web Administration Console Tab 9 Integration | Tab 9 in `web/static/index.html` with telemetry bar, submit card, history table, live log modal & tests in `web_console_test.go` | M3 | Survey 3 |
+| 10 | 4-Tier End-to-End (E2E) Test Suite Expansion | 15+ tests across Tiers 1–4 (Feature, Boundary, Cross-Feature, Real-World) in `tests/e2e/` | M4 | Survey 3 |
+| 11 | 100% E2E Pass & Test Coverage Verification | Pass 100% tests across all packages (`go test -v -cover ./...`), verify statement coverage | M5 | Requirements |
+| 12 | Documentation, OpenAPI/Swagger & Living Registers | Update `README.md`, `docs/swagger.*`, `TEST_INFRA.md`, `TEST_READY.md`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md` | M5 | Governance |
 
 ---
 
@@ -58,88 +57,96 @@ Every required feature from the survey and requirements is cataloged and assigne
 
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Core Engine & Native Go Plugins | Recursive loader, Category/Type metadata, API query filtering, 24 native Go plugins | none | DONE |
-| M2 | Infrastructure & Systems Declarative Packs | 140 declarative plugins (SysAdmin, NetOps, SecOps, ContainerOps, Kubernetes) | M1 | DONE |
-| M3 | Applications, Data & AIOps Declarative Packs | 140 declarative plugins (DataOps, DevOps, SRE, AIOps, Web/Crypto Utilities) | M1 | DONE |
-| M4 | Web Console Tab 5 & MCP Integration | Search, domain pills, type filter, pagination, dynamic forms, MCP catalog verification | M1, M2, M3 | DONE |
-| M5 | Final Verification, Playwright & Governance | 100% E2E test pass, Playwright browser test, registers & documentation updates | M1, M2, M3, M4, E2E | DONE |
-| E2E | E2E Testing Track | Independent opaque-box test suite design (Tiers 1-4), harness, and `TEST_READY.md` | M1 interface | DONE |
+| M1 | Core Asynchronous Job Engine & Queue Worker Pool | `internal/core/executor.go` context support, `internal/jobs` package (models, queue, pool, buffer, SQLite & in-mem store) with unit tests | none | DONE (PR #85, #87; 388 tests pass, Gate 2 PASS) |
+| M2 | REST API Endpoints, RBAC, Metrics & Audit Integration | `internal/api/` handlers for `/api/v1/jobs/*`, RBAC checks, Prometheus gauges/counters, metric path normalization, SHA-256 audit events | M1 | DONE (PR pending, 420 tests pass) |
+| M3 | Web Administration Console Tab 9 Integration | `web/static/index.html` (Tab 9: queue telemetry, submit form, history table, live log modal) & `internal/api/web_console_test.go` | M1, M2 | PLANNED |
+| M4 | 4-Tier End-to-End (E2E) Test Suite Expansion | `tests/e2e/`: Tier 1 (Feature), Tier 2 (Boundary), Tier 3 (Cross-feature RBAC/Audit), Tier 4 (Real-world scenario), publish `TEST_READY.md` | M1, M2, M3 | PLANNED |
+| M5 | 100% Verification, Documentation & Governance Registers | Pass 100% `go test -v -cover ./...`, update `README.md`, `docs/swagger.*`, `TEST_INFRA.md`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md` | M1, M2, M3, M4 | PLANNED |
 
 ---
 
 ## Interface Contracts
 
-### `internal/plugins` ↔ `internal/api` & `internal/mcp`
-- `PluginInfo`:
+### `internal/jobs` ↔ `internal/api`
+- `JobRequest`:
   ```go
-  type PluginInfo struct {
-      ID          string         `json:"id"`
-      Name        string         `json:"name"`
-      Version     string         `json:"version"`
-      Kind        PluginKind     `json:"kind"`           // "declarative" | "advanced"
-      Type        string         `json:"type"`           // "native" | "declarative"
-      Category    string         `json:"category"`       // e.g. "SysAdmin", "NetOps", ...
-      Description string         `json:"description"`
-      Actions     []PluginAction `json:"actions"`
+  type JobRequest struct {
+      Type            JobType        `json:"type"`                // "command" | "plugin"
+      Action          string         `json:"action"`
+      PluginID        string         `json:"plugin_id,omitempty"`
+      Params          map[string]any `json:"params,omitempty"`
+      Priority        Priority       `json:"priority,omitempty"`  // High, Normal, Low
+      TimeoutOverride time.Duration  `json:"timeout_override,omitempty"`
+      ActorType       string         `json:"actor_type,omitempty"`
+      ActorID         string         `json:"actor_id,omitempty"`
+      SourceIP        string         `json:"source_ip,omitempty"`
   }
   ```
-- `Registry.ListFiltered`:
+- `Job`:
   ```go
-  func (r *Registry) ListFiltered(category, query, pluginType string) []PluginInfo
+  type Job struct {
+      ID          string         `json:"id"`
+      Type        JobType        `json:"type"`
+      Action      string         `json:"action"`
+      PluginID    string         `json:"plugin_id,omitempty"`
+      Params      map[string]any `json:"params,omitempty"`
+      Priority    Priority       `json:"priority"`
+      Status      JobStatus      `json:"status"` // queued, running, completed, failed, cancelled, timed_out
+      CreatedAt   time.Time      `json:"created_at"`
+      StartedAt   *time.Time     `json:"started_at,omitempty"`
+      CompletedAt *time.Time     `json:"completed_at,omitempty"`
+      DurationMs  int64          `json:"duration_ms,omitempty"`
+      Timeout     time.Duration  `json:"timeout"`
+      ActorType   string         `json:"actor_type"`
+      ActorID     string         `json:"actor_id"`
+      SourceIP    string         `json:"source_ip,omitempty"`
+      Error       string         `json:"error,omitempty"`
+      ResultData  any            `json:"result_data,omitempty"`
+  }
   ```
-- `GET /api/v1/plugins`:
-  - Query parameters: `category` (string, case-insensitive substring/match), `q` (string, search in ID, Name, Description, Category, Action names), `type` (string, "native"|"declarative").
-  - Response: `{"plugins": []PluginInfo}`
+- `Engine` Methods:
+  ```go
+  Enqueue(req JobRequest) (*Job, error)
+  GetJob(id string) (*Job, bool)
+  ListJobs(filter JobFilter) ([]*Job, int)
+  GetJobLogs(id string, offset int) (logs string, nextOffset int, truncated bool, eof bool, err error)
+  CancelJob(id string) error
+  QueueStats() QueueStats
+  Shutdown(ctx context.Context) error
+  ```
 
-### Declarative Plugin Schema (`plugins/<domain>/<name>.yaml`)
-- Structure:
-  ```yaml
-  id: "<domain-prefix>-<unique-slug>"
-  name: "Human-Readable Plugin Name"
-  version: "1.0.0"
-  category: "<Operational Domain>"
-  description: "Description of the plugin capability"
-  os_family: "any" # or "linux", "windows"
-  actions:
-    - name: "<action-name>"
-      description: "Action description"
-      command: "<binary-name>"
-      args: ["<arg1>", "<arg2>"]
-      timeout: "5s"
-      parameters:
-        - name: "<param-name>"
-          type: "string" # "string", "int", "bool"
-          required: false
-          default: "<default-value>"
-          pattern: "^[a-zA-Z0-9._-]+$"
-          description: "Parameter description"
-  ```
+### REST API Endpoints
+- `POST /api/v1/jobs`: Submit job (`202 Accepted`: `{"job_id": "...", "status": "queued", "poll_url": "..."}`)
+- `GET /api/v1/jobs`: List jobs (`200 OK`: `{"jobs": [...], "total": N, "limit": L, "offset": O}`)
+- `GET /api/v1/jobs/{id}`: Detailed job metadata (`200 OK`: `Job`)
+- `GET /api/v1/jobs/{id}/logs`: Chunked log retrieval (`200 OK`: `{"job_id": "...", "status": "...", "logs": "...", "offset": X, "next_offset": Y, "eof": bool}`)
+- `POST /api/v1/jobs/{id}/cancel`: Abort job (`200 OK`: `{"job_id": "...", "status": "cancelled"}`)
+- `GET /api/v1/jobs/queue`: Worker pool stats (`200 OK`: `{"workers_total": W, "workers_busy": B, "queued_jobs": Q, "capacity": C}`)
 
 ---
 
 ## Code Layout
 
-- `internal/plugins/`:
-  - `plugin.go`: Core types (`PluginInfo`, `ActionParameter`, `PluginAction`, `Registry`).
-  - `declarative.go`: `DeclarativePlugin`, recursive `LoadDeclarativeDirectory`, parameter validation.
-  - `native_*.go`: 24 native Go plugins (e.g. `native_crypto.go`, `native_tls.go`, `native_net.go`, `native_system.go`, etc.).
-  - `plugins_test.go`: Comprehensive unit tests for native and declarative plugins.
-- `plugins/`:
-  - `sysadmin/`: 28 SysAdmin declarative YAML manifests.
-  - `netops/`: 28 NetOps declarative YAML manifests.
-  - `secops/`: 28 SecOps declarative YAML manifests.
-  - `containerops/`: 28 ContainerOps declarative YAML manifests.
-  - `kubernetes/`: 28 Kubernetes declarative YAML manifests.
-  - `dataops/`: 28 DataOps declarative YAML manifests.
-  - `devops/`: 28 DevOps declarative YAML manifests.
-  - `sre/`: 28 SRE & Observability declarative YAML manifests.
-  - `aiops/`: 28 AIOps & LLM/MCP declarative YAML manifests.
-  - `webutils/`: 28 Web, API & Crypto declarative YAML manifests.
+- `internal/core/`:
+  - `executor.go`: Add `ExecuteCommandWithContext` accepting context, timeout, and optional live `io.Writer`.
+- `internal/jobs/`:
+  - `job.go`: Core models (`Job`, `JobStatus`, `Priority`, `JobRequest`, `JobFilter`, `JobLogBuffer`).
+  - `queue.go`: Thread-safe priority queue using `container/heap`.
+  - `worker.go`: Worker pool implementation with graceful shutdown.
+  - `store.go`: SQLite and thread-safe in-memory `JobStore` with indexed queries and retention pruner.
+  - `engine.go`: Main `Engine` orchestrating queue, workers, store, metrics, and audit logging.
+  - `jobs_test.go`: Unit tests for engine, queue, worker pool, buffer, and cancellation.
 - `internal/api/`:
-  - `plugin_handlers.go`: `PluginsListHandler` with query parameter filtering, `PluginExecuteHandler`.
-  - `plugin_handlers_test.go`: Unit tests for API filtering and execution.
+  - `job_handlers.go`: HTTP endpoints for `/api/v1/jobs/*` with RBAC authorization.
+  - `job_handlers_test.go`: Unit tests for job endpoints, error handling, and metric validation.
+  - `router.go`: Route registration, static path listing, and path normalization for Prometheus.
 - `web/static/`:
-  - `index.html`: Upgraded Tab 5 with search, category pills, type filter, pagination, and parameter form generator.
+  - `index.html`: Tab 9 UI for Async Jobs & Queue with live log viewer modal and polling.
+- `tests/e2e/`:
+  - `tier1_feature_test.go`: Tier 1 feature happy path tests for async jobs.
+  - `tier2_boundary_test.go`: Tier 2 boundary and corner case tests.
+  - `tier3_cross_feature_test.go`: Tier 3 cross-feature RBAC and audit tests.
+  - `tier4_real_world_test.go`: Tier 4 real-world long-running diagnostic scenario.
 - `docs/`:
-  - `ACTION_LOGBOOK.md`: Ongoing and completed action logs.
-  - `RCA_REGISTER.md`: Living register of root-cause analyses, dead ends, approximations, and ideas.
+  - `ACTION_LOGBOOK.md`: Living register of ongoing and completed actions.
+  - `RCA_REGISTER.md`: Living register of root-cause analyses, approximations, and ideas.

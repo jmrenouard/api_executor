@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
 
@@ -75,8 +77,14 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 
 	var auditLogger *audit.AuditLogger
 	var mcpServer *mcp.Server
+	var jobEngine *jobs.Engine
 
 	cleanup := func() {
+		if jobEngine != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = jobEngine.Shutdown(shutdownCtx)
+			cancel()
+		}
 		if mcpServer != nil {
 			_ = mcpServer.Close()
 		}
@@ -152,7 +160,49 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		return nil, nil, nil, fmt.Errorf("failed to initialize MCP server: %w", err)
 	}
 
-	apiEnv := &api.APIEnv{
+	var apiEnv *api.APIEnv
+
+	jobStore, err := jobs.NewJobStore(db)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Failed to initialize persistent job store, falling back to in-memory: %v", err))
+		jobStore = jobs.NewMemoryJobStore()
+	}
+
+	jobExecutor := func(ctx context.Context, job *jobs.Job, logWriter io.Writer) (any, error) {
+		switch job.Type {
+		case jobs.TypeCommand:
+			cmdCopy, found := apiEnv.FindCommand(job.Action)
+			if !found {
+				return nil, fmt.Errorf("command %q not found", job.Action)
+			}
+			output, err := core.ExecuteCommandWithContext(ctx, cmdCopy, job.Timeout, logWriter)
+			return map[string]any{"output": output}, err
+		case jobs.TypePlugin:
+			if pluginRegistry == nil {
+				return nil, errors.New("plugin registry is not initialized")
+			}
+			res, err := pluginRegistry.Execute(ctx, job.PluginID, job.Action, job.Params, job.Timeout)
+			if logWriter != nil && res.Output != "" {
+				_, _ = logWriter.Write([]byte(res.Output))
+			}
+			return res, err
+		default:
+			return nil, fmt.Errorf("unsupported job type: %s", job.Type)
+		}
+	}
+
+	jobEngine, err = jobs.NewEngine(jobs.DefaultEngineConfig(), jobStore, auditLogger, jobExecutor)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize async job engine: %w", err)
+	}
+	jobEngine.SetMetricsReporter(api.NewJobMetricsReporter())
+	if err := jobEngine.Start(); err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to start async job engine: %w", err)
+	}
+
+	apiEnv = &api.APIEnv{
 		Config:         config,
 		Logger:         logger,
 		DB:             db,
@@ -161,6 +211,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		AuthManager:    authManager,
 		PluginRegistry: pluginRegistry,
 		MCPServer:      mcpServer,
+		JobEngine:      jobEngine,
 	}
 
 	router := api.NewRouter(apiEnv)
