@@ -501,6 +501,41 @@ This living governance register records all errors encountered, technical dead-e
   4. Updated `internal/audit/audit_test.go` and `internal/mcp/server_test.go` to verify persistent handle lifecycle and `Close()`.
 - **Result & Non-Regression Test**: Verified by `TestAuditLoggerHashChainAndQuery`, `TestMCPServerLifecycleAndAllTools`, and `TestDatabaseSQLDriverBackedExecutionAndErrors` (339 tests passing 100% across all 10 packages).
 
+### `RCA-038` — 9 Copylocks Violations from Struct Embedding `sync.RWMutex` Value Copies
+- **Date**: `2026-11-09`
+- **Observed Symptom**: Running `go vet ./internal/jobs/...` returned 9 copylocks violations across `internal/jobs/job.go`, `internal/jobs/store.go`, and `internal/jobs/jobs_test.go`.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did `go vet` flag copylocks errors?* The `Job` struct embeds an unexported `mu sync.RWMutex` to guard state, and several methods copied the struct value.
+  2. *Where was the lock copied?* `Snapshot()` dereferenced the job pointer (`snap := *j`) and returned `Job` by value, copying `j.mu` to the caller.
+  3. *Why did `MemoryJobStore` copy locks?* It was declared as `jobs map[string]Job` (storing values instead of pointers), causing every map lookup, assignment, and slice iteration to copy the lock.
+  4. *Why did tests copy locks?* `jobs_test.go` passed `snap` (a value embedding `mu`) directly to `t.Errorf("%+v", snap)`, and `m1_stress_challenge_test.go` passed `&snap`.
+  5. *Root Cause*: Returning struct values instead of pointer references (`*Job`) for structs embedding synchronization primitives (`sync.RWMutex`).
+- **Applied Change / Fix**:
+  1. Refactored `Job.Snapshot()` to return `*Job`, allocating `snap := &Job{...}` with scalar and map fields copied explicitly, leaving `snap.mu` freshly initialized and zeroed.
+  2. Refactored `MemoryJobStore.jobs` to `map[string]*Job`, returning `snap.Snapshot()` on `GetJob` and `ListJobs` to maintain deep-cloning immutability without copying locks.
+  3. Formatted scalar fields in `t.Errorf` in `jobs_test.go` and passed `snap` directly to `store.SaveJob` in `m1_stress_challenge_test.go`.
+- **Result & Non-Regression Test**: Verified by `go vet ./...` exiting with code 0 (zero copylocks violations), and unit tests `TestJobSnapshot`, `TestMemoryJobStoreCRUDAndFilter`, and `TestChallenger_MemoryJobStore_DeepCloningImmutability` passing 100%.
+
+### `RCA-039` — Engine Log Buffer Memory Leak on Enqueue Rejection and pruneTicker Data Race / SIGSEGV on Shutdown
+- **Date**: `2026-11-09`
+- **Observed Symptom**:
+  1. When `Engine.Enqueue` was rejected due to full queue or store failure, the 2 MiB `JobLogBuffer` remained registered in `e.logBuffers` indefinitely.
+  2. Completed terminal jobs never had their log buffers evicted, accumulating unbounded memory.
+  3. `Engine.Shutdown` set `e.pruneTicker = nil` while `pruneLoop` concurrently evaluated `case <-e.pruneTicker.C:`, causing data race and fatal SIGSEGV nil pointer dereference under `go test -race`.
+  4. `handleJobExecution` wrote directly to `job.ResultData = res` without `job.mu.Lock()`.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did `logBuffers` leak on rejection?* `e.logBuffers[jobID]` was inserted before `SaveJob` and `queue.Enqueue`, without cleanup in error return blocks.
+  2. *Why did terminal jobs retain buffers?* `e.store.Prune` pruned store records but `Engine` had no log buffer pruning mechanism.
+  3. *Why did `pruneLoop` crash on shutdown?* Go select statement evaluates channel operands (`e.pruneTicker.C`) on every loop iteration; setting `e.pruneTicker = nil` from another goroutine raced and caused nil pointer dereference.
+  4. *Why was `job.ResultData` unsynchronized?* `ResultData` lacked a mutex-guarded accessor method, unlike other state fields.
+  5. *Root Cause*: Missing error recovery cleanup in `Enqueue`, missing memory eviction loop, unsynchronized field access, and accessing a mutable struct field inside a goroutine `select` loop without local variable capture or `sync.WaitGroup` coordination.
+- **Applied Change / Fix**:
+  1. Added `delete(e.logBuffers, jobID)` and `job.SetLogBuffer(nil)` on `Enqueue` error branches.
+  2. Implemented `pruneLogBuffers()` / `PruneLogBuffers()` in `Engine` to evict terminal buffers older than `MaxJobAge` or pruned from store; reset `e.logBuffers` on `Shutdown`.
+  3. Passed ticker instance directly to `pruneLoop(ticker *time.Ticker)` stack and coordinated shutdown with `e.pruneWg sync.WaitGroup`.
+  4. Added `SetResultData(res)` and `GetResultData()` to `Job`, and guarded worker terminal transitions in `WorkerPool.runJob`.
+- **Result & Non-Regression Test**: Verified by `TestEngineLogBufferEvictionOnEnqueueFailure`, `TestEngineLogBufferPruning`, and `TestChallenger_Engine_ShutdownPruneLoopNilPointerRace` under `go test -v -race` in WSL (0 races, 0 panics).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
