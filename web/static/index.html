@@ -111,6 +111,7 @@
         <div class="max-w-7xl mx-auto px-6 flex overflow-x-auto gap-1 pt-2">
             <template x-for="tab in tabs" :key="tab.id">
                 <button @click="switchTab(tab.id)"
+                        :data-tab="tab.id"
                         class="tactile-btn px-3.5 py-2 text-xs font-medium rounded-t-md border-b-2 whitespace-nowrap flex items-center gap-2"
                         :class="activeTab === tab.id
                             ? 'border-emerald-400 text-white bg-white/[0.04]'
@@ -953,7 +954,503 @@
             </div>
         </section>
 
+        <!-- TAB 9: ASYNCHRONOUS JOBS & PRIORITY QUEUE -->
+        <section x-show="activeTab === 'jobs'" id="tab-jobs" class="space-y-6" data-tab="jobs">
+
+            <!-- Card 1: Queue Telemetry & Worker Pool Header -->
+            <div class="surface-card rounded-xl p-6 space-y-5">
+                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-mono text-emerald-400 kicker-caps">9. Async Jobs &amp; Queue</span>
+                            <span class="text-slate-600">|</span>
+                            <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Asynchronous Execution Engine</span>
+                            <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 tabular-nums"
+                                  x-text="(queueStats ? queueStats.queued_jobs : 0) + ' Queued / ' + (queueStats ? queueStats.workers_active : 0) + ' Active Workers'"></span>
+                        </div>
+                        <h2 class="text-xl font-semibold text-white heading-tight">Async Jobs &amp; Queue Management</h2>
+                        <p class="text-xs text-slate-400 mt-1">Non-blocking background command and plugin execution with priority queuing, live output streaming, and SHA-256 audit tracking.</p>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <!-- Auto-refresh status indicator / toggle -->
+                        <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer surface-inset px-3 py-1.5 rounded-lg border border-white/10 hover:border-white/20">
+                            <input type="checkbox" x-model="jobsAutoRefresh" @change="toggleJobsAutoRefresh()" class="rounded bg-slate-800 border-white/10 text-emerald-500 focus:ring-0">
+                            <span class="h-2 w-2 rounded-full" :class="jobsAutoRefresh ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'"></span>
+                            <span class="font-mono text-[11px]" x-text="jobsAutoRefresh ? 'Auto-Refresh (5s)' : 'Auto-Refresh Paused'"></span>
+                        </label>
+                        <button @click="fetchQueueTelemetry(); loadJobsHistory()" class="tactile-btn px-3 py-1.5 rounded-md surface-inset text-xs text-slate-300 hover:border-white/20 flex items-center gap-1.5 font-medium">
+                            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>Refresh Queue</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Telemetry Cards Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 tabular-nums">
+                    <!-- Queued Jobs Card -->
+                    <div class="surface-inset p-4 rounded-xl space-y-1">
+                        <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                            <span>Queued Jobs</span>
+                            <span class="h-2 w-2 rounded-full" :class="(queueStats && queueStats.queued_jobs > 0) ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'"></span>
+                        </div>
+                        <div id="queue-depth-metric" class="text-2xl font-mono font-bold text-white" x-text="queueStats ? queueStats.queued_jobs : 0"></div>
+                        <div class="text-[11px] text-slate-500 font-mono">Awaiting available worker</div>
+                    </div>
+
+                    <!-- Active Workers Card -->
+                    <div class="surface-inset p-4 rounded-xl space-y-1">
+                        <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                            <span>Active Workers</span>
+                            <span class="text-[10px] text-sky-400 font-semibold" x-text="(queueStats && queueStats.workers_total > 0) ? Math.round((queueStats.workers_active / queueStats.workers_total) * 100) + '%' : '0%'"></span>
+                        </div>
+                        <div class="text-2xl font-mono font-bold text-sky-300">
+                            <span id="workers-active-metric" x-text="queueStats ? queueStats.workers_active : 0"></span>
+                            <span class="text-slate-500 text-lg font-normal">/</span>
+                            <span id="workers-total-metric" class="text-slate-400 text-lg font-normal" x-text="queueStats ? queueStats.workers_total : 0"></span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 font-mono">Busy / Total Workers</div>
+                    </div>
+
+                    <!-- Queue Capacity Card -->
+                    <div class="surface-inset p-4 rounded-xl space-y-1">
+                        <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                            <span>Queue Capacity</span>
+                            <span class="text-[10px] text-slate-400" x-text="queueStats ? ((queueStats.capacity - queueStats.queued_jobs) + ' slots free') : ''"></span>
+                        </div>
+                        <div id="queue-capacity-metric" class="text-2xl font-mono font-bold text-white" x-text="queueStats ? queueStats.capacity : 0"></div>
+                        <div class="text-[11px] text-slate-500 font-mono">Max bounded queue depth</div>
+                    </div>
+
+                    <!-- Recorded History Card -->
+                    <div class="surface-inset p-4 rounded-xl space-y-1">
+                        <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                            <span>Recorded History</span>
+                            <span class="text-[10px] text-emerald-400 font-mono">SQLite Journal</span>
+                        </div>
+                        <div class="text-2xl font-mono font-bold text-emerald-300" x-text="jobsTotal || 0"></div>
+                        <div class="text-[11px] text-slate-500 font-mono">Historical &amp; active executions</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: Job Dispatcher (Submission Form & cURL Snippet) -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Left: Submission Form (2 cols) -->
+                <div class="lg:col-span-2 surface-card rounded-xl p-6 space-y-5">
+                    <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                        <div>
+                            <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Job Dispatcher</span>
+                            <h3 class="text-lg font-semibold text-white heading-tight">Submit New Asynchronous Job</h3>
+                        </div>
+                        <div class="text-xs text-slate-400 font-mono tabular-nums">
+                            Endpoint: <code class="text-slate-200">POST /api/v1/jobs</code>
+                        </div>
+                    </div>
+
+                    <!-- Execution Target Type -->
+                    <div class="space-y-2">
+                        <label class="block text-xs font-mono text-slate-400 kicker-caps">Execution Target Type</label>
+                        <select x-model="jobForm.type" @change="syncJobActionOptions()"
+                                class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                            <option value="command">Command Action</option>
+                            <option value="plugin">Plugin Action</option>
+                        </select>
+                    </div>
+
+                    <!-- Target Inputs -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Command Select (Shown when Type === 'command') -->
+                        <div x-show="jobForm.type === 'command'" class="md:col-span-2 space-y-1.5">
+                            <label class="block text-xs text-slate-400">Predefined Command Action</label>
+                            <select x-model="jobForm.action" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                                <option value="">-- Select Predefined Command --</option>
+                                <template x-for="cmd in commands" :key="cmd.name">
+                                    <option :value="cmd.name" x-text="cmd.name + ' (' + (cmd.os_family || 'any') + ' — ' + (cmd.timeout || '15s') + ')'"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Plugin ID Select (Shown when Type === 'plugin') -->
+                        <div x-show="jobForm.type === 'plugin'" class="space-y-1.5">
+                            <label class="block text-xs text-slate-400">Target Plugin ID</label>
+                            <select x-model="jobForm.plugin_id" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500/50">
+                                <option value="">-- Select Plugin --</option>
+                                <template x-for="p in plugins" :key="p.id">
+                                    <option :value="p.id" x-text="p.name + ' (' + p.id + ')'"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Plugin Action Name Input (Shown when Type === 'plugin') -->
+                        <div x-show="jobForm.type === 'plugin'" class="space-y-1.5">
+                            <label class="block text-xs text-slate-400">Plugin Action Name</label>
+                            <input type="text" x-model="jobForm.action" placeholder="e.g. status, scan, dump, inspect"
+                                   class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500/50">
+                        </div>
+                    </div>
+
+                    <!-- Priority & Timeout Row -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-1.5">
+                            <label class="block text-xs text-slate-400">Execution Priority</label>
+                            <select x-model="jobForm.priority" class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                                <option value="normal">Normal (Default FIFO)</option>
+                                <option value="high">High (Priority Queue Front)</option>
+                                <option value="low">Low (Background Idle)</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-xs text-slate-400">Timeout Override (Optional)</label>
+                            <input type="text" x-model="jobForm.timeout" placeholder="e.g. 30s, 2m, 5m"
+                                   class="w-full surface-inset rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                        </div>
+                    </div>
+
+                    <!-- Parameters JSON Textarea -->
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <label class="block text-xs text-slate-400">Execution Parameters (JSON Object)</label>
+                            <span class="text-[11px] font-mono text-slate-500">Optional key/value payload</span>
+                        </div>
+                        <textarea x-model="jobForm.paramsJSON" rows="3" placeholder='{"key": "value"}'
+                                  class="w-full surface-inset rounded-lg p-3 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50"></textarea>
+                    </div>
+
+                    <!-- Error Alert -->
+                    <div x-show="jobSubmitError" class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono" x-text="jobSubmitError"></div>
+
+                    <!-- Submission Action Row -->
+                    <div class="flex items-center justify-between pt-2 border-t border-white/10">
+                        <div class="text-xs text-slate-400 font-mono">
+                            Returns: <code class="text-emerald-300">202 Accepted</code> with <code class="text-slate-300">job_id</code>
+                        </div>
+                        <button @click="submitAsyncJob()"
+                                :disabled="!jobForm.action || jobSubmitting || (jobForm.type === 'plugin' && !jobForm.plugin_id)"
+                                class="tactile-btn px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-2">
+                            <span x-show="jobSubmitting" class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                            <span>Launch Async Job</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: Automation Snippet & State Legend (1 col) -->
+                <div class="surface-card rounded-xl p-6 space-y-4">
+                    <div>
+                        <span class="text-[11px] font-mono text-sky-400 kicker-caps">Async Automation</span>
+                        <h3 class="text-base font-semibold text-white heading-tight">cURL Background Dispatch</h3>
+                        <p class="text-xs text-slate-400 mt-1">Submit background jobs from external schedulers, cron jobs, or CI/CD pipelines.</p>
+                    </div>
+
+                    <pre class="surface-inset rounded-lg p-3.5 text-[11px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap leading-relaxed" x-text="jobCurlSnippet()"></pre>
+
+                    <div class="border-t border-white/10 pt-4 space-y-3">
+                        <h4 class="text-xs font-semibold text-slate-200">Async Lifecycle State Machine</h4>
+                        <div class="space-y-1.5 text-xs font-mono">
+                            <div class="flex items-center gap-2 text-slate-300">
+                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30">QUEUED</span>
+                                <span class="text-slate-500">&rarr;</span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30">RUNNING</span>
+                                <span class="text-slate-500">&rarr;</span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">COMPLETED</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-slate-400 text-[11px] pt-1">
+                                <span>Terminal aborts:</span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30">FAILED</span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-500/20 text-slate-400 border border-slate-500/30">CANCELLED</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 3: Jobs History Table Card -->
+            <div class="surface-card rounded-xl p-6 space-y-5">
+                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+                    <div>
+                        <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Execution Registry</span>
+                        <h3 class="text-lg font-semibold text-white heading-tight">Asynchronous Jobs History</h3>
+                    </div>
+
+                    <!-- Filter Controls -->
+                    <div class="flex flex-wrap items-center gap-3">
+                        <!-- Status Filter Dropdown -->
+                        <div class="flex items-center gap-1.5 text-xs">
+                            <span class="text-slate-400 font-mono text-[11px]">Status:</span>
+                            <select x-model="jobsFilterStatus" @change="jobsPage = 1; loadJobsHistory()"
+                                    class="surface-inset rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                                <option value="">All Statuses</option>
+                                <option value="queued">Queued</option>
+                                <option value="running">Running</option>
+                                <option value="completed">Completed</option>
+                                <option value="failed">Failed</option>
+                                <option value="cancelled">Cancelled</option>
+                                <option value="timed_out">Timed Out</option>
+                            </select>
+                        </div>
+
+                        <!-- Job Type Filter Dropdown -->
+                        <div class="flex items-center gap-1.5 text-xs">
+                            <span class="text-slate-400 font-mono text-[11px]">Type:</span>
+                            <select x-model="jobsFilterType" @change="jobsPage = 1; loadJobsHistory()"
+                                    class="surface-inset rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                                <option value="">All Types</option>
+                                <option value="command">Command</option>
+                                <option value="plugin">Plugin</option>
+                            </select>
+                        </div>
+
+                        <!-- Action Search Input -->
+                        <div class="relative">
+                            <input type="text" x-model="jobsFilterAction" @input.debounce.300ms="jobsPage = 1; loadJobsHistory()" placeholder="Search action name..."
+                                   class="surface-inset rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50 w-40 sm:w-48">
+                        </div>
+
+                        <!-- Refresh Button -->
+                        <button @click="loadJobsHistory()" class="tactile-btn px-3 py-1.5 rounded surface-inset text-xs text-slate-300 hover:border-white/20">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Error Display -->
+                <div x-show="jobsError" class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono" x-text="jobsError"></div>
+
+                <!-- Table Container -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs font-mono tabular-nums">
+                        <thead class="text-slate-400 border-b border-white/10 text-[11px]">
+                            <tr>
+                                <th class="py-2.5 px-3">Job ID</th>
+                                <th class="py-2.5 px-3">Type</th>
+                                <th class="py-2.5 px-3">Action</th>
+                                <th class="py-2.5 px-3">Priority</th>
+                                <th class="py-2.5 px-3">Status</th>
+                                <th class="py-2.5 px-3">Created At</th>
+                                <th class="py-2.5 px-3">Duration</th>
+                                <th class="py-2.5 px-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/5">
+                            <template x-for="j in jobs" :key="j.id">
+                                <tr class="hover:bg-white/[0.02] transition-colors">
+                                    <!-- Job ID -->
+                                    <td class="py-3 px-3">
+                                        <span class="text-emerald-300 font-semibold cursor-pointer hover:underline"
+                                              @click="openLogModal(j.id)"
+                                              :title="'View logs for ' + j.id"
+                                              x-text="j.id"></span>
+                                    </td>
+
+                                    <!-- Type -->
+                                    <td class="py-3 px-3">
+                                        <span class="px-2 py-0.5 rounded text-[10px] uppercase font-semibold"
+                                              :class="j.type === 'plugin' ? 'bg-sky-500/15 text-sky-300 border border-sky-500/25' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'"
+                                              x-text="j.type"></span>
+                                    </td>
+
+                                    <!-- Action -->
+                                    <td class="py-3 px-3">
+                                        <div>
+                                            <span class="text-white font-medium" x-text="j.action"></span>
+                                            <span x-show="j.plugin_id" class="text-[11px] text-slate-400 block" x-text="'plugin:' + j.plugin_id"></span>
+                                        </div>
+                                    </td>
+
+                                    <!-- Priority -->
+                                    <td class="py-3 px-3">
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase"
+                                              :class="jobPriorityBadgeClass(j.priority)"
+                                              x-text="j.priority"></span>
+                                    </td>
+
+                                    <!-- Status Badge -->
+                                    <td class="py-3 px-3">
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase inline-flex items-center gap-1 border"
+                                              :class="jobStatusBadgeClass(j.status)">
+                                            <span x-show="j.status === 'running'" class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span>
+                                            <span x-text="j.status"></span>
+                                        </span>
+                                    </td>
+
+                                    <!-- Created At -->
+                                    <td class="py-3 px-3 text-slate-300" x-text="formatDate(j.created_at)"></td>
+
+                                    <!-- Duration -->
+                                    <td class="py-3 px-3 text-slate-400">
+                                        <span x-text="formatDuration(j.duration_ms, j.status)"></span>
+                                    </td>
+
+                                    <!-- Actions per row -->
+                                    <td class="py-3 px-3 text-right space-x-2">
+                                        <button @click="openLogModal(j.id)"
+                                                class="tactile-btn px-2.5 py-1 rounded bg-sky-600/20 border border-sky-500/30 text-sky-300 text-xs hover:bg-sky-600/30 font-medium">
+                                            <span>View Logs</span>
+                                        </button>
+                                        <button x-show="j.status === 'queued' || j.status === 'running'"
+                                                @click="cancelJob(j.id)"
+                                                :disabled="cancellingJobIds[j.id]"
+                                                class="tactile-btn px-2.5 py-1 rounded bg-rose-600/20 border border-rose-500/30 text-rose-300 text-xs hover:bg-rose-600/30 font-medium disabled:opacity-40">
+                                            <span x-text="cancellingJobIds[j.id] ? 'Cancelling...' : 'Cancel'">Cancel</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+
+                    <!-- Empty State -->
+                    <div x-show="jobs.length === 0" class="text-center py-12 surface-inset rounded-lg my-2">
+                        <svg class="w-8 h-8 text-slate-600 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                        <p class="text-xs text-slate-400 font-mono">No asynchronous jobs found matching current filters.</p>
+                        <p class="text-[11px] text-slate-500 font-mono mt-1">Submit a job above or adjust the filter criteria.</p>
+                    </div>
+                </div>
+
+                <!-- Pagination Controls -->
+                <div class="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-white/10 text-xs font-mono tabular-nums">
+                    <div class="text-slate-400">
+                        Showing <span class="text-white font-semibold" x-text="jobs.length > 0 ? (jobsPage - 1) * jobsLimit + 1 : 0"></span>
+                        to <span class="text-white font-semibold" x-text="Math.min(jobsPage * jobsLimit, jobsTotal)"></span>
+                        of <span class="text-white font-semibold" x-text="jobsTotal"></span> jobs
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-slate-400 text-[11px]">Per page:</span>
+                            <select x-model.number="jobsLimit" @change="jobsPage = 1; loadJobsHistory()"
+                                    class="surface-inset rounded px-2 py-1 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                                <option :value="10">10</option>
+                                <option :value="20">20</option>
+                                <option :value="50">50</option>
+                                <option :value="100">100</option>
+                            </select>
+                        </div>
+
+                        <div class="flex items-center gap-1">
+                            <button @click="prevJobsPage()"
+                                    :disabled="jobsPage <= 1"
+                                    class="tactile-btn px-3 py-1 rounded surface-inset text-slate-300 disabled:opacity-40 hover:border-white/20">
+                                &larr; Prev
+                            </button>
+                            <span class="px-2 text-slate-400 text-xs" x-text="'Page ' + jobsPage + ' of ' + totalJobsPages()"></span>
+                            <button @click="nextJobsPage()"
+                                    :disabled="jobsPage >= totalJobsPages()"
+                                    class="tactile-btn px-3 py-1 rounded surface-inset text-slate-300 disabled:opacity-40 hover:border-white/20">
+                                Next &rarr;
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
     </main>
+
+    <!-- LIVE LOG VIEWER MODAL DIALOG -->
+    <div id="job-log-modal"
+         x-show="logModalOpen"
+         x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm"
+         @keydown.escape.window="closeLogModal()">
+
+        <div class="surface-card border border-white/15 rounded-xl w-full max-w-5xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+             @click.away="closeLogModal()">
+
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-[#0d131f]/90">
+                <div class="flex items-center gap-3">
+                    <div class="h-8 w-8 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 font-mono text-xs font-bold">
+                        LOG
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <h3 class="text-base font-semibold text-white heading-tight">Live Execution Logs</h3>
+                            <span class="font-mono text-xs text-emerald-400 font-semibold" x-text="activeLogJob ? activeLogJob.id : ''"></span>
+                            <template x-if="activeLogJob">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase border"
+                                      :class="jobStatusBadgeClass(activeLogJob.status)"
+                                      x-text="activeLogJob.status"></span>
+                            </template>
+                        </div>
+                        <div class="text-xs text-slate-400 font-mono mt-0.5" x-text="logModalTitle || ''"></div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <!-- Polling Status Indicator -->
+                    <div class="surface-inset px-2.5 py-1 rounded-md text-[11px] font-mono flex items-center gap-1.5 tabular-nums">
+                        <span class="w-2 h-2 rounded-full" :class="logPollingActive ? 'bg-sky-400 animate-ping' : (logEof ? 'bg-emerald-400' : 'bg-slate-500')"></span>
+                        <span class="text-slate-300" x-text="logPollingActive ? 'Tailing live...' : (logEof ? 'Stream Complete (EOF)' : 'Paused')"></span>
+                    </div>
+
+                    <button @click="closeLogModal()" class="tactile-btn p-1.5 rounded-lg surface-inset text-slate-400 hover:text-white hover:border-white/20">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Terminal Output Body -->
+            <div class="p-4 bg-slate-950 font-mono text-xs overflow-y-auto flex-1 max-h-[60vh] space-y-2 border-b border-white/5">
+                <div class="flex items-center justify-between text-[11px] text-slate-500 border-b border-white/5 pb-2 tabular-nums">
+                    <div class="flex items-center gap-3">
+                        <span>BUFFER OFFSET: <span class="text-slate-300" x-text="logCurrentOffset"></span> bytes</span>
+                        <span x-show="logTruncated" class="text-amber-400 font-semibold">[TRUNCATED AT 2 MiB BUFFER CAP]</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-slate-200">
+                            <input id="log-autoscroll" type="checkbox" x-model="logAutoScroll" class="rounded bg-slate-800 border-white/10 text-emerald-500 focus:ring-0">
+                            <span>Auto-scroll</span>
+                        </label>
+                    </div>
+                </div>
+
+                <pre id="log-terminal-output"
+                     class="whitespace-pre-wrap leading-relaxed text-emerald-300 font-mono text-xs max-h-[50vh] overflow-y-auto selection:bg-emerald-500/20 selection:text-white"
+                     x-text="logTerminalText || 'Connecting to log stream...'"></pre>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="px-6 py-3.5 border-t border-white/10 bg-[#0d131f] flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <!-- Cancel button (active only if status is non-terminal) -->
+                    <template x-if="activeLogJob && (activeLogJob.status === 'queued' || activeLogJob.status === 'running')">
+                        <button @click="cancelJob(activeLogJob.id)"
+                                class="tactile-btn px-3.5 py-1.5 rounded-lg bg-rose-600/20 border border-rose-500/40 text-rose-300 text-xs font-semibold hover:bg-rose-600/30 flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            <span>Abort / Cancel Job</span>
+                        </button>
+                    </template>
+                    <template x-if="activeLogJob && activeLogJob.status !== 'queued' && activeLogJob.status !== 'running'">
+                        <span class="text-xs text-slate-500 font-mono">Job is terminal (<span x-text="activeLogJob.status"></span>). Cannot be cancelled.</span>
+                    </template>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button @click="copyLogOutput()"
+                            class="tactile-btn px-3 py-1.5 rounded-md surface-inset text-xs text-slate-300 hover:border-white/20 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        <span>Copy Logs</span>
+                    </button>
+                    <button @click="closeLogModal()"
+                            class="tactile-btn px-4 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script>
         function adminConsole() {
@@ -1022,6 +1519,40 @@
                 files: [],
                 filesError: '',
 
+                // Tab 9: Async Jobs & Queue state
+                queueStats: { queued_jobs: 0, workers_total: 0, workers_active: 0, capacity: 0 },
+                queuePollTimer: null,
+                queuePollFailures: 0,
+                jobForm: { type: 'command', action: '', plugin_id: '', paramsJSON: '{}', priority: 'normal', timeout: '30s' },
+                jobSubmitting: false,
+                jobSubmitError: '',
+                jobs: [],
+                jobsTotal: 0,
+                jobsFilterStatus: '',
+                jobsFilterType: '',
+                jobsFilterAction: '',
+                jobsPage: 1,
+                jobsLimit: 10,
+                jobsLoading: false,
+                jobsError: '',
+                jobsAutoRefresh: true,
+
+                // Live Log Modal state
+                logModalOpen: false,
+                activeLogJobId: '',
+                activeLogJob: null,
+                logModalTitle: '',
+                logModalStatus: '',
+                logTerminalText: '',
+                logCurrentOffset: 0,
+                logEof: false,
+                logTruncated: false,
+                logAutoScroll: true,
+                logPollTimer: null,
+                logAbortController: null,
+                logPollingActive: false,
+                cancellingJobIds: {},
+
                 get tabs() {
                     return [
                         { id: 'commands', label: '1. Command Executor', badge: this.commands.length },
@@ -1031,7 +1562,8 @@
                         { id: 'plugins', label: '5. Plugins & SQL Explorer', badge: this.plugins.length },
                         { id: 'mcp', label: '6. MCP Server & Traces', badge: this.mcpTraces.length },
                         { id: 'audit', label: '7. SHA-256 Audit & Logs', badge: this.auditEvents.length },
-                        { id: 'tls', label: '8. HTTPS/TLS & Files', badge: null }
+                        { id: 'tls', label: '8. HTTPS/TLS & Files', badge: null },
+                        { id: 'jobs', label: '9. Async Jobs & Queue', badge: (this.queueStats && this.queueStats.queued_jobs > 0) ? this.queueStats.queued_jobs : (this.jobs ? this.jobs.length : null) }
                     ];
                 },
 
@@ -1048,7 +1580,15 @@
                 },
 
                 switchTab(id) {
+                    const prev = this.activeTab;
                     this.activeTab = id;
+                    if (id === 'jobs') {
+                        this.fetchQueueTelemetry();
+                        this.loadJobsHistory();
+                        this.startQueuePolling();
+                    } else if (prev === 'jobs') {
+                        this.stopQueuePolling();
+                    }
                 },
 
                 async clearToken() {
@@ -1738,6 +2278,534 @@
                     }
                 },
 
+                // =========================================================
+                // Tab 9: Async Jobs & Priority Queue Methods
+                // =========================================================
+
+                syncJobActionOptions() {
+                    if (this.jobForm.type === 'command') {
+                        if (this.commands.length > 0 && !this.jobForm.action) {
+                            this.jobForm.action = this.commands[0].name;
+                        }
+                    } else if (this.jobForm.type === 'plugin') {
+                        if (this.plugins.length > 0 && !this.jobForm.plugin_id) {
+                            this.jobForm.plugin_id = this.plugins[0].id;
+                        }
+                    }
+                },
+
+                jobCurlSnippet() {
+                    const t = this.jobForm.type || 'command';
+                    const a = this.jobForm.action || 'list-processes';
+                    const p = this.jobForm.priority || 'normal';
+                    const pl = this.jobForm.plugin_id ? `, "plugin_id": "${this.jobForm.plugin_id}"` : '';
+                    const to = this.jobForm.timeout ? `, "timeout": "${this.jobForm.timeout}"` : '';
+                    const hdr = this.authToken && this.authToken.startsWith('gat_svc_')
+                        ? `-H "X-Service-Key: ${this.authToken}"`
+                        : `-H "Authorization: Bearer ${this.authToken || 'gat_pat_<your_token>'}"`;
+                    return `curl -s -X POST http://localhost:8080/api/v1/jobs \\\n  ${hdr} \\\n  -H "Content-Type: application/json" \\\n  -d '{"type": "${t}", "action": "${a}", "priority": "${p}"${pl}${to}}'`;
+                },
+
+                toggleJobsAutoRefresh() {
+                    if (this.jobsAutoRefresh) {
+                        this.startQueuePolling();
+                    } else {
+                        this.stopQueuePolling();
+                    }
+                },
+
+                async fetchQueueTelemetry() {
+                    try {
+                        const r = await fetch('/api/v1/jobs/queue', { headers: this.headers() });
+                        if (r.ok) {
+                            const d = await r.json();
+                            this.queueStats = {
+                                queued_jobs: d.queued_jobs ?? 0,
+                                workers_total: d.workers_total ?? 0,
+                                workers_active: d.workers_active ?? 0,
+                                capacity: d.capacity ?? 0
+                            };
+                            this.queuePollFailures = 0;
+
+                            const qd = document.getElementById('queue-depth-metric');
+                            if (qd) qd.textContent = this.queueStats.queued_jobs;
+                            const wa = document.getElementById('workers-active-metric');
+                            if (wa) wa.textContent = this.queueStats.workers_active;
+                            const wt = document.getElementById('workers-total-metric');
+                            if (wt) wt.textContent = this.queueStats.workers_total;
+                            const qc = document.getElementById('queue-capacity-metric');
+                            if (qc) qc.textContent = this.queueStats.capacity;
+                        } else if (r.status === 401 || r.status === 403) {
+                            this.stopQueuePolling();
+                            if (this.authToken) {
+                                this.showToast('Queue telemetry paused: unauthorized (' + r.status + ')', 'error');
+                            }
+                        } else {
+                            this.queuePollFailures++;
+                        }
+                    } catch (err) {
+                        this.queuePollFailures++;
+                        if (this.queuePollFailures >= 5) {
+                            this.stopQueuePolling();
+                        }
+                    }
+                },
+
+                startQueuePolling() {
+                    this.stopQueuePolling();
+                    this.queuePollFailures = 0;
+                    this.queuePollTimer = setInterval(() => {
+                        if (this.activeTab === 'jobs') {
+                            this.fetchQueueTelemetry();
+                        } else {
+                            this.stopQueuePolling();
+                        }
+                    }, 5000);
+                },
+
+                stopQueuePolling() {
+                    if (this.queuePollTimer) {
+                        clearInterval(this.queuePollTimer);
+                        this.queuePollTimer = null;
+                    }
+                },
+
+                async submitAsyncJob(event) {
+                    if (event && event.preventDefault) {
+                        event.preventDefault();
+                    }
+                    this.jobSubmitError = '';
+
+                    const action = (this.jobForm.action || '').trim();
+                    if (!action) {
+                        this.jobSubmitError = 'Action / Command name is required';
+                        this.showToast(this.jobSubmitError, 'error');
+                        return;
+                    }
+
+                    const jobType = this.jobForm.type || 'command';
+                    const pluginID = (this.jobForm.plugin_id || '').trim();
+                    if (jobType === 'plugin' && !pluginID) {
+                        this.jobSubmitError = 'Plugin ID is required for plugin job execution';
+                        this.showToast(this.jobSubmitError, 'error');
+                        return;
+                    }
+
+                    let parsedParams = {};
+                    const rawParams = (this.jobForm.paramsJSON || '').trim();
+                    if (rawParams && rawParams !== '{}') {
+                        try {
+                            parsedParams = JSON.parse(rawParams);
+                            if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
+                                throw new Error('Parameters must be a JSON key-value object');
+                            }
+                        } catch (err) {
+                            this.jobSubmitError = 'Invalid parameters JSON: ' + err.message;
+                            this.showToast(this.jobSubmitError, 'error');
+                            return;
+                        }
+                    }
+
+                    const payload = {
+                        type: jobType,
+                        action: action,
+                        priority: this.jobForm.priority || 'normal'
+                    };
+                    if (jobType === 'plugin') {
+                        payload.plugin_id = pluginID;
+                    }
+                    if (Object.keys(parsedParams).length > 0) {
+                        payload.params = parsedParams;
+                    }
+                    if (this.jobForm.timeout && this.jobForm.timeout.trim() !== '') {
+                        payload.timeout = this.jobForm.timeout.trim();
+                    }
+
+                    this.jobSubmitting = true;
+                    try {
+                        const r = await fetch('/api/v1/jobs', {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify(payload)
+                        });
+
+                        let d = {};
+                        try {
+                            d = await r.json();
+                        } catch (_) {}
+
+                        if (r.status === 202) {
+                            this.showToast(`Job enqueued: ${d.job_id} [${d.priority}]`, 'success');
+                            this.statusBanner = `Enqueued async job ${d.job_id} (${d.action})`;
+
+                            const newJob = {
+                                id: d.job_id,
+                                type: d.type || jobType,
+                                action: d.action || action,
+                                plugin_id: payload.plugin_id || '',
+                                params: payload.params || {},
+                                priority: d.priority || payload.priority,
+                                status: d.status || 'queued',
+                                created_at: d.created_at || new Date().toISOString(),
+                                duration_ms: 0,
+                                actor_id: this.principal ? (this.principal.username || this.principal.name) : 'operator'
+                            };
+                            this.jobs.unshift(newJob);
+                            this.jobsTotal = (this.jobsTotal || 0) + 1;
+
+                            this.jobForm.action = '';
+                            this.jobForm.plugin_id = '';
+                            this.jobForm.paramsJSON = '{}';
+                            this.jobSubmitError = '';
+
+                            await Promise.allSettled([
+                                this.fetchQueueTelemetry(),
+                                this.loadAuditAndLogs()
+                            ]);
+                        } else if (r.status === 400) {
+                            this.jobSubmitError = d.error || 'Validation error: invalid request body or parameters';
+                            this.showToast(this.jobSubmitError, 'error');
+                        } else if (r.status === 401) {
+                            this.jobSubmitError = 'Authentication required. Please enter a valid API Token or PAT.';
+                            this.showToast(this.jobSubmitError, 'error');
+                        } else if (r.status === 403) {
+                            this.jobSubmitError = d.error || 'Permission denied: Account lacks "jobs:submit" scope or execution rights.';
+                            this.showToast(this.jobSubmitError, 'error');
+                        } else if (r.status === 404) {
+                            this.jobSubmitError = d.error || `Target ${jobType} "${action}" not found in catalog.`;
+                            this.showToast(this.jobSubmitError, 'error');
+                        } else if (r.status === 429) {
+                            this.jobSubmitError = 'Queue capacity exceeded (Backpressure). Worker pool is saturated. Please wait before submitting.';
+                            this.showToast(this.jobSubmitError, 'error');
+                        } else if (r.status === 503) {
+                            this.jobSubmitError = d.error || 'Job Engine is uninitialized or shutting down.';
+                            this.showToast(this.jobSubmitError, 'error');
+                        } else {
+                            this.jobSubmitError = d.error || `Failed to submit job (HTTP ${r.status})`;
+                            this.showToast(this.jobSubmitError, 'error');
+                        }
+                    } catch (err) {
+                        this.jobSubmitError = 'Failed to submit job: ' + (err.message || err);
+                        this.statusBanner = 'Failed to submit job: ' + (err.message || err);
+                        this.showToast(this.jobSubmitError, 'error');
+                    } finally {
+                        this.jobSubmitting = false;
+                    }
+                },
+
+                async loadJobsHistory(statusFilter, page, limit) {
+                    if (statusFilter !== undefined) this.jobsFilterStatus = statusFilter;
+                    if (page !== undefined) this.jobsPage = page;
+                    if (limit !== undefined) this.jobsLimit = limit;
+
+                    this.jobsLoading = true;
+                    this.jobsError = '';
+
+                    const offset = Math.max(0, (this.jobsPage - 1) * this.jobsLimit);
+                    const params = new URLSearchParams();
+                    if (this.jobsFilterStatus) params.append('status', this.jobsFilterStatus);
+                    if (this.jobsFilterType) params.append('type', this.jobsFilterType);
+                    if (this.jobsFilterAction) params.append('action', this.jobsFilterAction.trim());
+                    params.append('limit', String(this.jobsLimit));
+                    params.append('offset', String(offset));
+
+                    try {
+                        const r = await fetch(`/api/v1/jobs?${params.toString()}`, { headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.jobs = d.jobs || [];
+                            this.jobsTotal = d.total ?? (this.jobs.length);
+                        } else {
+                            this.jobsError = d.error || `Failed to load job history (${r.status})`;
+                            this.statusBanner = this.jobsError;
+                            if (this.authToken && (r.status === 401 || r.status === 403)) {
+                                this.showToast(this.jobsError, 'error');
+                            }
+                        }
+                    } catch (e) {
+                        this.jobsError = 'Failed to load job history: ' + (e.message || e);
+                        this.statusBanner = this.jobsError;
+                    } finally {
+                        this.jobsLoading = false;
+                    }
+                },
+
+                totalJobsPages() {
+                    return Math.max(1, Math.ceil((this.jobsTotal || 0) / this.jobsLimit));
+                },
+
+                prevJobsPage() {
+                    if (this.jobsPage > 1) {
+                        this.jobsPage--;
+                        this.loadJobsHistory();
+                    }
+                },
+
+                nextJobsPage() {
+                    if (this.jobsPage < this.totalJobsPages()) {
+                        this.jobsPage++;
+                        this.loadJobsHistory();
+                    }
+                },
+
+                formatDate(dateStr) {
+                    if (!dateStr) return '—';
+                    try {
+                        const d = new Date(dateStr);
+                        if (isNaN(d.getTime())) return dateStr;
+                        return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+                    } catch (_) {
+                        return dateStr;
+                    }
+                },
+
+                formatDuration(ms, status) {
+                    if (ms !== undefined && ms !== null && ms > 0) {
+                        if (ms < 1000) return `${ms}ms`;
+                        if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+                        const mins = Math.floor(ms / 60000);
+                        const secs = ((ms % 60000) / 1000).toFixed(1);
+                        return `${mins}m ${secs}s`;
+                    }
+                    if (status === 'running') return 'running...';
+                    if (status === 'queued') return 'queued';
+                    return '—';
+                },
+
+                jobStatusBadgeClass(status) {
+                    switch (status) {
+                        case 'queued':
+                            return 'bg-amber-500/10 text-amber-300 border-amber-500/25';
+                        case 'running':
+                            return 'bg-sky-500/10 text-sky-300 border-sky-500/25';
+                        case 'completed':
+                            return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25';
+                        case 'failed':
+                            return 'bg-rose-500/10 text-rose-300 border-rose-500/25';
+                        case 'cancelled':
+                            return 'bg-slate-500/10 text-slate-300 border-slate-500/25';
+                        case 'timed_out':
+                            return 'bg-purple-500/10 text-purple-300 border-purple-500/25';
+                        default:
+                            return 'bg-white/10 text-slate-300 border-white/20';
+                    }
+                },
+
+                jobPriorityBadgeClass(priority) {
+                    switch ((priority || '').toLowerCase()) {
+                        case 'high':
+                            return 'bg-rose-500/15 text-rose-300 border border-rose-500/30';
+                        case 'low':
+                            return 'bg-blue-500/15 text-blue-300 border border-blue-500/30';
+                        default:
+                            return 'bg-slate-500/15 text-slate-300 border border-slate-500/30';
+                    }
+                },
+
+                async cancelJob(jobId) {
+                    if (!jobId) return;
+                    if (!confirm(`Are you sure you want to cancel job "${jobId}"? This will terminate running subprocesses.`)) {
+                        return;
+                    }
+
+                    this.cancellingJobIds = { ...this.cancellingJobIds, [jobId]: true };
+                    try {
+                        const r = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/cancel`, {
+                            method: 'POST',
+                            headers: this.headers()
+                        });
+
+                        let d = {};
+                        try {
+                            d = await r.json();
+                        } catch (_) {}
+
+                        if (r.ok) {
+                            this.showToast(`Job ${jobId} cancelled successfully`, 'success');
+                            this.statusBanner = `Cancelled job ${jobId}`;
+
+                            const target = this.jobs.find(j => j.id === jobId);
+                            if (target) {
+                                target.status = 'cancelled';
+                            }
+                            if (this.activeLogJob && this.activeLogJob.id === jobId) {
+                                this.activeLogJob.status = 'cancelled';
+                                this.logModalStatus = 'cancelled';
+                            }
+
+                            await Promise.allSettled([
+                                this.fetchQueueTelemetry(),
+                                this.loadAuditAndLogs()
+                            ]);
+                        } else if (r.status === 409) {
+                            this.showToast(`Job ${jobId} is already finished`, 'warning');
+                            await this.loadJobsHistory();
+                        } else if (r.status === 403) {
+                            this.showToast(d.error || 'Permission denied: Account lacks "jobs:cancel" scope', 'error');
+                        } else if (r.status === 404) {
+                            this.showToast(`Job ${jobId} not found`, 'error');
+                        } else {
+                            this.showToast(d.error || `Failed to cancel job (${r.status})`, 'error');
+                        }
+                    } catch (err) {
+                        this.statusBanner = 'Failed to cancel job: ' + (err.message || err);
+                        this.showToast(this.statusBanner, 'error');
+                    } finally {
+                        const copy = { ...this.cancellingJobIds };
+                        delete copy[jobId];
+                        this.cancellingJobIds = copy;
+                    }
+                },
+
+                openLogModal(target) {
+                    const jobId = (typeof target === 'object' && target !== null) ? target.id : target;
+                    if (!jobId) return;
+
+                    this.closeLogModal(false);
+
+                    const job = (typeof target === 'object' && target !== null) ? target : (this.jobs.find(j => j.id === jobId) || { id: jobId, action: 'job', type: 'command', status: 'loading' });
+                    this.activeLogJobId = jobId;
+                    this.activeLogJob = job;
+                    this.logModalTitle = `Job ${jobId} — ${job.action || 'job'} (${job.type || 'command'})`;
+                    this.logModalStatus = job.status || 'loading';
+                    this.logTerminalText = 'Connecting to job log stream...\n';
+                    this.logCurrentOffset = 0;
+                    this.logEof = false;
+                    this.logTruncated = false;
+                    this.logModalOpen = true;
+                    this.logPollingActive = true;
+                    this.logAbortController = new AbortController();
+
+                    this.pollJobLogs(jobId, 0);
+                },
+
+                async pollJobLogs(jobId, offset = 0) {
+                    if (!this.logModalOpen || this.activeLogJobId !== jobId || !this.logPollingActive) {
+                        return;
+                    }
+
+                    try {
+                        const url = `/api/v1/jobs/${encodeURIComponent(jobId)}/logs?offset=${encodeURIComponent(offset)}`;
+                        const r = await fetch(url, {
+                            headers: this.headers(),
+                            signal: this.logAbortController ? this.logAbortController.signal : undefined
+                        });
+
+                        if (!this.logModalOpen || this.activeLogJobId !== jobId || !this.logPollingActive) {
+                            return;
+                        }
+
+                        let d = {};
+                        try {
+                            d = await r.json();
+                        } catch (_) {}
+
+                        if (r.ok) {
+                            this.logModalStatus = d.status || this.logModalStatus;
+                            if (this.activeLogJob) {
+                                this.activeLogJob.status = this.logModalStatus;
+                            }
+                            const tableJob = this.jobs.find(j => j.id === jobId);
+                            if (tableJob && d.status) {
+                                tableJob.status = d.status;
+                            }
+
+                            if (offset === 0) {
+                                this.logTerminalText = d.logs || (d.eof ? '[No output recorded for this job]\n' : '');
+                            } else if (d.logs) {
+                                this.logTerminalText += d.logs;
+                            }
+
+                            this.logCurrentOffset = d.next_offset ?? (offset + (d.logs ? d.logs.length : 0));
+                            this.logEof = !!d.eof;
+                            this.logTruncated = !!d.truncated;
+
+                            if (this.logTruncated && this.logEof) {
+                                this.logTerminalText += '\n[Log output truncated at 2 MiB memory limit]\n';
+                            }
+
+                            if (this.logAutoScroll) {
+                                this.$nextTick(() => {
+                                    const el = document.getElementById('log-terminal-output');
+                                    if (el) el.scrollTop = el.scrollHeight;
+                                });
+                            }
+
+                            if (this.logEof) {
+                                this.logPollingActive = false;
+                                this.loadJobsHistory();
+                                this.fetchQueueTelemetry();
+                            } else {
+                                this.logPollTimer = setTimeout(() => {
+                                    this.pollJobLogs(jobId, this.logCurrentOffset);
+                                }, 1500);
+                            }
+                        } else if (r.status === 404) {
+                            this.logTerminalText += '\n[Error: Job logs not found on server (job may have been purged)]\n';
+                            this.logPollingActive = false;
+                        } else if (r.status === 401 || r.status === 403) {
+                            this.logTerminalText += '\n[Error: Unauthorized to access job logs]\n';
+                            this.logPollingActive = false;
+                        } else {
+                            this.logTerminalText += `\n[Error retrieving logs: HTTP ${r.status}]\n`;
+                            this.logPollingActive = false;
+                        }
+                    } catch (err) {
+                        if (err.name === 'AbortError') {
+                            return;
+                        }
+                        if (this.logModalOpen && this.activeLogJobId === jobId && this.logPollingActive) {
+                            this.logPollTimer = setTimeout(() => {
+                                this.pollJobLogs(jobId, this.logCurrentOffset);
+                            }, 3000);
+                        }
+                    }
+                },
+
+                closeLogModal(refresh = true) {
+                    this.logModalOpen = false;
+                    this.logPollingActive = false;
+                    if (this.logPollTimer) {
+                        clearTimeout(this.logPollTimer);
+                        this.logPollTimer = null;
+                    }
+                    if (this.logAbortController) {
+                        this.logAbortController.abort();
+                        this.logAbortController = null;
+                    }
+                    this.activeLogJobId = '';
+                    this.activeLogJob = null;
+                    if (refresh) {
+                        this.loadJobsHistory();
+                    }
+                },
+
+                async copyLogOutput() {
+                    if (!this.logTerminalText) return;
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(this.logTerminalText);
+                            this.showToast('Logs copied to clipboard', 'success');
+                        } else {
+                            const ta = document.createElement('textarea');
+                            ta.value = this.logTerminalText;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                            this.showToast('Logs copied to clipboard', 'success');
+                        }
+                    } catch (e) {
+                        this.showToast('Failed to copy logs: ' + e.message, 'error');
+                    }
+                },
+
+                showToast(message, type = 'info') {
+                    this.statusBanner = message;
+                },
+
                 async refreshAll() {
                     await Promise.allSettled([
                         this.loadPrincipal(),
@@ -1748,12 +2816,22 @@
                         this.loadMCPTraces(),
                         this.loadAuditAndLogs(),
                         this.loadTLSInfo(),
-                        this.loadFiles()
+                        this.loadFiles(),
+                        this.fetchQueueTelemetry(),
+                        this.loadJobsHistory()
                     ]);
                 },
 
                 async init() {
                     await this.refreshAll();
+                    if (this.commands.length > 0) {
+                        this.selectedCommand = this.commands[0].name;
+                        this.syncJobActionOptions();
+                    }
+                    if (this.plugins.length > 0) {
+                        this.selectedPluginID = this.plugins[0].id;
+                        this.selectedPluginAction = (this.plugins[0].actions && this.plugins[0].actions.length > 0) ? this.plugins[0].actions[0].name : '';
+                    }
                 }
             };
         }
