@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
@@ -59,9 +60,12 @@ func TestWebAdministrationConsoleServed(t *testing.T) {
 		"6. MCP Server & Traces",
 		"7. SHA-256 Audit & Logs",
 		"8. HTTPS/TLS & Files",
+		"9. Async Jobs & Queue",
 		"cat.commands",
 		"const pluginID = d.id || (d.plugin && d.plugin.id) || '';",
 		"/api/v1/execute",
+		"/api/v1/jobs",
+		"/api/v1/jobs/queue",
 		"/api/v1/presets/activate",
 		"/api/v1/auth/tokens",
 		"/api/v1/auth/service-accounts",
@@ -434,6 +438,265 @@ func TestWebAdministrationConsole_ResilienceGuarantees(t *testing.T) {
 		if !strings.Contains(body, marker) {
 			t.Errorf("expected web console to contain defensive error handling marker %q", marker)
 		}
+	}
+}
+
+func TestWebAdministrationConsole_Tab9_JobsQueueStructure(t *testing.T) {
+	logger, err := core.NewLogger(core.LoggingConfig{Level: "info"})
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+
+	db, err := database.NewDB(filepath.Join(t.TempDir(), "web_tab9_test.db"))
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer db.Close()
+	_ = db.Init()
+
+	auditLogger, err := audit.NewAuditLogger(cfg.Audit, db, logger)
+	if err != nil {
+		t.Fatalf("failed to init audit logger: %v", err)
+	}
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to init auth manager: %v", err)
+	}
+
+	env := &APIEnv{
+		Config:      cfg,
+		Logger:      logger,
+		DB:          db,
+		AuditLogger: auditLogger,
+		AuthManager: authMgr,
+	}
+	router := NewRouter(env)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// Validate Tab 9 navigation, layout containers, form controls, table headers, and modal dialog
+	expectedTab9Markers := []string{
+		// 1. Navigation tab item
+		"9. Async Jobs &amp; Queue",
+		"id: 'jobs'",
+		"data-tab=\"jobs\"",
+
+		// 2. Main section container
+		"id=\"tab-jobs\"",
+		"x-show=\"activeTab === 'jobs'\"",
+		"Asynchronous Execution Engine",
+		"Async Jobs &amp; Queue Management",
+
+		// 3. Queue Telemetry Cards
+		"id=\"queue-depth-metric\"",
+		"id=\"workers-active-metric\"",
+		"id=\"workers-total-metric\"",
+		"id=\"queue-capacity-metric\"",
+		"Queued Jobs",
+		"Active Workers",
+		"Total Workers",
+		"Queue Capacity",
+		"fetchQueueTelemetry",
+
+		// 4. Async Job Submission Form
+		"x-model=\"jobForm.type\"",
+		"x-model=\"jobForm.action\"",
+		"x-model=\"jobForm.plugin_id\"",
+		"x-model=\"jobForm.paramsJSON\"",
+		"x-model=\"jobForm.priority\"",
+		"x-model=\"jobForm.timeout\"",
+		"Launch Async Job",
+		"submitAsyncJob",
+
+		// 5. Jobs History Table & Filters
+		"Job ID",
+		"Priority",
+		"Status",
+		"Created At",
+		"Duration",
+		"Actions",
+		"jobsFilterStatus",
+		"loadJobsHistory",
+		"openLogModal",
+		"cancelJob",
+		"View Logs",
+
+		// 6. Live Log Modal Dialog
+		"id=\"job-log-modal\"",
+		"logModalOpen",
+		"id=\"log-terminal-output\"",
+		"id=\"log-autoscroll\"",
+		"logAutoScroll",
+		"copyLogOutput",
+		"Copy Logs",
+		"closeLogModal",
+	}
+
+	for _, marker := range expectedTab9Markers {
+		if !strings.Contains(body, marker) {
+			t.Errorf("expected web administration console to contain Tab 9 marker %q", marker)
+		}
+	}
+}
+
+func TestWebAdministrationConsole_Tab9_FormControlsAndEndpoints(t *testing.T) {
+	// Initialize full API environment with active JobEngine and router
+	_, router, _ := setupTestJobAPIEnv(t)
+
+	// Step 1: Verify that embedded JavaScript code references required endpoints and HTTP status codes
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+
+	requiredJSEndpointsAndStatuses := []string{
+		// Endpoints
+		"/api/v1/jobs/queue",
+		"/api/v1/jobs",
+		"/api/v1/jobs/",
+		"/cancel",
+		"/logs",
+		"next_offset",
+		"eof",
+		"truncated",
+
+		// Status codes handled in JS
+		"200",
+		"202",
+		"400",
+		"403",
+		"404",
+		"409",
+		"429",
+
+		// Defensive error handlers
+		"Failed to submit job",
+		"Failed to load job history",
+		"Failed to cancel job",
+	}
+
+	for _, marker := range requiredJSEndpointsAndStatuses {
+		if !strings.Contains(body, marker) {
+			t.Errorf("expected web console JS to reference endpoint/status %q", marker)
+		}
+	}
+
+	// Step 2: Live end-to-end HTTP integration verification matching Tab 9 UI actions
+	// A. Queue Telemetry Endpoint: GET /api/v1/jobs/queue
+	telemetryReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/queue", nil)
+	telemetryRec := httptest.NewRecorder()
+	router.ServeHTTP(telemetryRec, telemetryReq)
+	if telemetryRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /api/v1/jobs/queue, got %d: %s", telemetryRec.Code, telemetryRec.Body.String())
+	}
+	var qStats struct {
+		QueuedJobs    int `json:"queued_jobs"`
+		WorkersTotal  int `json:"workers_total"`
+		WorkersActive int `json:"workers_active"`
+		Capacity      int `json:"capacity"`
+	}
+	if err := json.Unmarshal(telemetryRec.Body.Bytes(), &qStats); err != nil {
+		t.Fatalf("failed to decode queue stats response: %v", err)
+	}
+	if qStats.Capacity <= 0 {
+		t.Fatalf("expected positive queue capacity, got %d", qStats.Capacity)
+	}
+
+	// B. Async Job Submission: POST /api/v1/jobs (Launch Async Job)
+	submitPayload := map[string]any{
+		"type":     "command",
+		"action":   "echo-cmd",
+		"priority": "normal",
+	}
+	submitBytes, _ := json.Marshal(submitPayload)
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(submitBytes))
+	submitReq.Header.Set("Content-Type", "application/json")
+	submitRec := httptest.NewRecorder()
+	router.ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted from POST /api/v1/jobs, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+	var submitResp struct {
+		JobID   string `json:"job_id"`
+		Status  string `json:"status"`
+		PollURL string `json:"poll_url"`
+		LogsURL string `json:"logs_url"`
+	}
+	if err := json.Unmarshal(submitRec.Body.Bytes(), &submitResp); err != nil {
+		t.Fatalf("failed to decode submit response: %v", err)
+	}
+	if submitResp.JobID == "" || submitResp.Status != "queued" {
+		t.Fatalf("unexpected submit response fields: %+v", submitResp)
+	}
+
+	// C. History Listing: GET /api/v1/jobs (Job Execution History)
+	historyReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs?limit=10&offset=0", nil)
+	historyRec := httptest.NewRecorder()
+	router.ServeHTTP(historyRec, historyReq)
+	if historyRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /api/v1/jobs, got %d: %s", historyRec.Code, historyRec.Body.String())
+	}
+	var historyResp struct {
+		Jobs  []map[string]any `json:"jobs"`
+		Total int              `json:"total"`
+	}
+	if err := json.Unmarshal(historyRec.Body.Bytes(), &historyResp); err != nil {
+		t.Fatalf("failed to decode history response: %v", err)
+	}
+	if len(historyResp.Jobs) == 0 {
+		t.Fatalf("expected history to contain at least 1 job, got %d", len(historyResp.Jobs))
+	}
+
+	// D. Chunked Log Stream: GET /api/v1/jobs/{id}/logs?offset=0 (Live Log Modal)
+	logsReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/logs?offset=0", submitResp.JobID), nil)
+	logsRec := httptest.NewRecorder()
+	router.ServeHTTP(logsRec, logsReq)
+	if logsRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /api/v1/jobs/{id}/logs, got %d: %s", logsRec.Code, logsRec.Body.String())
+	}
+	var logsResp struct {
+		JobID      string `json:"job_id"`
+		Status     string `json:"status"`
+		Logs       string `json:"logs"`
+		Offset     int    `json:"offset"`
+		NextOffset int    `json:"next_offset"`
+		EOF        bool   `json:"eof"`
+	}
+	if err := json.Unmarshal(logsRec.Body.Bytes(), &logsResp); err != nil {
+		t.Fatalf("failed to decode logs response: %v", err)
+	}
+	if logsResp.JobID != submitResp.JobID {
+		t.Fatalf("expected log response for job %s, got %s", submitResp.JobID, logsResp.JobID)
+	}
+
+	// E. Job Cancellation: POST /api/v1/jobs/{id}/cancel
+	cancelReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/%s/cancel", submitResp.JobID), nil)
+	cancelRec := httptest.NewRecorder()
+	router.ServeHTTP(cancelRec, cancelReq)
+	if cancelRec.Code != http.StatusOK && cancelRec.Code != http.StatusConflict {
+		t.Fatalf("expected 200 OK or 409 Conflict from POST /api/v1/jobs/{id}/cancel, got %d: %s", cancelRec.Code, cancelRec.Body.String())
+	}
+
+	// F. Validation Failure (HTTP 400 Bad Request)
+	badReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader([]byte(`{"type":"invalid_type"}`)))
+	badReq.Header.Set("Content-Type", "application/json")
+	badRec := httptest.NewRecorder()
+	router.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for invalid job submission, got %d", badRec.Code)
 	}
 }
 
