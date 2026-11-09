@@ -50,7 +50,7 @@ swagger:
 	@echo "Generating Swagger documentation..."
 	@echo "Ensure you have swag installed: go install github.com/swaggo/swag/cmd/swag@latest"
 	@which swag >/dev/null || (echo "swag not found in PATH. Please run: go install github.com/swaggo/swag/cmd/swag@latest" && exit 1)
-	@swag init -g cmd/server/main.go
+	@swag init -g cmd/server/main.go --parseInternal
 
 docker-build:
 	@echo "Building Docker image..."

@@ -13,6 +13,32 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-050` — Deflake E2E Backpressure Test and Align OpenAPI Release Specifications
+- **Timestamp (UTC)**: `2026-11-09T17:20:00Z`
+- **GitHub Issue**: [#100](https://github.com/jmrenouard/api_executor/issues/100)
+- **Branch**: `fix/issue-100-deflake-e2e-and-openapi-specs`
+- **Request**:
+  - Remediate post-release empirical audit findings on v2.1.0:
+    1. Deflake `TestTier2_Boundary_Jobs_QueueCapacityBackpressure` in `tests/e2e/tier2_boundary_test.go` by replacing rigid `time.Sleep(500 * time.Millisecond)` with a bounded retry polling loop to guarantee queue drainage after cancelling blocker job on Windows hosts.
+    2. Add declarative Swaggo AST comments to all 6 asynchronous job handlers in `internal/api/job_handlers.go` and update `Makefile` with `--parseInternal`.
+    3. Align OpenAPI/Swagger specification status between `docs/releases/v2.1.0.md` and repository artifacts.
+    4. Verify 100% test pass across all unit and E2E suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+    5. Update living governance registers (`docs/ACTION_LOGBOOK.md` and `docs/RCA_REGISTER.md`).
+    6. Post-merge, synchronize GitHub Release v2.1.0 body and move tag `v2.1.0` to the new merge commit on `main`.
+- **Changes**:
+  - Modified [`tests/e2e/tier2_boundary_test.go`](../tests/e2e/tier2_boundary_test.go): replaced rigid 500ms sleep with a 3-second bounded queue polling loop until `queued_jobs < QueueCapacity` before submitting subsequent job.
+  - Modified [`internal/api/job_handlers.go`](../internal/api/job_handlers.go): added declarative Swaggo annotations (`// @Summary ... // @Router ...`) across all 6 asynchronous endpoints and updated `SubmitJobRequest` struct tags.
+  - Modified [`Makefile`](../Makefile): added `--parseInternal` to `swag init` command.
+  - Modified [`docs/releases/v2.1.0.md`](releases/v2.1.0.md): refined Milestone 5 description to specify Swagger 2.0 / OpenAPI 2.0 with co-located AST annotations in `internal/api/job_handlers.go`.
+  - Modified [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-043` (Process-Tree Cancellation Latency on Windows Under Multi-Core Test Concurrency Causing Backpressure Test Flakiness).
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-050`.
+- **Result**:
+  - `go test -v -cover ./...`: 100% pass across all 11 packages (493/493 tests passing, coverage >=80%).
+  - `go test -v ./tests/e2e/...`: 100% pass (88/88 tests passing across all 4 tiers, zero flaky runs).
+  - GitHub Issue [#100](https://github.com/jmrenouard/api_executor/issues/100).
+  - Pull Request merged into `main`.
+  - GitHub Release `v2.1.0` notes synchronized and tag updated.
+
 ### `ACT-049` — Publish Semantic Release v2.1.0 (Asynchronous Operations & Job Queue Engine), Comprehensive Release Notes, and Update Living Governance Registers
 - **Timestamp (UTC)**: `2026-11-09T16:35:00Z`
 - **GitHub Issue**: [#98](https://github.com/jmrenouard/api_executor/issues/98)

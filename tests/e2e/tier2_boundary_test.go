@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"go-admin-tool/internal/api"
 	"go-admin-tool/internal/jobs"
 )
 
@@ -442,10 +443,33 @@ func TestTier2_Boundary_Jobs_QueueCapacityBackpressure(t *testing.T) {
 	}
 
 	// 4. Cancel the blocker job to relieve backpressure
-	_, _, _ = httpCancelJob(t, srv, srv.adminPAT, respBlocker.JobID)
+	cCode, _, cRaw := httpCancelJob(t, srv, srv.adminPAT, respBlocker.JobID)
+	if cCode != http.StatusOK {
+		t.Fatalf("failed to cancel blocker job: %d: %s", cCode, cRaw)
+	}
 
-	// Wait for queue to drain
-	time.Sleep(500 * time.Millisecond)
+	// Wait deterministically for queue capacity to relieve (queued_jobs < QueueCapacity).
+	// On Windows, process-group cancellation via taskkill /T /F and worker dequeue
+	// may exceed arbitrary sleeps (500ms) under concurrent test execution.
+	// Polling GET /api/v1/jobs/queue guarantees deterministic execution across all OS platforms.
+	var lastStats api.QueueStatsResponse
+	drainDeadline := time.Now().Add(3 * time.Second)
+	drained := false
+	for time.Now().Before(drainDeadline) {
+		code, stats, _ := httpGetJobQueue(t, srv, srv.adminPAT)
+		if code == http.StatusOK {
+			lastStats = stats
+			if stats.QueuedJobs < customCfg.QueueCapacity {
+				drained = true
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !drained {
+		t.Fatalf("timed out waiting for queue capacity to relieve after blocker cancellation: queued=%d, capacity=%d",
+			lastStats.QueuedJobs, customCfg.QueueCapacity)
+	}
 
 	// 5. Subsequent job is accepted again
 	codeRelieved, _, rawRelieved := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
