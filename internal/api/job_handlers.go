@@ -253,7 +253,7 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(SubmitJobResponse{
 		JobID:     job.ID,
-		Status:    job.Status,
+		Status:    jobs.StatusQueued,
 		Priority:  job.Priority,
 		Action:    job.Action,
 		Type:      job.Type,
@@ -476,7 +476,7 @@ func (env *APIEnv) GetJobLogsHandler(w http.ResponseWriter, r *http.Request, job
 
 	status := jobs.StatusQueued
 	if job, found := env.JobEngine.GetJob(jobID); found && job != nil {
-		status = job.Status
+		status = job.GetStatus()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -515,7 +515,7 @@ func (env *APIEnv) CancelJobHandler(w http.ResponseWriter, r *http.Request, jobI
 		return
 	}
 
-	if job.Status.IsTerminal() {
+	if job.GetStatus().IsTerminal() {
 		writeJSONError(w, "job is already finished", http.StatusConflict)
 		return
 	}
