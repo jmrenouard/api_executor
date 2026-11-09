@@ -13,6 +13,28 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-049` — Publish Semantic Release v2.1.0 (Asynchronous Operations & Job Queue Engine), Comprehensive Release Notes, and Update Living Governance Registers
+- **Timestamp (UTC)**: `2026-11-09T16:35:00Z`
+- **GitHub Issue**: [#98](https://github.com/jmrenouard/api_executor/issues/98)
+- **Branch**: `docs/issue-98-publish-release-v2.1.0`
+- **Request**:
+  - Publish semantic release v2.1.0 for the API Executor (`go-admin-tool`) project on GitHub with comprehensive release notes in English covering the asynchronous operations and job queue system (Milestones 1-5):
+    1. Verify 100% pass across all repository unit, integration, and E2E tests (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+    2. Author and commit comprehensive production-grade release notes in English at `docs/releases/v2.1.0.md` detailing all 5 milestones, 6 new REST API endpoints (`/api/v1/jobs/*`), 3 RBAC scopes (`jobs:submit`, `jobs:read`, `jobs:cancel`), Web Administration Console Tab 9 integration, telemetry, 4-tier E2E test metrics, zero breaking changes, and upgrade instructions.
+    3. Update living governance registers (`docs/ACTION_LOGBOOK.md` and `docs/RCA_REGISTER.md` if applicable) and project tracking in `PROJECT.md`.
+    4. Create and push annotated git tag `v2.1.0` and publish the GitHub release via `gh release create v2.1.0`.
+- **Changes**:
+  - Created [`docs/releases/v2.1.0.md`](releases/v2.1.0.md): comprehensive, production-grade release notes in English detailing Milestones 1 through 5, architecture highlights, new REST endpoints, RBAC scopes, Web Console Tab 9, E2E test statistics (88/88 E2E tests, 493 total tests passing, >=80% coverage on all 11 packages), zero breaking changes assessment, and upgrade instructions.
+  - Modified [`PROJECT.md`](../PROJECT.md): updated project release status to v2.1.0.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-049` in Completed Actions.
+  - Tagged `v2.1.0` and published GitHub release `v2.1.0` with release title `"v2.1.0: Asynchronous Operations & Job Queue Engine"` and release notes file `docs/releases/v2.1.0.md`.
+- **Result**:
+  - `go test -v -cover ./...`: 100% pass across all 11 packages (493/493 tests passing, coverage >=80% on all packages).
+  - `go test -v ./tests/e2e/...`: 100% pass (88/88 tests passing across all 4 tiers).
+  - GitHub Issue [#98](https://github.com/jmrenouard/api_executor/issues/98).
+  - Pull Request targeting `main`.
+  - Git Tag & GitHub Release `v2.1.0`: verified via `gh release view v2.1.0`.
+
 ### `ACT-048` — Asynchronous Action Execution Architecture Documentation, OpenAPI/Swagger Specifications, 100% Test Pass Verification, and Living Governance Registers (Milestone 5)
 - **Timestamp (UTC)**: `2026-11-09T12:05:00Z`
 - **GitHub Issue**: [#96](https://github.com/jmrenouard/api_executor/issues/96)

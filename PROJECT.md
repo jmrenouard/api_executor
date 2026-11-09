@@ -50,6 +50,7 @@ Every required feature from the survey and requirements is cataloged and assigne
 | 10 | 4-Tier End-to-End (E2E) Test Suite Expansion | 15+ tests across Tiers 1–4 (Feature, Boundary, Cross-Feature, Real-World) in `tests/e2e/` | M4 | Survey 3 |
 | 11 | 100% E2E Pass & Test Coverage Verification | Pass 100% tests across all packages (`go test -v -cover ./...`), verify statement coverage | M5 | Requirements |
 | 12 | Documentation, OpenAPI/Swagger & Living Registers | Update `README.md`, `docs/swagger.*`, `TEST_INFRA.md`, `TEST_READY.md`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md` | M5 | Governance |
+| 13 | Semantic Release v2.1.0 Publication | Full release notes at `docs/releases/v2.1.0.md`, git tag `v2.1.0`, and GitHub release | Rel | Governance |
 
 ---
 
@@ -62,6 +63,7 @@ Every required feature from the survey and requirements is cataloged and assigne
 | M3 | Web Administration Console Tab 9 Integration | `web/static/index.html` (Tab 9: queue telemetry, submit form, history table, live log modal) & `internal/api/web_console_test.go` | M1, M2 | DONE (PR #93; 439 tests pass, Gate 3 PASS) |
 | M4 | 4-Tier End-to-End (E2E) Test Suite Expansion | `tests/e2e/`: Tier 1 (Feature), Tier 2 (Boundary), Tier 3 (Cross-feature RBAC/Audit), Tier 4 (Real-world scenario), publish `TEST_READY.md` | M1, M2, M3 | DONE (Issue #94; 88 E2E tests pass, 461 full repository tests pass) |
 | M5 | 100% Verification, Documentation & Governance Registers | Pass 100% `go test -v -cover ./...`, update `README.md`, `docs/swagger.*`, `TEST_INFRA.md`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md` | M1, M2, M3, M4 | DONE (Issue #96; 461 tests pass, 100% coverage pass >=80% all packages, full OpenAPI/docs sync) |
+| Rel | Semantic Release v2.1.0 Publication | Publish `docs/releases/v2.1.0.md`, git tag `v2.1.0`, GitHub release, update `ACTION_LOGBOOK.md` | M1-M5 | DONE (Issue #98; Release v2.1.0 published) |
 
 ---
 
