@@ -66,6 +66,13 @@ Every core capability is validated with at least 5 distinct test cases covering 
   - `TestTier1_F5_MCP_ToolsCall_ExecutePlugin_Native`: Verify `tools/call` execution of native plugin (`sys-diagnostics:runtime_stats`).
   - `TestTier1_F5_MCP_ToolsCall_ExecutePlugin_Declarative`: Verify `tools/call` execution of declarative plugin.
   - `TestTier1_F5_MCP_ResourcesRead_PluginsCatalog`: Verify `resources/read` on `executor://plugins/catalog`.
+- **Feature 6: Asynchronous Action Execution, Queue & Live Logs (`POST /api/v1/jobs`, `/logs`, `/cancel`)**
+  - `TestTier1_F6_AsyncJob_SubmitCommand_HappyPath`: Verify HTTP 202 Accepted, Location header, polling URL, and successful completion of command job.
+  - `TestTier1_F6_AsyncJob_SubmitPlugin_Native_HappyPath`: Verify background dispatch and completion of native plugin action.
+  - `TestTier1_F6_AsyncJob_GetJob_StatusTransition`: Verify job detail endpoint (`GET /api/v1/jobs/{id}`) and state machine transitions.
+  - `TestTier1_F6_AsyncJob_ListJobs_FilteringAndPagination`: Verify listing active and completed jobs with query filters (`?status=...`) and pagination (`limit`, `offset`).
+  - `TestTier1_F6_AsyncJob_QueueStats_Telemetry`: Verify queue depth and worker telemetry via `GET /api/v1/jobs/queue`.
+  - `TestTier1_F6_AsyncJob_ChunkedLogStreaming`: Verify live chunked log streaming from byte offset 0 to EOF via `GET /api/v1/jobs/{id}/logs`.
 
 ### Tier 2: Boundary & Corner Cases (`tests/e2e/tier2_boundary_test.go`)
 Adversarial verification and extreme boundary conditions:
@@ -83,6 +90,15 @@ Adversarial verification and extreme boundary conditions:
 - `TestTier2_Boundary_LargePayloadStress`: Verify handling of large parameter payloads within memory constraints.
 - `TestTier2_Boundary_SpecialCharactersAndUnicodeQuery`: Verify UTF-8, punctuation, and Unicode resilience in search queries.
 - `TestTier2_Boundary_MalformedJSONRequestBody`: Verify HTTP 400 Bad Request on malformed JSON bodies across all POST endpoints.
+- `TestTier2_Boundary_Jobs_MissingRequiredFields`: Verify HTTP 400 Bad Request when job action is omitted.
+- `TestTier2_Boundary_Jobs_InvalidJobType`: Verify HTTP 400 Bad Request when job type discriminator is unsupported.
+- `TestTier2_Boundary_Jobs_PluginWithoutPluginID`: Verify HTTP 400 Bad Request when plugin job lacks `plugin_id`.
+- `TestTier2_Boundary_Jobs_NonExistentJobID`: Verify HTTP 404 Not Found across detail, logs, and cancellation routes for unknown job IDs.
+- `TestTier2_Boundary_Jobs_CancelAlreadyTerminalJob`: Verify HTTP 409 Conflict when attempting to cancel an already completed job.
+- `TestTier2_Boundary_Jobs_InvalidLimitAndOffset`: Verify graceful sanitization of negative limit and offset query parameters.
+- `TestTier2_Boundary_Jobs_MalformedJSON`: Verify HTTP 400 Bad Request on malformed JSON bodies to `/api/v1/jobs`.
+- `TestTier2_Boundary_Jobs_JobTimeoutEnforcement`: Verify timeout deadline expiry transitions job to `timed_out` status.
+- `TestTier2_Boundary_Jobs_QueueCapacityBackpressure`: Verify HTTP 429 Too Many Requests backpressure enforcement when bounded queue capacity is exceeded.
 
 ### Tier 3: Cross-Feature Combinations (`tests/e2e/tier3_cross_feature_test.go`)
 Integration contracts across multiple distinct subsystems:
@@ -93,6 +109,11 @@ Integration contracts across multiple distinct subsystems:
 - `TestTier3_Combination_ScopedServiceAccount_AllowedActionsEnforcement`: Scoped Service Account (`gat_svc_...`) with `allowed_actions: ["plugin:sys-diagnostics:*"]` successfully executes `sys-diagnostics` but is denied on other plugins.
 - `TestTier3_Combination_PrometheusMetricCorrelation_OnPluginAction`: Verify `action_calls_total{action="plugin:..."}` counter increments on `/metrics` upon plugin execution.
 - `TestTier3_Combination_DynamicDeclarativeRegistration_MCPAvailability`: Register new declarative plugin via REST, verify it instantly appears in MCP `resources/read executor://plugins/catalog` and executes via MCP `tools/call`.
+- `TestTier3_Combination_TwoTierRBAC_ScopeAndActionEnforcement`: Verify two-tier RBAC for async jobs (`jobs:submit`, `jobs:read`, `jobs:cancel`, and execution permissions for users and service accounts).
+- `TestTier3_Combination_CryptographicAuditTrail_FullJobLifecycleChain`: Verify cryptographic SHA-256 audit chaining across all job lifecycle transitions (`job.enqueued` -> `job.started` -> `job.completed` / `job.cancelled`).
+- `TestTier3_Combination_PrometheusTelemetryInvariants_AcrossJobLifecycle`: Verify `job_executions_total`, `job_queue_depth`, `job_workers_active`, and dynamic route normalization (`/api/v1/jobs/:id/logs`).
+- `TestTier3_Combination_HighConcurrency_JobSubmissionRaceAndPriorityHeapOrdering`: Stress priority queue with 30 concurrent goroutines across High, Normal, and Low priorities without data races or dropped jobs.
+- `TestTier3_Combination_AsyncJob_CancellationAndProcessTermination`: Verify immediate subprocess group termination upon cancellation and corresponding `job.cancelled` audit record.
 
 ### Tier 4: Real-World Scenarios (`tests/e2e/tier4_real_world_test.go`)
 Multi-step, production-realistic operational and autonomous agent workflows:
@@ -100,6 +121,8 @@ Multi-step, production-realistic operational and autonomous agent workflows:
 - `TestTier4_Scenario_DatabaseHealthAndTableInspectionWorkflow`: Automated database discovery, table catalog inspection, DB connection stats, and guarded read-only SELECT query.
 - `TestTier4_Scenario_MultiDomainTriageViaMCPAgentSimulation`: Full MCP client agent simulation (handshake -> resource catalog inspection -> diagnostic tool execution -> MCP trace audit inspection).
 - `TestTier4_Scenario_DynamicOpsRemediationAndAuditLifecycle`: Incident response simulation: register emergency inspection module -> run parameter-checked triage -> verify metrics and tamper-evident audit record.
+- `TestTier4_Scenario_OperationalBatchDiagnosticWorkflow_StreamLogsAndMidFlightCancellation`: SRE batch diagnostic runbook submitting high-priority probes and cancelling slow/stuck diagnostics mid-flight while streaming chunked live logs.
+- `TestTier4_Scenario_MultiTenantIsolation_JobHistoryAndAuditScoping`: Enterprise multi-tenant isolation verifying actor-scoped history queries and audit log segregation across distinct operators.
 
 ---
 
@@ -115,6 +138,7 @@ type e2eTestServer struct {
     auditLogger   *audit.AuditLogger
     authMgr       *auth.Manager
     pluginReg     *plugins.Registry
+    jobEngine     *jobs.Engine
     adminPAT      string
     operatorPAT   string
     viewerPAT     string
@@ -122,15 +146,15 @@ type e2eTestServer struct {
 }
 ```
 
-The test server wires all components together using production constructors, seeds standard authenticated identities, mounts all REST and MCP handlers onto a standard HTTP multiplexer, and starts a local loopback listener.
+The test server wires all components together using production constructors, seeds standard authenticated identities, mounts all REST and MCP handlers onto a standard HTTP multiplexer, starts background worker pools with graceful shutdown, and starts a local loopback listener.
 
 ### Seeded Credentials Matrix
-| Identity | Type | Token / Key | Role / Scope |
+| Identity | Type | Scopes | Allowed Actions |
 |---|---|---|---|
-| Admin Operator | Personal Access Token | `gat_pat_e2e_admin_secret_token_12345` | `admin` (Full permissions) |
-| Standard Operator | Personal Access Token | `gat_pat_e2e_operator_token_67890` | `operator` (Execute allowed) |
-| Read-Only Viewer | Personal Access Token | `gat_pat_e2e_viewer_token_13579` | `viewer` (Read-only, execution 403) |
-| Scoped Service Account | Third-Party Service Account | `gat_svc_e2e_sysdiag_scoped_token` | `allowed_actions: ["plugin:sys-diagnostics:*", "sys-diagnostics"]` |
+| Admin Operator | Personal Access Token | `*` (Full permissions) | `*` |
+| Standard Operator | Personal Access Token | `commands:execute`, `plugins:read`, `plugins:execute`, `jobs:submit`, `jobs:read`, `jobs:cancel` | All configured actions |
+| Read-Only Viewer | Personal Access Token | `commands:read`, `plugins:read`, `audit:read`, `jobs:read` | Read-only inspection |
+| Scoped Service Account | Third-Party Service Account | `plugins:execute`, `plugins:read`, `jobs:submit`, `jobs:read` | `["plugin:sys-diagnostics:*", "sys-diagnostics"]` |
 
 ---
 

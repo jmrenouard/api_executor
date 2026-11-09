@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
 )
@@ -33,6 +35,7 @@ type e2eTestServer struct {
 	auditLogger  *audit.AuditLogger
 	authMgr      *auth.Manager
 	pluginReg    *plugins.Registry
+	jobEngine    *jobs.Engine
 	adminPAT     string
 	operatorPAT  string
 	viewerPAT    string
@@ -40,6 +43,11 @@ type e2eTestServer struct {
 }
 
 func (s *e2eTestServer) Close() {
+	if s.jobEngine != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = s.jobEngine.Shutdown(ctx)
+		cancel()
+	}
 	if s.ts != nil {
 		s.ts.Close()
 	}
@@ -48,8 +56,13 @@ func (s *e2eTestServer) Close() {
 	}
 }
 
-// setupE2ETestServer initializes an ephemeral, opaque HTTP server with full subsystem integration.
+// setupE2ETestServer initializes an ephemeral, opaque HTTP server with default engine config.
 func setupE2ETestServer(t *testing.T) *e2eTestServer {
+	return setupCustomE2ETestServer(t, jobs.DefaultEngineConfig())
+}
+
+// setupCustomE2ETestServer initializes an ephemeral HTTP server with customized engine config.
+func setupCustomE2ETestServer(t *testing.T, engineCfg jobs.EngineConfig) *e2eTestServer {
 	t.Helper()
 
 	api.ResetActionMetrics()
@@ -72,6 +85,37 @@ func setupE2ETestServer(t *testing.T) *e2eTestServer {
 	appCfg.Auth.StorePath = filepath.Join(tempDir, "auth.json")
 	appCfg.Auth.BootstrapUsername = "e2e_admin"
 	appCfg.Auth.BootstrapPassword = "AdminSecurePassword123!"
+	appCfg.Executor.Enabled = true
+	appCfg.Executor.MaxTimeoutSeconds = 60
+
+	// Register cross-platform test commands
+	cmdEchoName, baseEchoArgs := crossPlatformEcho()
+	fastCmdArgs := append(append([]string{}, baseEchoArgs...), "hello-async")
+	cmdEcho2Args := append(append([]string{}, baseEchoArgs...), "e2e-async-output")
+
+	blockCmd := "sleep"
+	blockArgs := []string{"2"}
+	slowCmd := "sleep"
+	slowArgs := []string{"5"}
+	slowDiagCmd := "sleep"
+	slowDiagArgs := []string{"10"}
+
+	if runtime.GOOS == "windows" {
+		blockCmd = "cmd"
+		blockArgs = []string{"/C", "ping", "-n", "3", "127.0.0.1"}
+		slowCmd = "cmd"
+		slowArgs = []string{"/C", "ping", "-n", "6", "127.0.0.1"}
+		slowDiagCmd = "cmd"
+		slowDiagArgs = []string{"/C", "ping", "-n", "10", "127.0.0.1"}
+	}
+
+	appCfg.Executor.Commands = []core.CommandDefinition{
+		{Name: "test-echo", Command: cmdEchoName, Args: fastCmdArgs},
+		{Name: "echo-cmd", Command: cmdEchoName, Args: cmdEcho2Args},
+		{Name: "test-block", Command: blockCmd, Args: blockArgs},
+		{Name: "slow-cmd", Command: slowCmd, Args: slowArgs},
+		{Name: "slow-diag-cmd", Command: slowDiagCmd, Args: slowDiagArgs},
+	}
 
 	logger, err := core.NewLogger(appCfg.Logging)
 	if err != nil {
@@ -102,16 +146,20 @@ func setupE2ETestServer(t *testing.T) *e2eTestServer {
 		t.Fatalf("setupE2ETestServer: failed to create viewer user: %v", err)
 	}
 
-	// Issue PATs
+	// Issue PATs with async scopes
 	_, adminPAT, err := authMgr.CreateToken(adminUser.ID, "admin-pat", []string{"*"}, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("setupE2ETestServer: failed to create admin token: %v", err)
 	}
-	_, operatorPAT, err := authMgr.CreateToken(operatorUser.ID, "operator-pat", []string{"commands:execute", "plugins:read", "plugins:execute"}, 24*time.Hour)
+	_, operatorPAT, err := authMgr.CreateToken(operatorUser.ID, "operator-pat", []string{
+		"commands:execute", "plugins:read", "plugins:execute", "jobs:submit", "jobs:read", "jobs:cancel",
+	}, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("setupE2ETestServer: failed to create operator token: %v", err)
 	}
-	_, viewerPAT, err := authMgr.CreateToken(viewerUser.ID, "viewer-pat", []string{"commands:read", "plugins:read", "audit:read"}, 24*time.Hour)
+	_, viewerPAT, err := authMgr.CreateToken(viewerUser.ID, "viewer-pat", []string{
+		"commands:read", "plugins:read", "audit:read", "jobs:read",
+	}, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("setupE2ETestServer: failed to create viewer token: %v", err)
 	}
@@ -121,7 +169,7 @@ func setupE2ETestServer(t *testing.T) *e2eTestServer {
 		"sys-diagnostics-svc",
 		"SysOps Service",
 		"Scoped service account for system diagnostics only",
-		[]string{"plugins:execute", "plugins:read"},
+		[]string{"plugins:execute", "plugins:read", "jobs:submit", "jobs:read"},
 		[]string{"plugin:sys-diagnostics:*", "sys-diagnostics"},
 		24*time.Hour,
 	)
@@ -176,13 +224,59 @@ func setupE2ETestServer(t *testing.T) *e2eTestServer {
 		t.Fatalf("setupE2ETestServer: failed to initialize MCP server: %v", err)
 	}
 
-	env := &api.APIEnv{
+	var env *api.APIEnv
+
+	// Real subprocess and plugin executor for async jobs
+	jobExecutor := func(ctx context.Context, job *jobs.Job, logWriter io.Writer) (any, error) {
+		switch job.Type {
+		case jobs.TypeCommand:
+			cmdCopy, found := env.FindCommand(job.Action)
+			if !found {
+				return nil, fmt.Errorf("command %q not found", job.Action)
+			}
+			timeout := job.Timeout
+			if timeout <= 0 {
+				timeout = cmdCopy.EffectiveTimeout(core.DefaultCommandTimeout)
+			}
+			output, execErr := core.ExecuteCommandWithContext(ctx, cmdCopy, timeout, logWriter)
+			return map[string]any{"output": output}, execErr
+		case jobs.TypePlugin:
+			if pluginReg == nil {
+				return nil, errors.New("plugin registry is not initialized")
+			}
+			res, execErr := pluginReg.Execute(ctx, job.PluginID, job.Action, job.Params, job.Timeout)
+			if logWriter != nil && res.Output != "" {
+				_, _ = logWriter.Write([]byte(res.Output))
+			}
+			return res, execErr
+		default:
+			return nil, fmt.Errorf("unsupported job type: %s", job.Type)
+		}
+	}
+
+	jobStore, err := jobs.NewJobStore(db)
+	if err != nil {
+		jobStore = jobs.NewMemoryJobStore()
+	}
+
+	jobEngine, err := jobs.NewEngine(engineCfg, jobStore, auditLogger, jobExecutor)
+	if err != nil {
+		t.Fatalf("setupE2ETestServer: failed to initialize async job engine: %v", err)
+	}
+	jobEngine.SetMetricsReporter(api.NewJobMetricsReporter())
+	if err := jobEngine.Start(); err != nil {
+		t.Fatalf("setupE2ETestServer: failed to start async job engine: %v", err)
+	}
+
+	env = &api.APIEnv{
 		Config:         appCfg,
+		Logger:         logger,
 		DB:             db,
 		AuditLogger:    auditLogger,
 		AuthManager:    authMgr,
 		PluginRegistry: pluginReg,
 		MCPServer:      mcpServer,
+		JobEngine:      jobEngine,
 	}
 
 	router := api.NewRouter(env)
@@ -200,6 +294,7 @@ func setupE2ETestServer(t *testing.T) *e2eTestServer {
 		auditLogger:  auditLogger,
 		authMgr:      authMgr,
 		pluginReg:    pluginReg,
+		jobEngine:    jobEngine,
 		adminPAT:     adminPAT,
 		operatorPAT:  operatorPAT,
 		viewerPAT:    viewerPAT,
@@ -577,5 +672,263 @@ func TestE2ESetup_PluginDirectorySinglePassLoading(t *testing.T) {
 	if len(res.Plugins) < 300 {
 		t.Fatalf("expected at least 300 plugins returned via REST API, got %d", len(res.Plugins))
 	}
+}
+
+// Asynchronous Job HTTP Client Helpers
+
+func httpSubmitJob(t *testing.T, srv *e2eTestServer, token string, payload any, extraHeaders ...map[string]string) (int, api.SubmitJobResponse, string) {
+	t.Helper()
+	var bodyReader io.Reader
+	if rawStr, ok := payload.(string); ok {
+		bodyReader = strings.NewReader(rawStr)
+	} else if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("httpSubmitJob: failed to marshal payload: %v", err)
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+
+	url := srv.baseURL + "/api/v1/jobs"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bodyReader)
+	if err != nil {
+		t.Fatalf("httpSubmitJob: failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, m := range extraHeaders {
+		for k, v := range m {
+			req.Header.Set(k, v)
+		}
+	}
+
+	resp, err := srv.client.Do(req)
+	if err != nil {
+		t.Fatalf("httpSubmitJob: network error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("httpSubmitJob: failed to read body: %v", err)
+	}
+
+	var res api.SubmitJobResponse
+	_ = json.Unmarshal(bodyBytes, &res)
+	return resp.StatusCode, res, string(bodyBytes)
+}
+
+func httpGetJob(t *testing.T, srv *e2eTestServer, token string, jobID string, extraHeaders ...map[string]string) (int, *jobs.Job, string) {
+	t.Helper()
+	url := fmt.Sprintf("%s/api/v1/jobs/%s", srv.baseURL, jobID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("httpGetJob: failed to create request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, m := range extraHeaders {
+		for k, v := range m {
+			req.Header.Set(k, v)
+		}
+	}
+
+	resp, err := srv.client.Do(req)
+	if err != nil {
+		t.Fatalf("httpGetJob: network error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("httpGetJob: failed to read body: %v", err)
+	}
+
+	var res jobs.Job
+	if err := json.Unmarshal(bodyBytes, &res); err != nil {
+		return resp.StatusCode, nil, string(bodyBytes)
+	}
+	return resp.StatusCode, &res, string(bodyBytes)
+}
+
+func httpListJobs(t *testing.T, srv *e2eTestServer, token string, query string, extraHeaders ...map[string]string) (int, api.JobListResponse, string) {
+	t.Helper()
+	url := srv.baseURL + "/api/v1/jobs"
+	if query != "" {
+		if !strings.HasPrefix(query, "?") {
+			query = "?" + query
+		}
+		url += query
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("httpListJobs: failed to create request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, m := range extraHeaders {
+		for k, v := range m {
+			req.Header.Set(k, v)
+		}
+	}
+
+	resp, err := srv.client.Do(req)
+	if err != nil {
+		t.Fatalf("httpListJobs: network error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("httpListJobs: failed to read body: %v", err)
+	}
+
+	var res api.JobListResponse
+	_ = json.Unmarshal(bodyBytes, &res)
+	return resp.StatusCode, res, string(bodyBytes)
+}
+
+func httpGetJobLogs(t *testing.T, srv *e2eTestServer, token string, jobID string, offset int, extraHeaders ...map[string]string) (int, api.JobLogsResponse, string) {
+	t.Helper()
+	url := fmt.Sprintf("%s/api/v1/jobs/%s/logs?offset=%d", srv.baseURL, jobID, offset)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("httpGetJobLogs: failed to create request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, m := range extraHeaders {
+		for k, v := range m {
+			req.Header.Set(k, v)
+		}
+	}
+
+	resp, err := srv.client.Do(req)
+	if err != nil {
+		t.Fatalf("httpGetJobLogs: network error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("httpGetJobLogs: failed to read body: %v", err)
+	}
+
+	var res api.JobLogsResponse
+	_ = json.Unmarshal(bodyBytes, &res)
+	return resp.StatusCode, res, string(bodyBytes)
+}
+
+func httpCancelJob(t *testing.T, srv *e2eTestServer, token string, jobID string, extraHeaders ...map[string]string) (int, api.CancelJobResponse, string) {
+	t.Helper()
+	url := fmt.Sprintf("%s/api/v1/jobs/%s/cancel", srv.baseURL, jobID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
+	if err != nil {
+		t.Fatalf("httpCancelJob: failed to create request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, m := range extraHeaders {
+		for k, v := range m {
+			req.Header.Set(k, v)
+		}
+	}
+
+	resp, err := srv.client.Do(req)
+	if err != nil {
+		t.Fatalf("httpCancelJob: network error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("httpCancelJob: failed to read body: %v", err)
+	}
+
+	var res api.CancelJobResponse
+	_ = json.Unmarshal(bodyBytes, &res)
+	return resp.StatusCode, res, string(bodyBytes)
+}
+
+func httpGetJobQueue(t *testing.T, srv *e2eTestServer, token string, extraHeaders ...map[string]string) (int, api.QueueStatsResponse, string) {
+	t.Helper()
+	url := srv.baseURL + "/api/v1/jobs/queue"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("httpGetJobQueue: failed to create request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, m := range extraHeaders {
+		for k, v := range m {
+			req.Header.Set(k, v)
+		}
+	}
+
+	resp, err := srv.client.Do(req)
+	if err != nil {
+		t.Fatalf("httpGetJobQueue: network error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("httpGetJobQueue: failed to read body: %v", err)
+	}
+
+	var res api.QueueStatsResponse
+	_ = json.Unmarshal(bodyBytes, &res)
+	return resp.StatusCode, res, string(bodyBytes)
+}
+
+func httpGetQueueStats(t *testing.T, srv *e2eTestServer, token string, extraHeaders ...map[string]string) (int, api.QueueStatsResponse, string) {
+	t.Helper()
+	return httpGetJobQueue(t, srv, token, extraHeaders...)
+}
+
+func pollJobTerminal(t *testing.T, srv *e2eTestServer, token, jobID string, timeout time.Duration) *jobs.Job {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		code, job, _ := httpGetJob(t, srv, token, jobID)
+		if code == http.StatusOK && job != nil && job.Status.IsTerminal() {
+			return job
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	t.Fatalf("pollJobTerminal: job %s did not reach terminal status within %s", jobID, timeout)
+	return nil
+}
+
+func waitForJobTerminal(t *testing.T, srv *e2eTestServer, token, jobID string, timeout time.Duration) *jobs.Job {
+	t.Helper()
+	return pollJobTerminal(t, srv, token, jobID, timeout)
+}
+
+func pollJobLogsUntilEOF(t *testing.T, srv *e2eTestServer, token, jobID string, timeout time.Duration) string {
+	t.Helper()
+	var logs strings.Builder
+	offset := 0
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		code, resp, _ := httpGetJobLogs(t, srv, token, jobID, offset)
+		if code == http.StatusOK {
+			logs.WriteString(resp.Logs)
+			offset = resp.NextOffset
+			if resp.EOF {
+				return logs.String()
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	t.Fatalf("pollJobLogsUntilEOF: job %s logs did not reach EOF within %s (logs collected: %q)", jobID, timeout, logs.String())
+	return logs.String()
 }
 

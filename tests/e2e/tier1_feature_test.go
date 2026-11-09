@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
 )
@@ -659,3 +661,215 @@ func TestTier1_F5_MCP_ResourcesRead_PluginsCatalog(t *testing.T) {
 		t.Fatalf("expected non-empty contents in resources/read")
 	}
 }
+
+// ============================================================================
+// Tier 1 - Feature 6: Asynchronous Jobs, Queue & Live Logs (POST /api/v1/jobs)
+// ============================================================================
+
+func TestTier1_F6_AsyncJob_SubmitCommand_HappyPath(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	code, resp, raw := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":     "command",
+		"action":   "echo-cmd",
+		"priority": "normal",
+	})
+	if code != http.StatusAccepted {
+		t.Fatalf("expected HTTP 202 Accepted, got %d: %s", code, raw)
+	}
+	if resp.JobID == "" {
+		t.Fatalf("expected non-empty JobID")
+	}
+	if resp.Status != jobs.StatusQueued {
+		t.Errorf("expected status queued, got %s", resp.Status)
+	}
+	if !strings.Contains(resp.PollURL, resp.JobID) {
+		t.Errorf("expected poll_url to reference jobID %s: %s", resp.JobID, resp.PollURL)
+	}
+	if !strings.Contains(resp.LogsURL, resp.JobID) {
+		t.Errorf("expected logs_url to reference jobID %s: %s", resp.JobID, resp.LogsURL)
+	}
+
+	terminalJob := pollJobTerminal(t, srv, srv.adminPAT, resp.JobID, 5*time.Second)
+	if terminalJob.Status != jobs.StatusCompleted {
+		t.Fatalf("expected terminal status completed, got %s (error: %s)", terminalJob.Status, terminalJob.Error)
+	}
+	if terminalJob.StartedAt == nil || terminalJob.CompletedAt == nil {
+		t.Errorf("expected non-nil StartedAt and CompletedAt timestamps")
+	}
+	if terminalJob.DurationMs < 0 {
+		t.Errorf("expected non-negative duration_ms, got %d", terminalJob.DurationMs)
+	}
+}
+
+func TestTier1_F6_AsyncJob_SubmitPlugin_Native_HappyPath(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	code, resp, raw := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":      "plugin",
+		"plugin_id": "sys-diagnostics",
+		"action":    "runtime_stats",
+		"priority":  "high",
+	})
+	if code != http.StatusAccepted {
+		t.Fatalf("expected HTTP 202 Accepted, got %d: %s", code, raw)
+	}
+	if resp.JobID == "" {
+		t.Fatalf("expected non-empty JobID")
+	}
+
+	terminalJob := pollJobTerminal(t, srv, srv.adminPAT, resp.JobID, 5*time.Second)
+	if terminalJob.Status != jobs.StatusCompleted {
+		t.Fatalf("expected terminal status completed, got %s (error: %s)", terminalJob.Status, terminalJob.Error)
+	}
+	if terminalJob.PluginID != "sys-diagnostics" {
+		t.Errorf("expected PluginID sys-diagnostics, got %s", terminalJob.PluginID)
+	}
+}
+
+func TestTier1_F6_AsyncJob_GetJob_StatusTransition(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	code, resp, raw := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":   "command",
+		"action": "test-echo",
+	})
+	if code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted, got %d: %s", code, raw)
+	}
+
+	terminalJob := pollJobTerminal(t, srv, srv.adminPAT, resp.JobID, 5*time.Second)
+	if terminalJob.Status != jobs.StatusCompleted {
+		t.Fatalf("expected job to complete, got %s", terminalJob.Status)
+	}
+
+	statusCode, detail, detailRaw := httpGetJob(t, srv, srv.adminPAT, resp.JobID)
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK from GET /api/v1/jobs/{id}, got %d: %s", statusCode, detailRaw)
+	}
+	if detail.ID != resp.JobID {
+		t.Errorf("expected ID %s, got %s", resp.JobID, detail.ID)
+	}
+	if detail.ActorID != "e2e_admin_user" {
+		t.Errorf("expected ActorID e2e_admin_user, got %s", detail.ActorID)
+	}
+	if detail.ActorType != "user_token" && detail.ActorType != "user" {
+		t.Errorf("expected ActorType user_token or user, got %s", detail.ActorType)
+	}
+}
+
+func TestTier1_F6_AsyncJob_ListJobs_FilteringAndPagination(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// Submit 3 jobs
+	for i := 0; i < 3; i++ {
+		code, _, _ := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+			"type":   "command",
+			"action": "echo-cmd",
+		})
+		if code != http.StatusAccepted {
+			t.Fatalf("failed to submit job %d", i)
+		}
+	}
+
+	// Give workers a moment to process
+	time.Sleep(200 * time.Millisecond)
+
+	// Pagination: page 1 with limit 2, offset 0
+	code1, list1, raw1 := httpListJobs(t, srv, srv.adminPAT, "?limit=2&offset=0")
+	if code1 != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK, got %d: %s", code1, raw1)
+	}
+	if len(list1.Jobs) != 2 {
+		t.Fatalf("expected 2 jobs on page 1, got %d", len(list1.Jobs))
+	}
+	if list1.Total < 3 {
+		t.Errorf("expected total >= 3, got %d", list1.Total)
+	}
+
+	// Pagination: page 2 with limit 2, offset 2
+	code2, list2, raw2 := httpListJobs(t, srv, srv.adminPAT, "?limit=2&offset=2")
+	if code2 != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK, got %d: %s", code2, raw2)
+	}
+	if len(list2.Jobs) < 1 {
+		t.Fatalf("expected at least 1 job on page 2, got %d", len(list2.Jobs))
+	}
+	if list1.Jobs[0].ID == list2.Jobs[0].ID {
+		t.Errorf("expected different jobs on page 1 and page 2")
+	}
+
+	// Filter by status=completed
+	codeFilter, listFilter, _ := httpListJobs(t, srv, srv.adminPAT, "?status=completed")
+	if codeFilter != http.StatusOK {
+		t.Fatalf("expected 200 OK on filtered list, got %d", codeFilter)
+	}
+	for _, j := range listFilter.Jobs {
+		if j.Status != jobs.StatusCompleted {
+			t.Errorf("expected status completed, got %s", j.Status)
+		}
+	}
+}
+
+func TestTier1_F6_AsyncJob_QueueStats_Telemetry(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	code, stats, raw := httpGetQueueStats(t, srv, srv.adminPAT)
+	if code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK from /api/v1/jobs/queue, got %d: %s", code, raw)
+	}
+	if stats.WorkersTotal <= 0 {
+		t.Errorf("expected positive WorkersTotal, got %d", stats.WorkersTotal)
+	}
+	if stats.Capacity <= 0 {
+		t.Errorf("expected positive Capacity, got %d", stats.Capacity)
+	}
+	if stats.QueuedJobs < 0 {
+		t.Errorf("expected non-negative QueuedJobs, got %d", stats.QueuedJobs)
+	}
+	if stats.WorkersActive < 0 {
+		t.Errorf("expected non-negative WorkersActive, got %d", stats.WorkersActive)
+	}
+}
+
+func TestTier1_F6_AsyncJob_ChunkedLogStreaming(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	code, resp, raw := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":   "command",
+		"action": "echo-cmd",
+	})
+	if code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted, got %d: %s", code, raw)
+	}
+
+	pollJobTerminal(t, srv, srv.adminPAT, resp.JobID, 5*time.Second)
+
+	// Fetch logs from offset 0
+	logCode, logResp, logRaw := httpGetJobLogs(t, srv, srv.adminPAT, resp.JobID, 0)
+	if logCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from /logs, got %d: %s", logCode, logRaw)
+	}
+	if !strings.Contains(logResp.Logs, "e2e-async-output") {
+		t.Errorf("expected logs to contain 'e2e-async-output', got: %q", logResp.Logs)
+	}
+	if logResp.NextOffset <= 0 {
+		t.Errorf("expected NextOffset > 0, got %d", logResp.NextOffset)
+	}
+	if logResp.Truncated {
+		t.Errorf("expected truncated to be false")
+	}
+
+	// Fetch logs from next offset (should be empty with EOF)
+	logCode2, logResp2, _ := httpGetJobLogs(t, srv, srv.adminPAT, resp.JobID, logResp.NextOffset)
+	if logCode2 != http.StatusOK {
+		t.Fatalf("expected 200 OK from /logs next offset, got %d", logCode2)
+	}
+	if logResp2.Logs != "" {
+		t.Errorf("expected empty logs at EOF, got %q", logResp2.Logs)
+	}
+	if !logResp2.EOF {
+		t.Errorf("expected EOF to be true at stream end")
+	}
+}
+
