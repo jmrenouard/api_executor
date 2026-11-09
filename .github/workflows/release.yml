@@ -1,0 +1,165 @@
+name: Release & Distribution
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-binaries:
+    name: Cross-Compile Binary (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            binary_name: go-admin-tool
+            archive_ext: tar.gz
+          - goos: linux
+            goarch: arm64
+            binary_name: go-admin-tool
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: arm64
+            binary_name: go-admin-tool
+            archive_ext: tar.gz
+          - goos: windows
+            goarch: amd64
+            binary_name: go-admin-tool.exe
+            archive_ext: zip
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Compile Cross-Platform Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p build_output
+          go build -v -a -ldflags="-w -s" -o "build_output/${{ matrix.binary_name }}" ./cmd/server
+
+      - name: Bundle Archive Deliverable
+        run: |
+          mkdir -p dist
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME:-v2.1.0}"
+          fi
+          ARCHIVE_BASE="api_executor-${TAG}-${{ matrix.goos }}-${{ matrix.goarch }}"
+
+          TMP_STAGE=$(mktemp -d)
+          BUNDLE_DIR="${TMP_STAGE}/${ARCHIVE_BASE}"
+          mkdir -p "${BUNDLE_DIR}"
+
+          # Copy binary, configurations, plugins catalog, web UI, and license
+          cp "build_output/${{ matrix.binary_name }}" "${BUNDLE_DIR}/"
+          cp config.yaml LICENSE README.md "${BUNDLE_DIR}/"
+          cp -r plugins "${BUNDLE_DIR}/"
+          cp -r web "${BUNDLE_DIR}/"
+
+          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
+            (cd "${TMP_STAGE}" && zip -rq "${GITHUB_WORKSPACE}/dist/${ARCHIVE_BASE}.zip" "${ARCHIVE_BASE}")
+          else
+            tar -czf "dist/${ARCHIVE_BASE}.tar.gz" -C "${TMP_STAGE}" "${ARCHIVE_BASE}"
+          fi
+          rm -rf "${TMP_STAGE}"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 1
+
+  publish-github-release:
+    name: Publish Release Assets & SHA256 Manifest
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Built Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: download/
+          merge-multiple: true
+
+      - name: Generate Cryptographic SHA256 Manifest
+        run: |
+          mkdir -p dist
+          cp download/* dist/ 2>/dev/null || true
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Attach Assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: |
+            dist/*
+
+  publish-docker-hub:
+    name: Build & Push Multi-Arch Docker Hub Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve Docker Hub Image Tags
+        id: meta
+        run: |
+          IMAGE="jmrenouard/api_executor"
+          RAW_TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$RAW_TAG" ]; then
+            RAW_TAG="${GITHUB_REF_NAME:-v2.1.0}"
+          fi
+          CLEAN_VERSION="${RAW_TAG#v}"
+
+          TAGS="${IMAGE}:${RAW_TAG},${IMAGE}:${CLEAN_VERSION}"
+
+          # Conditionally append :latest tag only if release is not a prerelease
+          IS_PRERELEASE="${{ github.event.release.prerelease }}"
+          if [ "$IS_PRERELEASE" != "true" ]; then
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push Multi-Arch Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
