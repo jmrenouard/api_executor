@@ -580,6 +580,20 @@ This living governance register records all errors encountered, technical dead-e
   4. Verified in `tests/e2e/setup_test.go` via `pollJobTerminal` with a safe 5-second deadline.
 - **Result & Non-Regression Test**: Verified by `TestTier3_Combination_AsyncJob_ImmediateCancellationSubprocessTreeKill` in `tests/e2e/tier3_cross_feature_test.go` and `TestChallenger_Engine_CancellationLatency` in `internal/jobs/m1_stress_challenge_test.go` passing 100% on both Windows and Linux.
 
+### `RCA-043` — Windows Process-Tree Cancellation Delay Causing Backpressure E2E Test Flakiness
+- **Date**: `2026-11-09`
+- **Observed Symptom**: During empirical challenger verification of release v2.1.0, `go test -v ./tests/e2e/...` failed on Run 1 with exit code 1 (`TestTier2_Boundary_Jobs_QueueCapacityBackpressure` failed at `tier2_boundary_test.go:456: expected 202 Accepted after queue drained, got 429: {"error":"Queue capacity exceeded"}`).
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did the test fail with HTTP 429?* Because the queue was still at maximum capacity (`queued_jobs == 2`) when `httpSubmitJob` was called.
+  2. *Why was the queue still full after calling `httpCancelJob`?* Because the cancellation request had not completed process termination: the worker had not yet killed the blocker process, updated the job status to `cancelled`, and dequeued the next waiting job.
+  3. *Why was process termination delayed?* On Windows, terminating a process tree spawns `taskkill.exe /T /F /PID <pid>`. Under concurrent test execution and CPU pressure, launching and executing `taskkill.exe` plus OS pipe closing takes up to 600–800ms.
+  4. *Why was a fixed sleep used?* The test author assumed a 500ms sleep would always suffice for process teardown and worker queue drainage.
+  5. *Root Cause*: Relying on a fixed delay (`time.Sleep(500 * time.Millisecond)`) for an asynchronous multi-process teardown sequence on an operating system with non-deterministic process termination latency (Windows), rather than an active polling loop with a bounded timeout.
+- **Applied Change / Fix**:
+  In `tests/e2e/tier2_boundary_test.go`, replaced the fixed 500ms sleep with a bounded queue polling loop (evaluating every 50ms up to a 3-second deadline) until `queued_jobs < QueueCapacity` before submitting the subsequent job.
+- **Result & Non-Regression Test**:
+  Verified by `go test -v -run TestTier2_Boundary_Jobs_QueueCapacityBackpressure -count=5 ./tests/e2e/...` and `go test -v ./tests/e2e/...` passing 100% deterministically across consecutive runs on Windows.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

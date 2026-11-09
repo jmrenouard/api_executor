@@ -17,12 +17,12 @@ import (
 
 // SubmitJobRequest defines the JSON payload for POST /api/v1/jobs.
 type SubmitJobRequest struct {
-	Type            jobs.JobType   `json:"type"`
-	Action          string         `json:"action"`
-	PluginID        string         `json:"plugin_id,omitempty"`
+	Type            jobs.JobType   `json:"type" example:"command" enums:"command,plugin"`
+	Action          string         `json:"action" binding:"required" example:"system-diagnostics"`
+	PluginID        string         `json:"plugin_id,omitempty" example:"sysinfo"`
 	Params          map[string]any `json:"params,omitempty"`
-	Priority        jobs.Priority  `json:"priority,omitempty"`
-	Timeout         string         `json:"timeout,omitempty"`
+	Priority        jobs.Priority  `json:"priority,omitempty" example:"high" enums:"low,normal,high,critical"`
+	Timeout         string         `json:"timeout,omitempty" example:"45s"`
 	TimeoutOverride string         `json:"timeout_override,omitempty"`
 }
 
@@ -117,7 +117,23 @@ func (env *APIEnv) JobsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// SubmitJobHandler enqueues a new background job (HTTP 202 Accepted).
+// SubmitJobHandler godoc
+// @Summary Submit a background job
+// @Description Enqueues a command or plugin action for non-blocking asynchronous execution with configurable priority, timeout override, and input parameters. Returns HTTP 202 Accepted.
+// @Tags jobs
+// @Accept json
+// @Produce json
+// @Param body body SubmitJobRequest true "Background job submission payload"
+// @Success 202 {object} SubmitJobResponse "Accepted"
+// @Header 202 {string} Location "URI of the created job resource"
+// @Failure 400 {object} ErrorResponse "Bad Request"
+// @Failure 401 {object} ErrorResponse "Unauthorized"
+// @Failure 403 {object} ErrorResponse "Forbidden"
+// @Failure 404 {object} ErrorResponse "Not Found"
+// @Failure 429 {object} ErrorResponse "Too Many Requests (Queue capacity exceeded)"
+// @Failure 500 {object} ErrorResponse "Internal Server Error"
+// @Failure 503 {object} ErrorResponse "Service Unavailable"
+// @Router /api/v1/jobs [post]
 func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 	if env.JobEngine == nil {
 		writeJSONError(w, "Job engine is not initialized", http.StatusServiceUnavailable)
@@ -263,7 +279,22 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListJobsHandler lists existing and historical background jobs with filtering and pagination.
+// ListJobsHandler godoc
+// @Summary List asynchronous background jobs
+// @Description Retrieves a paginated list of active and historical background jobs with optional status, type, action, and actor filtering.
+// @Tags jobs
+// @Produce json
+// @Param status query string false "Filter by job status (queued, running, completed, failed, cancelled, timed_out)"
+// @Param type query string false "Filter by job type (command, plugin)"
+// @Param action query string false "Filter by action or command name"
+// @Param actor_id query string false "Filter by submitting actor ID"
+// @Param limit query integer false "Maximum number of jobs to return (default 50, max 200)"
+// @Param offset query integer false "Pagination offset (default 0)"
+// @Success 200 {object} JobListResponse "OK"
+// @Failure 401 {object} ErrorResponse "Unauthorized"
+// @Failure 403 {object} ErrorResponse "Forbidden"
+// @Failure 503 {object} ErrorResponse "Service Unavailable"
+// @Router /api/v1/jobs [get]
 func (env *APIEnv) ListJobsHandler(w http.ResponseWriter, r *http.Request) {
 	if env.JobEngine == nil {
 		writeJSONError(w, "Job engine is not initialized", http.StatusServiceUnavailable)
@@ -323,7 +354,16 @@ func (env *APIEnv) ListJobsHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// JobQueueStatsHandler returns real-time worker pool and queue depth telemetry.
+// JobQueueStatsHandler godoc
+// @Summary Get queue depth and worker telemetry
+// @Description Returns real-time metrics on asynchronous job queue depth, worker pool concurrency, active workers, and capacity.
+// @Tags jobs
+// @Produce json
+// @Success 200 {object} QueueStatsResponse "OK"
+// @Failure 401 {object} ErrorResponse "Unauthorized"
+// @Failure 403 {object} ErrorResponse "Forbidden"
+// @Failure 503 {object} ErrorResponse "Service Unavailable"
+// @Router /api/v1/jobs/queue [get]
 func (env *APIEnv) JobQueueStatsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -410,7 +450,18 @@ func (env *APIEnv) JobSubroutesHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONError(w, "Route not found", http.StatusNotFound)
 }
 
-// GetJobByIDHandler returns complete metadata and execution status for a job by ID.
+// GetJobByIDHandler godoc
+// @Summary Get job details by ID
+// @Description Retrieves complete metadata, execution timestamps, duration, and terminal status for a specific background job.
+// @Tags jobs
+// @Produce json
+// @Param id path string true "Unique Job Identifier (e.g. job_...)"
+// @Success 200 {object} jobs.Job "OK"
+// @Failure 401 {object} ErrorResponse "Unauthorized"
+// @Failure 403 {object} ErrorResponse "Forbidden"
+// @Failure 404 {object} ErrorResponse "Not Found"
+// @Failure 503 {object} ErrorResponse "Service Unavailable"
+// @Router /api/v1/jobs/{id} [get]
 func (env *APIEnv) GetJobByIDHandler(w http.ResponseWriter, r *http.Request, jobID string) {
 	if env.JobEngine == nil {
 		writeJSONError(w, "Job engine is not initialized", http.StatusServiceUnavailable)
@@ -439,7 +490,20 @@ func (env *APIEnv) GetJobByIDHandler(w http.ResponseWriter, r *http.Request, job
 	_ = json.NewEncoder(w).Encode(job)
 }
 
-// GetJobLogsHandler streams live chunked execution logs from the job buffer.
+// GetJobLogsHandler godoc
+// @Summary Stream live chunked execution logs
+// @Description Streams live captured stdout and stderr log chunks from the job execution buffer starting from a byte offset, returning next_offset and EOF status.
+// @Tags jobs
+// @Produce json
+// @Param id path string true "Unique Job Identifier"
+// @Param offset query integer false "Starting byte offset for log chunk reading (default 0)"
+// @Success 200 {object} JobLogsResponse "OK"
+// @Failure 401 {object} ErrorResponse "Unauthorized"
+// @Failure 403 {object} ErrorResponse "Forbidden"
+// @Failure 404 {object} ErrorResponse "Not Found"
+// @Failure 500 {object} ErrorResponse "Internal Server Error"
+// @Failure 503 {object} ErrorResponse "Service Unavailable"
+// @Router /api/v1/jobs/{id}/logs [get]
 func (env *APIEnv) GetJobLogsHandler(w http.ResponseWriter, r *http.Request, jobID string) {
 	if env.JobEngine == nil {
 		writeJSONError(w, "Job engine is not initialized", http.StatusServiceUnavailable)
@@ -492,7 +556,20 @@ func (env *APIEnv) GetJobLogsHandler(w http.ResponseWriter, r *http.Request, job
 	})
 }
 
-// CancelJobHandler aborts an active queued or running job by ID.
+// CancelJobHandler godoc
+// @Summary Cancel a queued or running job
+// @Description Aborts an active background job. Queued jobs are immediately cancelled; running jobs receive an OS process-group kill signal.
+// @Tags jobs
+// @Produce json
+// @Param id path string true "Unique Job Identifier"
+// @Success 200 {object} CancelJobResponse "OK"
+// @Failure 401 {object} ErrorResponse "Unauthorized"
+// @Failure 403 {object} ErrorResponse "Forbidden"
+// @Failure 404 {object} ErrorResponse "Not Found"
+// @Failure 409 {object} ErrorResponse "Conflict (Job already finished)"
+// @Failure 500 {object} ErrorResponse "Internal Server Error"
+// @Failure 503 {object} ErrorResponse "Service Unavailable"
+// @Router /api/v1/jobs/{id}/cancel [post]
 func (env *APIEnv) CancelJobHandler(w http.ResponseWriter, r *http.Request, jobID string) {
 	if env.JobEngine == nil {
 		writeJSONError(w, "Job engine is not initialized", http.StatusServiceUnavailable)
