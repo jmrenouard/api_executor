@@ -537,6 +537,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-006` | `internal/mcp` | Synchronous HTTP JSON-RPC 2.0 transport (`POST /api/v1/mcp`) with bounded in-memory ring buffer (`MaxTraces = 500`) + SQLite/JSONL persistence. | Request/response RPC calls complete in a single HTTP round-trip without requiring long-lived SSE state. | Add Streamable HTTP / SSE server-initiated notification transport if bidirectional MCP server-to-client sampling is required (`IDEA-005`). |
 | `APP-007` | `web/static` | Single-file zero-build Web Administration Console (`web/static/index.html`) using Alpine.js and Tailwind CSS via CDN. | Requires no Node.js/npm build step; air-gapped deployments without internet access need vendored static CSS/JS assets. | Vendor Alpine.js and compiled CSS into `web/static/vendor/` for offline air-gapped environments. |
 | `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Fully fulfilled and replaced in Milestones 2, 3, and 5 by 281 live filesystem declarative plugin YAML manifests and 24 native pure-Go plugins (total 305/306 plugins). |
+| `APP-009` | `internal/jobs` | In-memory log buffer retained per active job bounded to 2 MiB (`DefaultMaxLogBytes = 2 MiB`), with completed log eviction upon engine pruning. | Bounded memory consumption; historical logs after memory eviction rely on output summaries stored in `JobStore`. | Add persistent chunked log archive to disk or object storage if unbounded historical log retrieval is needed (`IDEA-007`). |
 
 
 ---
@@ -551,3 +552,4 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-004` | `P3` | `internal/plugins` | Out-of-process gRPC / WebAssembly (WASI) plugin sandboxing for untrusted third-party modules. |
 | `IDEA-005` | `P3` | `internal/mcp` | Streamable HTTP / SSE notification stream and stdio CLI bridge for local desktop MCP hosts. |
 | `IDEA-006` | `P3` | `web/static` | Virtualized catalog scrolling / infinite scroll for Web Console Tab 5 when plugin ecosystem scales beyond 1,000 plugins. |
+| `IDEA-007` | `P2` | `internal/jobs` | Distributed Redis / PostgreSQL queue backend and persistent S3/MinIO chunked log streaming for multi-node deployments. |

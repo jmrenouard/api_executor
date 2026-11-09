@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -343,3 +344,66 @@ func TestLimitedOutputBufferAndMaxCommandOutputBytes(t *testing.T) {
 	}
 }
 
+func TestExecuteCommandWithContext_Success(t *testing.T) {
+	cmd := helperEchoCommand("ctx-echo", "hello-context")
+	out, err := ExecuteCommandWithContext(context.Background(), cmd, 5*time.Second, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "hello-context") {
+		t.Errorf("expected output to contain 'hello-context', got %q", out)
+	}
+}
+
+func TestExecuteCommandWithContext_LiveWriter(t *testing.T) {
+	cmd := helperEchoCommand("live-echo", "live-stream-data")
+	var liveBuf strings.Builder
+	out, err := ExecuteCommandWithContext(context.Background(), cmd, 5*time.Second, &liveBuf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "live-stream-data") {
+		t.Errorf("expected return output to contain 'live-stream-data', got %q", out)
+	}
+	if !strings.Contains(liveBuf.String(), "live-stream-data") {
+		t.Errorf("expected liveBuf to contain 'live-stream-data', got %q", liveBuf.String())
+	}
+}
+
+func TestExecuteCommandWithContext_Cancellation(t *testing.T) {
+	cmd := helperSleepCommand("cancel-cmd")
+	ctx, cancel := context.WithCancel(context.Background())
+
+	time.AfterFunc(100*time.Millisecond, cancel)
+
+	_, err := ExecuteCommandWithContext(ctx, cmd, 10*time.Second, nil)
+	if err == nil {
+		t.Fatalf("expected cancellation error, got nil")
+	}
+	if !IsCommandCancelled(err) {
+		t.Errorf("expected IsCommandCancelled(err) == true, got false (err=%v)", err)
+	}
+	if !IsCommandFailure(err) {
+		t.Errorf("expected IsCommandFailure(err) == true for cancelled command, got false")
+	}
+}
+
+func TestIsCommandCancelled(t *testing.T) {
+	if IsCommandCancelled(nil) {
+		t.Errorf("expected IsCommandCancelled(nil) == false")
+	}
+	if !IsCommandCancelled(ErrCommandCancelled) {
+		t.Errorf("expected IsCommandCancelled(ErrCommandCancelled) == true")
+	}
+	if !IsCommandCancelled(context.Canceled) {
+		t.Errorf("expected IsCommandCancelled(context.Canceled) == true")
+	}
+	wrapped := fmt.Errorf("wrapped: %w", ErrCommandCancelled)
+	if !IsCommandCancelled(wrapped) {
+		t.Errorf("expected IsCommandCancelled(wrapped) == true")
+	}
+	unrelated := errors.New("unrelated error")
+	if IsCommandCancelled(unrelated) {
+		t.Errorf("expected IsCommandCancelled(unrelated) == false")
+	}
+}
