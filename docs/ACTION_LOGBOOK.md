@@ -13,6 +13,31 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-045` — Synchronize Job Status Reads to Eliminate Data Race Under Race Detector (Milestone 2 Iteration 2 Remediation)
+- **Timestamp (UTC)**: `2026-11-09T09:05:00Z`
+- **GitHub Issue**: [#90](https://github.com/jmrenouard/api_executor/issues/90)
+- **Branch**: `fix/issue-90-job-status-data-race`
+- **Request**:
+  - Remediate Go runtime data race detected under `-race` in `internal/api` between `(*WorkerPool).runJob()` / `(*Job).SetRunning()` (`internal/jobs/job.go:222`) and `(*APIEnv).SubmitJobHandler()` (`internal/api/job_handlers.go:256`).
+  - Synchronize status reads across `internal/api/job_handlers.go`:
+    1. Replace unsynchronized read `job.Status` with `jobs.StatusQueued` in `SubmitJobResponse` (line 256), guaranteeing deterministic HTTP 202 Accepted response contract with zero lock contention.
+    2. Replace direct field read `status = job.Status` with thread-safe getter `status = job.GetStatus()` in `GetJobLogsHandler` (line 479).
+    3. Replace direct field read `if job.Status.IsTerminal()` with thread-safe getter `if job.GetStatus().IsTerminal()` in `CancelJobHandler` (line 518).
+  - Verify zero data races under Linux race detector (`go test -race ./internal/api/...`) and 100% passing tests under Windows (`go test -v -cover ./...`, `go vet ./...`).
+- **Changes**:
+  - Modified [`internal/api/job_handlers.go`](../internal/api/job_handlers.go):
+    - Replaced `job.Status` with `jobs.StatusQueued` in `SubmitJobResponse` at line 256.
+    - Replaced `job.Status` with `job.GetStatus()` in `GetJobLogsHandler` at line 479.
+    - Replaced `job.Status.IsTerminal()` with `job.GetStatus().IsTerminal()` in `CancelJobHandler` at line 518.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-045`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-041`.
+- **Result**:
+  - `go test -race` under WSL Ubuntu 24.04: 100% pass across all 17 job handler tests, challenger stress tests, and adversarial state-machine tests with 0 data races.
+  - `internal/jobs` package under WSL `-race`: 100% pass (33/33 tests).
+  - `go vet ./...` (Windows): exit code 0 (zero copylocks warnings).
+  - `go test -v -cover ./...` (Windows): 100% pass (432/432 tests passing across all 11 packages).
+  - GitHub Issue [#90](https://github.com/jmrenouard/api_executor/issues/90), PR opened and merged into `main`.
+
 ### `ACT-044` — Async Job REST API Endpoints, RBAC Scopes, Prometheus Metrics, and Audit Integration (Milestone 2)
 - **Timestamp (UTC)**: `2026-11-09T08:50:00Z`
 - **GitHub Issue**: [#88](https://github.com/jmrenouard/api_executor/issues/88)

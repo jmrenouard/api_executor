@@ -549,6 +549,21 @@ This living governance register records all errors encountered, technical dead-e
   Added an explicit equality check `if trimmed == "/api/v1/jobs" { return "/api/v1/jobs" }` immediately after stripping the trailing slash in `internal/api/router.go`.
 - **Result & Non-Regression Test**: Verified by `TestNormalizeMetricPath` (63 table cases passing 100%) and `TestPrometheusMetricJobRouteNormalization`.
 
+### `RCA-041` — Data Race Under Go Race Detector Between Background Worker State Transition and `SubmitJobHandler` Response Serialization
+- **Date**: `2026-11-09`
+- **Observed Symptom**: Executing `go test -race ./internal/api/...` under Linux/WSL consistently triggered a Go runtime data race: `Write at 0x... by goroutine (jobs.(*Job).SetRunning at job.go:222)` concurrent with `Previous read at 0x... by goroutine (api.(*APIEnv).SubmitJobHandler at job_handlers.go:256)`.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why was a data race detected?* A worker goroutine called `job.SetRunning()` which locked `job.mu` and wrote `j.Status = StatusRunning`, while `SubmitJobHandler` read `job.Status` concurrently without acquiring `job.mu`.
+  2. *Why did SubmitJobHandler have the live pointer to Job?* `Engine.Enqueue(jobReq)` enqueued the `*Job` into the priority queue and returned the same live pointer to the HTTP handler.
+  3. *Why did the worker start so quickly?* The queue's condition variable immediately signaled a waiting worker in `workerLoop()`, which began executing `runJob()` concurrently before `SubmitJobHandler` encoded its JSON response.
+  4. *Why did SubmitJobHandler read `job.Status` directly?* The handler constructed `SubmitJobResponse` using direct struct field access rather than thread-safe accessors or the contractual submission state.
+  5. *Root Cause*: Lack of memory synchronization on mutable `Job.Status` in HTTP handlers; direct struct field read instead of utilizing `jobs.StatusQueued` for initial submission or thread-safe getter `job.GetStatus()`.
+- **Applied Change / Fix**:
+  1. Replaced direct read `Status: job.Status` with constant `Status: jobs.StatusQueued` in `SubmitJobHandler` (`internal/api/job_handlers.go:256`), providing 100% deterministic conformance with the HTTP 202 Accepted submission contract and zero lock contention.
+  2. Replaced direct field read `status = job.Status` with `status = job.GetStatus()` in `GetJobLogsHandler` (`internal/api/job_handlers.go:479`).
+  3. Replaced direct field read `if job.Status.IsTerminal()` with `if job.GetStatus().IsTerminal()` in `CancelJobHandler` (`internal/api/job_handlers.go:518`).
+- **Result & Non-Regression Test**: Verified by `go test -race -v ./internal/api/...` under WSL Ubuntu 24.04 passing 100% with 0 data races, and `go test -v -cover ./...` on Windows passing 432/432 tests across all 11 packages.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
