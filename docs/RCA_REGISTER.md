@@ -594,6 +594,27 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified by `go test -v -run TestTier2_Boundary_Jobs_QueueCapacityBackpressure -count=5 ./tests/e2e/...` and `go test -v ./tests/e2e/...` passing 100% deterministically across consecutive runs on Windows.
 
+### `RCA-044` — Developer-Time Swaggo Code Generation Invocation During Container Build Causing Docker Build Failure and Build Slowdowns
+- **Date**: `2026-11-09`
+- **Observed Symptom**:
+  Executing `docker build -t api-executor:test .` failed at build step `RUN swag init -g cmd/server/main.go` with exit code 1:
+  `Error parsing type definition 'jobs.Job': [timeout]: cannot find type definition: time.Duration`
+  `Error parsing type definition 'api.JobListResponse': [jobs]: jobs.Job: [timeout]: cannot find type definition: time.Duration`
+  `ParseComment error in file /app/internal/api/job_handlers.go for comment: '// @Success 200 {object} JobListResponse "OK"': JobListResponse: [jobs]: jobs.Job: [timeout]: cannot find type definition: time.Duration`
+  In addition, `RUN go install github.com/swaggo/swag/cmd/swag@latest` in `Dockerfile` incurred 26+ seconds of redundant network package downloads on every non-cached build, and could cause build timeouts under multi-arch QEMU emulation.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did `swag init` fail?* Because `swag init` in `Dockerfile:18` lacked the `--parseInternal` flag required to parse type definitions in package `jobs.Job`.
+  2. *Why was `swag init` running in Dockerfile?* It was included in the multi-stage build instructions to ensure Swagger artifacts were up to date before compiling the server binary.
+  3. *Was `swag init` required at container build time?* No; Swagger documentation artifacts (`docs/docs.go`, `docs/swagger.json`, `docs/swagger.yaml`) are development-time artifacts that are already generated, committed to the Git repository, and imported directly into `cmd/server/main.go` via `_ "go-admin-tool/docs"`.
+  4. *What was the performance impact?* Every fresh build downloaded and compiled `swag@latest` (downloading ~20 external Go modules), adding significant overhead and breaking cross-architecture compilation under QEMU.
+  5. *Root Cause*: Architectural anti-pattern of invoking development-time code generation tooling (`swag init`) during production container image compilation when generated artifacts are already checked into source control.
+- **Applied Change / Fix**:
+  1. Removed `RUN go install github.com/swaggo/swag/cmd/swag@latest` and `RUN swag init -g cmd/server/main.go` from `Dockerfile`.
+  2. Maintained the canonical development-time Swagger generation workflow in `Makefile` (`swag init -g cmd/server/main.go --parseInternal`).
+  3. Preserved existing static Swagger artifacts in `docs/` and import in `cmd/server/main.go`.
+- **Result & Non-Regression Test**:
+  Verified by `docker build -t api-executor:test .` building cleanly with zero errors, and `go test -v ./docs -run "TestSVGAssetsAreValidXMLAndREADMEIncludesBranding|TestDockerHygieneAndIgnoreRules"` passing 100%.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
