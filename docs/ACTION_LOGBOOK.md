@@ -13,6 +13,41 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-051` — Dockerfile Build Fix, Standard OCI Labels, and Multi-Architecture Hardening
+- **Timestamp (UTC)**: `2026-11-09T21:35:00Z`
+- **GitHub Issue**: [#102](https://github.com/jmrenouard/api_executor/issues/102)
+- **Branch**: `feat/issue-102-dockerfile-oci-labels-and-healthcheck`
+- **Request**:
+  - Implement Milestone M1: Dockerfile Build Fix, OCI Labels & Multi-Arch Hardening:
+    1. Fix the root Dockerfile build failure (`jobs.Job: [timeout]: cannot find type definition: time.Duration`) by removing developer-time `go install swag@latest` and `swag init` instructions (pre-generated Swagger documentation already exists in `docs/` and is imported into `cmd/server/main.go`).
+    2. Add standard OCI metadata annotations (`org.opencontainers.image.*`) with dynamic ARG support (`VERSION`, `REVISION`, `CREATED`).
+    3. Configure native BuildKit multi-architecture cross-compilation with `FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder` and `ARG TARGETOS TARGETARCH`.
+    4. Pin the runtime base image to `alpine:3.21` and install runtime dependencies `ca-certificates curl tzdata`.
+    5. Configure non-root user `appuser:appgroup` with deterministic UID/GID `10001:10001`.
+    6. Add container `HEALTHCHECK` directive verifying endpoint availability.
+    7. Preserve `docs/branding_test.go` structural invariants (`/app/certs`, `chown -R appuser:appgroup /app`, `COPY --from=builder /app/plugins ./plugins`, and `RUN go mod download` before `COPY . .`).
+    8. Verify 100% test pass on Go unit and E2E suites and successful local Docker build (`docker build -t api-executor:test .`).
+- **Changes**:
+  - Modified [`Dockerfile`](../Dockerfile):
+    - Removed lines 12-18 (`RUN go install .../swag@latest` and `RUN swag init ...`) resolving the Swaggo build failure and eliminating 26+ seconds of package downloads.
+    - Updated builder stage to use `FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder` with `ARG TARGETOS TARGETARCH` and passed `$TARGETOS` / `$TARGETARCH` to `go build` for fast native cross-compilation.
+    - Pinned runtime base image to `alpine:3.21` and installed `ca-certificates curl tzdata`.
+    - Added full OCI labels (`org.opencontainers.image.title`, `description`, `authors`, `url`, `documentation`, `source`, `licenses`, `vendor`, `version`, `revision`, `created`) with build ARG support.
+    - Configured deterministic non-root user `appuser:appgroup` with UID/GID `10001:10001`.
+    - Added `HEALTHCHECK` probe targeting `https://127.0.0.1:8080/metrics`.
+    - Preserved all `docs/branding_test.go` invariants (`/app/certs`, `chown -R appuser:appgroup /app`, `COPY --from=builder /app/plugins ./plugins`, and `RUN go mod download` before `COPY . .`).
+  - Modified [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): recorded `RCA-044` (Developer-Time Swaggo Code Generation Invocation During Container Build Causing Docker Build Failure and Build Slowdowns).
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-051`.
+- **Result**:
+  - `go test -v ./docs -run "TestSVGAssetsAreValidXMLAndREADMEIncludesBranding|TestDockerHygieneAndIgnoreRules"`: 100% pass (2/2 tests passing).
+  - `go test -v ./internal/api ./internal/core ./internal/database ./internal/auth ./internal/audit ./internal/mcp ./internal/plugins ./docs ./cmd/server`: 100% pass (320/320 tests passing across 9 packages).
+  - `go test -v ./internal/jobs -short`: 100% pass (46/46 tests passing).
+  - `go test -v ./tests/e2e/...`: 100% pass (88/88 tests passing across 4 tiers).
+  - `docker build -t api-executor:test .`: Succeeded cleanly in 28s with zero errors or warnings.
+  - Python Dockerfile linter: 0 HIGH, 0 WARN.
+  - GitHub Issue [#102](https://github.com/jmrenouard/api_executor/issues/102).
+  - Pull Request merged into `main`.
+
 ### `ACT-050` — Deflake E2E Backpressure Test and Align OpenAPI Release Specifications
 - **Timestamp (UTC)**: `2026-11-09T17:20:00Z`
 - **GitHub Issue**: [#100](https://github.com/jmrenouard/api_executor/issues/100)
