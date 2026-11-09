@@ -235,6 +235,31 @@ func (db *DB) Init() error {
 		status TEXT NOT NULL,
 		output TEXT
 	);
+
+	CREATE TABLE IF NOT EXISTS job_history (
+		id TEXT NOT NULL PRIMARY KEY,
+		type TEXT NOT NULL,
+		action TEXT NOT NULL,
+		plugin_id TEXT,
+		params TEXT,
+		priority TEXT NOT NULL,
+		status TEXT NOT NULL,
+		created_at DATETIME NOT NULL,
+		started_at DATETIME,
+		completed_at DATETIME,
+		duration_ms INTEGER DEFAULT 0,
+		timeout INTEGER DEFAULT 0,
+		actor_type TEXT,
+		actor_id TEXT,
+		source_ip TEXT,
+		error TEXT,
+		result_data TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_job_history_status ON job_history(status);
+	CREATE INDEX IF NOT EXISTS idx_job_history_action ON job_history(action);
+	CREATE INDEX IF NOT EXISTS idx_job_history_actor_id ON job_history(actor_id);
+	CREATE INDEX IF NOT EXISTS idx_job_history_created_at ON job_history(created_at DESC);
 	`
 	_, err := db.Exec(sqlStmt)
 	return err

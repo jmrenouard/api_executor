@@ -740,4 +740,29 @@ func TestConcurrentActionHistoryAccessSQLBacked(t *testing.T) {
 	}
 }
 
+func TestDBInit_JobHistory(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := filepath.Join(tmpDir, "test_job_history.db")
+	db, err := NewDB(dsn)
+	if err != nil {
+		t.Fatalf("NewDB failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Init(); err != nil {
+		t.Fatalf("db.Init() failed: %v", err)
+	}
+
+	if !db.IsInMemory() && db.DB != nil {
+		var name string
+		row := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='job_history'")
+		if err := row.Scan(&name); err != nil {
+			t.Fatalf("expected job_history table to exist: %v", err)
+		}
+		if name != "job_history" {
+			t.Errorf("expected table name 'job_history', got %q", name)
+		}
+	}
+}
+
 

@@ -15,6 +15,54 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-042` — Implement Core Asynchronous Job Engine and Queue Worker Pool (Milestone 1)
+- **Timestamp (UTC)**: `2026-11-09T08:10:00Z`
+- **GitHub Issue**: [#84](https://github.com/jmrenouard/api_executor/issues/84)
+- **Branch**: `feat/issue-84-async-job-engine-and-worker-pool`
+- **Request**:
+  - Implement Milestone 1 of the asynchronous action execution architecture for API Executor (`go-admin-tool`), decoupling long-running operations from synchronous HTTP threads.
+  - Enhance `internal/core/executor.go` with `ExecuteCommandWithContext` to propagate cancellation contexts, timeout deadlines, and an optional real-time streaming `io.Writer`, with process tree termination and `WaitDelay = 200ms` on Windows and Unix, while preserving backward compatibility for `ExecuteCommandWithTimeout`.
+  - Augment `internal/database/db.go` `Init()` to automatically create `job_history` table and composite indexes on `status`, `action`, `actor_id`, and `created_at DESC`.
+  - Create `internal/jobs/job.go`: domain models (`Job`, `JobStatus`, `Priority`, `JobRequest`, `JobFilter`) with thread-safe `sync.RWMutex`, `Snapshot()`, and custom `MarshalJSON()`.
+  - Create `internal/jobs/buffer.go`: concurrency-safe bounded `JobLogBuffer` (2 MiB limit) supporting simultaneous subprocess stdout/stderr writes, non-blocking overflow draining, chunked reads (`ReadChunk(offset)`), and EOF notification.
+  - Create `internal/jobs/queue.go`: thread-safe priority queue backed by `container/heap` with priority tiers (`High`, `Normal`, `Low`), FIFO tie-breaking (`CreatedAt` and sequence counter), $O(\log N)$ queue-time cancellation (`Remove(jobID)`), and backpressure capacity (`ErrQueueFull`).
+  - Create `internal/jobs/worker.go`: bounded `WorkerPool` with configurable goroutine workers, active job context cancellation, timeout enforcement, panic recovery, and graceful queue draining (`Shutdown(ctx)`).
+  - Create `internal/jobs/store.go`: `JobStore` interface with `SQLiteJobStore` (upsert queries, indexed filtering, pagination, retention pruning) and thread-safe deep-cloning `MemoryJobStore` fallback for `CGO_ENABLED=0` pure-Go execution.
+  - Create `internal/jobs/engine.go`: central `Engine` facade coordinating queue, workers, store, log buffers, and SHA-256 hash-chained audit trail (`Category: "job"`).
+  - Add comprehensive unit tests in `internal/jobs/*_test.go` and verify 100% pass across all packages with $\ge 80\%$ statement coverage.
+- **Changes**:
+  - Modified [`internal/core/executor.go`](../internal/core/executor.go):
+    - Added `ErrCommandCancelled` and `IsCommandCancelled` helpers.
+    - Updated `IsCommandFailure` to classify cancelled commands as failures.
+    - Added `ExecuteCommandWithContext(ctx, cmdDef, timeout, liveWriter)` using `io.MultiWriter`, `configureCommandProcessGroup`, and `cmd.WaitDelay = 200ms`.
+    - Refactored `ExecuteCommand` and `ExecuteCommandWithTimeout` to delegate to `ExecuteCommandWithContext`.
+  - Modified [`internal/core/executor_test.go`](../internal/core/executor_test.go):
+    - Added tests for `ExecuteCommandWithContext` (success, live stream writing, context cancellation) and `IsCommandCancelled`.
+  - Modified [`internal/database/db.go`](../internal/database/db.go):
+    - Added `job_history` table creation and indexes (`idx_job_history_status`, `idx_job_history_action`, `idx_job_history_actor_id`, `idx_job_history_created_at`) to `Init()`.
+  - Modified [`internal/database/db_test.go`](../internal/database/db_test.go):
+    - Added `TestDBInit_JobHistory` asserting `job_history` table creation upon initialization.
+  - Created [`internal/jobs/job.go`](../internal/jobs/job.go):
+    - Domain models (`Job`, `JobStatus`, `Priority`, `JobRequest`, `JobFilter`).
+    - Thread-safe mutation and access methods (`Snapshot`, `MarshalJSON`, `SetRunning`, `SetCompleted`, `SetFailed`, `SetTimedOut`, `Cancel`, `SetCancelledFinal`).
+  - Created [`internal/jobs/buffer.go`](../internal/jobs/buffer.go):
+    - `JobLogBuffer` bounded to 2 MiB (`DefaultMaxLogBytes`), non-blocking overflow draining, chunked reads, EOF notification.
+  - Created [`internal/jobs/queue.go`](../internal/jobs/queue.go):
+    - Heap-backed priority queue with `High`, `Normal`, `Low` tiers, monotonic sequence tie-breaking, and backpressure.
+  - Created [`internal/jobs/worker.go`](../internal/jobs/worker.go):
+    - Bounded worker pool with active context cancellation, timeout enforcement, panic recovery, and clean draining.
+  - Created [`internal/jobs/store.go`](../internal/jobs/store.go):
+    - `JobStore` interface, `MemoryJobStore` (pure-Go thread-safe in-memory fallback), and `SQLiteJobStore` (persistent table with upserts and pruning).
+  - Created [`internal/jobs/engine.go`](../internal/jobs/engine.go):
+    - Central `Engine` facade providing `Enqueue`, `GetJob`, `ListJobs`, `GetJobLogs`, `CancelJob`, `QueueStats`, `Shutdown`, and cryptographic audit trail logging.
+  - Created [`internal/jobs/jobs_test.go`](../internal/jobs/jobs_test.go) and [`internal/jobs/store_test.go`](../internal/jobs/store_test.go):
+    - 21 unit tests covering all components, queue priorities, tie-breaking, worker execution, cancellation, timeouts, panic recovery, buffer truncation, chunked reads, memory/SQLite stores, pruning, and SHA-256 audit chaining.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): recorded `ACT-042`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): documented `APP-009` and `IDEA-007`.
+- **Result**:
+  - Full project test suite: 100% pass rate (`365 passed in 11 packages`, 0 failures).
+  - `internal/jobs` package statement coverage: 84.2%.
+
 ### `ACT-041` — Publish Release v2.0.0 and Technical Deep-Dive Articles on jmrenouard.fr
 - **Timestamp (UTC)**: `2026-11-08T23:05:00Z`
 - **GitHub Issue**: Release Publication (`v2.0.0`)
