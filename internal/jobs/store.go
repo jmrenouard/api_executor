@@ -43,14 +43,14 @@ func NewJobStore(db *database.DB) (JobStore, error) {
 // MemoryJobStore is a thread-safe in-memory implementation of JobStore.
 type MemoryJobStore struct {
 	mu    sync.RWMutex
-	jobs  map[string]Job // stores snapshot values for thread-safety and immutability
-	order []string       // job IDs in insertion order
+	jobs  map[string]*Job // stores snapshot values for thread-safety and immutability
+	order []string        // job IDs in insertion order
 }
 
 // NewMemoryJobStore creates an initialized MemoryJobStore.
 func NewMemoryJobStore() *MemoryJobStore {
 	return &MemoryJobStore{
-		jobs:  make(map[string]Job),
+		jobs:  make(map[string]*Job),
 		order: make([]string, 0),
 	}
 }
@@ -78,8 +78,7 @@ func (m *MemoryJobStore) GetJob(id string) (*Job, bool) {
 	if !exists {
 		return nil, false
 	}
-	j := snap.Snapshot()
-	return &j, true
+	return snap.Snapshot(), true
 }
 
 func (m *MemoryJobStore) ListJobs(filter JobFilter) ([]*Job, int) {
@@ -94,9 +93,8 @@ func (m *MemoryJobStore) ListJobs(filter JobFilter) ([]*Job, int) {
 		if !exists {
 			continue
 		}
-		if filter.Matches(&snap) {
-			copySnap := snap.Snapshot()
-			matched = append(matched, &copySnap)
+		if filter.Matches(snap) {
+			matched = append(matched, snap.Snapshot())
 		}
 	}
 

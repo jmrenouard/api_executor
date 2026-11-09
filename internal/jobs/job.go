@@ -138,13 +138,26 @@ func (j *Job) MarshalJSON() ([]byte, error) {
 }
 
 // Snapshot returns a thread-safe shallow copy of the job's public fields.
-func (j *Job) Snapshot() Job {
+func (j *Job) Snapshot() *Job {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
-	snap := *j
-	snap.cancelFn = nil
-	snap.logBuf = nil
+	snap := &Job{
+		ID:         j.ID,
+		Type:       j.Type,
+		Action:     j.Action,
+		PluginID:   j.PluginID,
+		Priority:   j.Priority,
+		Status:     j.Status,
+		CreatedAt:  j.CreatedAt,
+		DurationMs: j.DurationMs,
+		Timeout:    j.Timeout,
+		ActorType:  j.ActorType,
+		ActorID:    j.ActorID,
+		SourceIP:   j.SourceIP,
+		Error:      j.Error,
+		ResultData: j.ResultData,
+	}
 
 	if j.Params != nil {
 		snap.Params = make(map[string]any, len(j.Params))
@@ -175,6 +188,20 @@ func (j *Job) SetLogBuffer(buf *JobLogBuffer) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.logBuf = buf
+}
+
+// SetResultData updates the job's result data under mutex protection.
+func (j *Job) SetResultData(res any) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.ResultData = res
+}
+
+// GetResultData retrieves the job's result data under read-lock protection.
+func (j *Job) GetResultData() any {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.ResultData
 }
 
 // GetStatus returns the current JobStatus in a thread-safe manner.

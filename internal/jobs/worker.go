@@ -115,7 +115,9 @@ func (wp *WorkerPool) runJob(workerID int, job *Job) {
 
 		if r := recover(); r != nil {
 			compTime := time.Now().UTC()
-			job.SetFailed(compTime, fmt.Sprintf("panic: %v", r))
+			if !job.GetStatus().IsTerminal() {
+				job.SetFailed(compTime, fmt.Sprintf("panic: %v", r))
+			}
 		}
 	}()
 
@@ -123,17 +125,19 @@ func (wp *WorkerPool) runJob(workerID int, job *Job) {
 	compTime := time.Now().UTC()
 
 	if err != nil {
-		if errors.Is(jobCtx.Err(), context.Canceled) || core.IsCommandCancelled(err) {
-			job.SetCancelledFinal(compTime, "job execution cancelled")
-		} else if errors.Is(jobCtx.Err(), context.DeadlineExceeded) || core.IsCommandTimeout(err) {
-			job.SetTimedOut(compTime, fmt.Sprintf("job execution timed out after %s", timeout))
-		} else {
-			job.SetFailed(compTime, err.Error())
+		if !job.GetStatus().IsTerminal() {
+			if errors.Is(jobCtx.Err(), context.Canceled) || core.IsCommandCancelled(err) {
+				job.SetCancelledFinal(compTime, "job execution cancelled")
+			} else if errors.Is(jobCtx.Err(), context.DeadlineExceeded) || core.IsCommandTimeout(err) {
+				job.SetTimedOut(compTime, fmt.Sprintf("job execution timed out after %s", timeout))
+			} else {
+				job.SetFailed(compTime, err.Error())
+			}
 		}
 	} else {
 		// Only transition to completed if not already cancelled or failed by handler
 		if !job.GetStatus().IsTerminal() {
-			job.SetCompleted(compTime, job.ResultData)
+			job.SetCompleted(compTime, job.GetResultData())
 		}
 	}
 }

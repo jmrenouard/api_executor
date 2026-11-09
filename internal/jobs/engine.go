@@ -58,6 +58,7 @@ type Engine struct {
 	executor    JobExecutorFn
 	pruneTicker *time.Ticker
 	stopPrune   chan struct{}
+	pruneWg     sync.WaitGroup
 	started     bool
 }
 
@@ -117,18 +118,70 @@ func (e *Engine) Start() error {
 	}
 
 	e.pruneTicker = time.NewTicker(e.cfg.PruneInterval)
-	go e.pruneLoop()
+	e.pruneWg.Add(1)
+	go e.pruneLoop(e.pruneTicker)
 	return nil
 }
 
-func (e *Engine) pruneLoop() {
+func (e *Engine) pruneLoop(ticker *time.Ticker) {
+	defer e.pruneWg.Done()
 	for {
 		select {
 		case <-e.stopPrune:
 			return
-		case <-e.pruneTicker.C:
+		case <-ticker.C:
 			_ = e.store.Prune(e.cfg.MaxJobAge, e.cfg.MaxRetainedJobs)
+			e.pruneLogBuffers()
 		}
+	}
+}
+
+// PruneLogBuffers evicts in-memory JobLogBuffer instances for terminal jobs that
+// have been pruned from the store or are older than MaxJobAge.
+func (e *Engine) PruneLogBuffers() {
+	e.pruneLogBuffers()
+}
+
+func (e *Engine) pruneLogBuffers() {
+	e.mu.RLock()
+	if len(e.logBuffers) == 0 {
+		e.mu.RUnlock()
+		return
+	}
+	ids := make([]string, 0, len(e.logBuffers))
+	for id := range e.logBuffers {
+		ids = append(ids, id)
+	}
+	e.mu.RUnlock()
+
+	now := time.Now().UTC()
+	cutoff := now.Add(-e.cfg.MaxJobAge)
+
+	var toEvict []string
+	for _, id := range ids {
+		job, found := e.store.GetJob(id)
+		if !found {
+			// Job was pruned from persistent store or was never saved
+			toEvict = append(toEvict, id)
+			continue
+		}
+		if job.Status.IsTerminal() {
+			t := job.CreatedAt
+			if job.CompletedAt != nil {
+				t = *job.CompletedAt
+			}
+			if e.cfg.MaxJobAge > 0 && t.Before(cutoff) {
+				toEvict = append(toEvict, id)
+			}
+		}
+	}
+
+	if len(toEvict) > 0 {
+		e.mu.Lock()
+		for _, id := range toEvict {
+			delete(e.logBuffers, id)
+		}
+		e.mu.Unlock()
 	}
 }
 
@@ -196,12 +249,20 @@ func (e *Engine) Enqueue(req JobRequest) (*Job, error) {
 	e.mu.Unlock()
 
 	if err := e.store.SaveJob(job); err != nil {
+		e.mu.Lock()
+		delete(e.logBuffers, jobID)
+		e.mu.Unlock()
+		job.SetLogBuffer(nil)
 		return nil, fmt.Errorf("failed to save job to store: %w", err)
 	}
 
 	e.recordAudit(job, "job.enqueued", "ok", fmt.Sprintf("enqueued %s action %s", job.Type, job.Action))
 
 	if err := e.queue.Enqueue(job); err != nil {
+		e.mu.Lock()
+		delete(e.logBuffers, jobID)
+		e.mu.Unlock()
+		job.SetLogBuffer(nil)
 		if errors.Is(err, ErrQueueFull) {
 			job.SetFailed(time.Now().UTC(), "queue capacity exceeded")
 			_ = e.store.SaveJob(job)
@@ -291,7 +352,18 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 		close(e.stopPrune)
 		e.pruneTicker = nil
 	}
+	e.logBuffers = make(map[string]*JobLogBuffer)
 	e.mu.Unlock()
+
+	donePrune := make(chan struct{})
+	go func() {
+		e.pruneWg.Wait()
+		close(donePrune)
+	}()
+	select {
+	case <-donePrune:
+	case <-ctx.Done():
+	}
 
 	wpErr := e.workerPool.Shutdown(ctx)
 	stErr := e.store.Close()
@@ -313,7 +385,7 @@ func (e *Engine) handleJobExecution(ctx context.Context, job *Job) error {
 	if e.executor != nil {
 		res, execErr = e.executor(ctx, job, buf)
 	}
-	job.ResultData = res
+	job.SetResultData(res)
 
 	compTime := time.Now().UTC()
 	if execErr != nil {

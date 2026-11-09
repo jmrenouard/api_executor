@@ -66,7 +66,7 @@ func TestJobModelValidationAndDefaults(t *testing.T) {
 
 	snap := j.Snapshot()
 	if snap.ID != j.ID || snap.Action != j.Action {
-		t.Errorf("snapshot mismatch: %+v vs %+v", snap, j)
+		t.Errorf("snapshot mismatch: snap.ID=%q vs j.ID=%q, snap.Action=%q vs j.Action=%q", snap.ID, j.ID, snap.Action, j.Action)
 	}
 
 	// Modifying snap params should not alter original
@@ -702,3 +702,114 @@ func TestEngineAuditTrailIntegration(t *testing.T) {
 		t.Errorf("expected >= 3 job audit events, got %d", len(events))
 	}
 }
+
+func TestEngineLogBufferEvictionOnEnqueueFailure(t *testing.T) {
+	store := NewMemoryJobStore()
+	cfg := DefaultEngineConfig()
+	cfg.QueueCapacity = 1
+	cfg.WorkersCount = 1
+
+	blockCh := make(chan struct{})
+	executor := func(ctx context.Context, job *Job, logWriter io.Writer) (any, error) {
+		<-blockCh
+		return nil, nil
+	}
+
+	eng, err := NewEngine(cfg, store, nil, executor)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		t.Fatalf("eng.Start failed: %v", err)
+	}
+	defer func() {
+		close(blockCh)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = eng.Shutdown(ctx)
+	}()
+
+	// Fill worker and single-slot queue
+	_, err = eng.Enqueue(JobRequest{Action: "active-blocker"})
+	if err != nil {
+		t.Fatalf("failed to enqueue j1: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	_, err = eng.Enqueue(JobRequest{Action: "queued-slot"})
+	if err != nil {
+		t.Fatalf("failed to enqueue j2: %v", err)
+	}
+
+	// Submit overflow job - exceeds QueueCapacity=1
+	_, err = eng.Enqueue(JobRequest{Action: "overflow-job"})
+	if !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("expected ErrQueueFull, got: %v", err)
+	}
+
+	eng.mu.RLock()
+	bufferCount := len(eng.logBuffers)
+	eng.mu.RUnlock()
+
+	if bufferCount > 2 {
+		t.Errorf("memory leak detected: expected at most 2 log buffers, found %d", bufferCount)
+	}
+}
+
+func TestEngineLogBufferPruning(t *testing.T) {
+	store := NewMemoryJobStore()
+	cfg := DefaultEngineConfig()
+	cfg.WorkersCount = 2
+	cfg.MaxJobAge = 50 * time.Millisecond
+
+	executor := func(ctx context.Context, job *Job, logWriter io.Writer) (any, error) {
+		_, _ = logWriter.Write([]byte("quick log output\n"))
+		return "done", nil
+	}
+
+	eng, err := NewEngine(cfg, store, nil, executor)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		t.Fatalf("eng.Start failed: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = eng.Shutdown(ctx)
+	}()
+
+	j, err := eng.Enqueue(JobRequest{Action: "quick-job"})
+	if err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+
+	for i := 0; i < 50; i++ {
+		time.Sleep(10 * time.Millisecond)
+		job, found := eng.GetJob(j.ID)
+		if found && job.Status.IsTerminal() {
+			break
+		}
+	}
+
+	eng.mu.RLock()
+	_, exists := eng.logBuffers[j.ID]
+	eng.mu.RUnlock()
+	if !exists {
+		t.Fatalf("expected log buffer to exist right after completion")
+	}
+
+	time.Sleep(80 * time.Millisecond)
+
+	_ = eng.store.Prune(cfg.MaxJobAge, cfg.MaxRetainedJobs)
+	eng.PruneLogBuffers()
+
+	eng.mu.RLock()
+	_, existsAfterPrune := eng.logBuffers[j.ID]
+	eng.mu.RUnlock()
+	if existsAfterPrune {
+		t.Errorf("expected log buffer for job %s to be evicted after pruning", j.ID)
+	}
+}
+
