@@ -21,20 +21,26 @@ func (env *APIEnv) resolvePrincipal(r *http.Request) (*auth.Principal, error) {
 			return nil, auth.ErrInvalidToken
 		}
 		return &auth.Principal{
-			Type:   "anonymous",
-			ID:     "anonymous",
-			Name:   "anonymous",
-			Role:   auth.RoleViewer,
-			Scopes: []string{"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read"},
+			Type: "anonymous",
+			ID:   "anonymous",
+			Name: "anonymous",
+			Role: auth.RoleViewer,
+			Scopes: []string{
+				"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read",
+				auth.ScopeJobsSubmit, auth.ScopeJobsRead, auth.ScopeJobsCancel,
+			},
 		}, nil
 	}
 	if env.AuthManager == nil {
 		return &auth.Principal{
-			Type:   "anonymous",
-			ID:     "anonymous",
-			Name:   "anonymous",
-			Role:   auth.RoleViewer,
-			Scopes: []string{"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read"},
+			Type: "anonymous",
+			ID:   "anonymous",
+			Name: "anonymous",
+			Role: auth.RoleViewer,
+			Scopes: []string{
+				"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read",
+				auth.ScopeJobsSubmit, auth.ScopeJobsRead, auth.ScopeJobsCancel,
+			},
 		}, nil
 	}
 	return env.AuthManager.AuthenticateCredential(rawToken)

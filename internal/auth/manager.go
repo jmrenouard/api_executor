@@ -23,6 +23,10 @@ const (
 	RoleOperator = "operator"
 	RoleViewer   = "viewer"
 	RoleService  = "service"
+
+	ScopeJobsSubmit = "jobs:submit"
+	ScopeJobsRead   = "jobs:read"
+	ScopeJobsCancel = "jobs:cancel"
 )
 
 var (
@@ -278,11 +282,20 @@ func defaultScopesForRole(role string) []string {
 	case RoleAdmin:
 		return []string{"*"}
 	case RoleOperator:
-		return []string{"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read"}
+		return []string{
+			"commands:read", "commands:execute", "plugins:read", "plugins:execute", "mcp:access", "files:read", "audit:read",
+			ScopeJobsSubmit, ScopeJobsRead, ScopeJobsCancel,
+		}
 	case RoleViewer:
-		return []string{"commands:read", "plugins:read", "files:read", "tls:read"}
+		return []string{
+			"commands:read", "plugins:read", "files:read", "tls:read",
+			ScopeJobsRead,
+		}
 	case RoleService:
-		return []string{"commands:read", "commands:execute", "plugins:execute", "mcp:access"}
+		return []string{
+			"commands:read", "commands:execute", "plugins:execute", "mcp:access",
+			ScopeJobsSubmit, ScopeJobsRead,
+		}
 	default:
 		return []string{"commands:read"}
 	}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -103,11 +104,24 @@ func TestNormalizeMetricPath(t *testing.T) {
 		{"mcp tools static", "/api/v1/mcp/tools", "/api/v1/mcp/tools"},
 		{"mcp resources static", "/api/v1/mcp/resources", "/api/v1/mcp/resources"},
 		{"mcp traces static list", "/api/v1/mcp/traces", "/api/v1/mcp/traces"},
+		{"jobs static base", "/api/v1/jobs", "/api/v1/jobs"},
+		{"jobs queue static", "/api/v1/jobs/queue", "/api/v1/jobs/queue"},
 
 		// 3. Static routes with trailing slashes
 		{"health with trailing slash", "/health/", "/health"},
 		{"commands with trailing slash", "/api/v1/commands/", "/api/v1/commands"},
 		{"metrics with trailing slash", "/metrics/", "/metrics"},
+		{"jobs with trailing slash", "/api/v1/jobs/", "/api/v1/jobs"},
+		{"jobs queue with trailing slash", "/api/v1/jobs/queue/", "/api/v1/jobs/queue"},
+
+		// Dynamic jobs routes
+		{"jobs dynamic id", "/api/v1/jobs/job_123456", "/api/v1/jobs/:id"},
+		{"jobs dynamic id trailing slash", "/api/v1/jobs/job_123456/", "/api/v1/jobs/:id"},
+		{"jobs dynamic id logs", "/api/v1/jobs/job_123456/logs", "/api/v1/jobs/:id/logs"},
+		{"jobs dynamic id logs trailing slash", "/api/v1/jobs/job_123456/logs/", "/api/v1/jobs/:id/logs"},
+		{"jobs dynamic id cancel", "/api/v1/jobs/job_123456/cancel", "/api/v1/jobs/:id/cancel"},
+		{"jobs dynamic id cancel trailing slash", "/api/v1/jobs/job_123456/cancel/", "/api/v1/jobs/:id/cancel"},
+		{"jobs invalid deep subpath", "/api/v1/jobs/a/b/c", "other"},
 
 		// 4. Unrecognized or random 404 paths
 		{"random 1", "/random-1", "other"},
@@ -165,6 +179,45 @@ func TestPrometheusMetricDynamicRouteNormalization(t *testing.T) {
 
 	// Verify unnormalized dynamic URLs were NEVER created as raw labels
 	for _, rawURL := range append(fileUrls, traceUrls...) {
+		if _, found := pathLabels[rawURL]; found {
+			t.Errorf("unnormalized dynamic URL %q was improperly registered as a Prometheus path label", rawURL)
+		}
+	}
+}
+
+func TestPrometheusMetricJobRouteNormalization(t *testing.T) {
+	ResetHTTPMetrics()
+	router := setupTestRouterForMetrics(t)
+
+	jobUrls := []string{
+		"/api/v1/jobs/job_123",
+		"/api/v1/jobs/job_456",
+		"/api/v1/jobs/job_789/logs",
+		"/api/v1/jobs/job_789/cancel",
+	}
+	for _, url := range jobUrls {
+		method := http.MethodGet
+		if strings.HasSuffix(url, "/cancel") {
+			method = http.MethodPost
+		}
+		req := httptest.NewRequest(method, url, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+	}
+
+	pathLabels := getGatheredPathLabels(t, "http_requests_total")
+
+	if _, found := pathLabels["/api/v1/jobs/:id"]; !found {
+		t.Errorf("expected metric path label '/api/v1/jobs/:id' to be present")
+	}
+	if _, found := pathLabels["/api/v1/jobs/:id/logs"]; !found {
+		t.Errorf("expected metric path label '/api/v1/jobs/:id/logs' to be present")
+	}
+	if _, found := pathLabels["/api/v1/jobs/:id/cancel"]; !found {
+		t.Errorf("expected metric path label '/api/v1/jobs/:id/cancel' to be present")
+	}
+
+	for _, rawURL := range jobUrls {
 		if _, found := pathLabels[rawURL]; found {
 			t.Errorf("unnormalized dynamic URL %q was improperly registered as a Prometheus path label", rawURL)
 		}

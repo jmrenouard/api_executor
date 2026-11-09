@@ -313,6 +313,8 @@ var knownStaticPaths = map[string]struct{}{
 	"/api/v1/mcp/tools":                    {},
 	"/api/v1/mcp/resources":                {},
 	"/api/v1/mcp/traces":                   {},
+	"/api/v1/jobs":                         {},
+	"/api/v1/jobs/queue":                   {},
 }
 
 // normalizeMetricPath normalizes HTTP request paths for Prometheus metrics to prevent
@@ -326,6 +328,30 @@ func normalizeMetricPath(path string) string {
 	}
 	if strings.HasPrefix(path, "/api/v1/mcp/traces/") && path != "/api/v1/mcp/traces" {
 		return "/api/v1/mcp/traces/:trace_id"
+	}
+	if strings.HasPrefix(path, "/api/v1/jobs/") {
+		trimmed := strings.TrimSuffix(path, "/")
+		if trimmed == "/api/v1/jobs" {
+			return "/api/v1/jobs"
+		}
+		sub := strings.TrimPrefix(trimmed, "/api/v1/jobs/")
+		parts := strings.Split(sub, "/")
+		if len(parts) == 1 {
+			if parts[0] == "queue" {
+				return "/api/v1/jobs/queue"
+			}
+			return "/api/v1/jobs/:id"
+		}
+		if len(parts) == 2 {
+			if parts[1] == "logs" {
+				return "/api/v1/jobs/:id/logs"
+			}
+			if parts[1] == "cancel" {
+				return "/api/v1/jobs/:id/cancel"
+			}
+			return "other"
+		}
+		return "other"
 	}
 
 	// Collapse swagger documentation paths
@@ -417,6 +443,11 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/mcp/tools", http.HandlerFunc(env.MCPToolsHandler))
 	mux.Handle("/api/v1/mcp/traces", http.HandlerFunc(env.MCPTracesHandler))
 	mux.Handle("/api/v1/mcp/traces/", http.HandlerFunc(env.MCPTraceByIDHandler))
+
+	// Asynchronous Action Execution, Job Queue, Logs & Telemetry routes
+	mux.Handle("/api/v1/jobs", http.HandlerFunc(env.JobsHandler))
+	mux.Handle("/api/v1/jobs/queue", http.HandlerFunc(env.JobQueueStatsHandler))
+	mux.Handle("/api/v1/jobs/", http.HandlerFunc(env.JobSubroutesHandler))
 
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())

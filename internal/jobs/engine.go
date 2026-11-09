@@ -46,20 +46,27 @@ type QueueStats struct {
 	Capacity      int `json:"capacity"`
 }
 
+// MetricsReporter defines decoupled callbacks invoked by the Engine during job lifecycle events.
+type MetricsReporter interface {
+	RecordJobExecution(action string, status JobStatus, duration time.Duration)
+	RecordQueueStats(queuedJobs, activeWorkers int)
+}
+
 // Engine coordinates the job queue, worker pool, persistent store, and live log buffers.
 type Engine struct {
-	mu          sync.RWMutex
-	cfg         EngineConfig
-	queue       *JobQueue
-	workerPool  *WorkerPool
-	store       JobStore
-	logBuffers  map[string]*JobLogBuffer
-	auditLogger *audit.AuditLogger
-	executor    JobExecutorFn
-	pruneTicker *time.Ticker
-	stopPrune   chan struct{}
-	pruneWg     sync.WaitGroup
-	started     bool
+	mu              sync.RWMutex
+	cfg             EngineConfig
+	queue           *JobQueue
+	workerPool      *WorkerPool
+	store           JobStore
+	logBuffers      map[string]*JobLogBuffer
+	auditLogger     *audit.AuditLogger
+	executor        JobExecutorFn
+	metricsReporter MetricsReporter
+	pruneTicker     *time.Ticker
+	stopPrune       chan struct{}
+	pruneWg         sync.WaitGroup
+	started         bool
 }
 
 // NewEngine creates an Engine instance.
@@ -192,6 +199,20 @@ func (e *Engine) SetExecutor(fn JobExecutorFn) {
 	e.executor = fn
 }
 
+// SetMetricsReporter updates the MetricsReporter used for telemetry callbacks.
+func (e *Engine) SetMetricsReporter(r MetricsReporter) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.metricsReporter = r
+}
+
+// GetMetricsReporter returns the current MetricsReporter or nil.
+func (e *Engine) GetMetricsReporter() MetricsReporter {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.metricsReporter
+}
+
 func generateJobID() string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
@@ -267,8 +288,22 @@ func (e *Engine) Enqueue(req JobRequest) (*Job, error) {
 			job.SetFailed(time.Now().UTC(), "queue capacity exceeded")
 			_ = e.store.SaveJob(job)
 			e.recordAudit(job, "job.failed", "error", "queue capacity exceeded")
+			e.mu.RLock()
+			rep := e.metricsReporter
+			e.mu.RUnlock()
+			if rep != nil {
+				rep.RecordJobExecution(job.Action, StatusFailed, 0)
+				rep.RecordQueueStats(e.queue.Len(), e.workerPool.ActiveWorkers())
+			}
 		}
 		return nil, err
+	}
+
+	e.mu.RLock()
+	rep := e.metricsReporter
+	e.mu.RUnlock()
+	if rep != nil {
+		rep.RecordQueueStats(e.queue.Len(), e.workerPool.ActiveWorkers())
 	}
 
 	return job, nil
@@ -321,6 +356,13 @@ func (e *Engine) CancelJob(id string) error {
 			removed.Cancel()
 			_ = e.store.SaveJob(removed)
 			e.recordAudit(removed, "job.cancelled", "cancelled", "job cancelled while queued")
+			e.mu.RLock()
+			rep := e.metricsReporter
+			e.mu.RUnlock()
+			if rep != nil {
+				rep.RecordJobExecution(removed.Action, StatusCancelled, 0)
+				rep.RecordQueueStats(e.queue.Len(), e.workerPool.ActiveWorkers())
+			}
 			return nil
 		}
 	}
@@ -330,6 +372,13 @@ func (e *Engine) CancelJob(id string) error {
 		job.Cancel()
 		_ = e.store.SaveJob(job)
 		e.recordAudit(job, "job.cancelled", "cancelled", "job cancelled")
+		e.mu.RLock()
+		rep := e.metricsReporter
+		e.mu.RUnlock()
+		if rep != nil {
+			rep.RecordJobExecution(job.Action, StatusCancelled, 0)
+			rep.RecordQueueStats(e.queue.Len(), e.workerPool.ActiveWorkers())
+		}
 	}
 	return nil
 }
@@ -378,6 +427,13 @@ func (e *Engine) handleJobExecution(ctx context.Context, job *Job) error {
 	_ = e.store.SaveJob(job)
 	e.recordAudit(job, "job.started", "ok", fmt.Sprintf("started %s action %s", job.Type, job.Action))
 
+	e.mu.RLock()
+	rep := e.metricsReporter
+	e.mu.RUnlock()
+	if rep != nil {
+		rep.RecordQueueStats(e.queue.Len(), e.workerPool.ActiveWorkers())
+	}
+
 	buf := job.LogBuffer()
 	var res any
 	var execErr error
@@ -409,6 +465,16 @@ func (e *Engine) handleJobExecution(ctx context.Context, job *Job) error {
 			e.recordAudit(job, "job.completed", "ok", "job completed successfully")
 		}
 	}
+
+	if rep != nil {
+		var dur time.Duration
+		if job.StartedAt != nil {
+			dur = compTime.Sub(*job.StartedAt)
+		}
+		rep.RecordJobExecution(job.Action, job.GetStatus(), dur)
+		rep.RecordQueueStats(e.queue.Len(), e.workerPool.ActiveWorkers())
+	}
+
 	return execErr
 }
 
