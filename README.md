@@ -39,7 +39,7 @@
 4. **Predefined Ubuntu & RedHat / RHEL OS Tasks (`internal/core/os_presets.go`)**:
    - Ready-to-run, container-safe system administration catalogs for **Ubuntu / Debian** (`configs/ubuntu-tasks.yaml`, `docker/Dockerfile.ubuntu`) and **RedHat / RHEL / UBI9** (`configs/redhat-tasks.yaml`, `docker/Dockerfile.redhat`), orchestrated via `docker-compose.os-test.yml` and dynamically activatable at runtime (`POST /api/v1/presets/activate`).
 5. **Pure Web Administration Console (`web/static/index.html`)**:
-   - Single-page 8-tab dark enterprise console covering Command Execution, Ubuntu & RedHat Presets, RBAC Users & Personal Access Tokens, Third-Party Service Accounts, Extensible 300+ Plugins Catalog & Read-Only SQL Explorer, Interactive MCP Playground & Trace Inspector, SHA-256 Audit Trail, and X.509 TLS Certificate Management.
+   - Single-page 9-tab dark enterprise console covering Command Execution, Ubuntu & RedHat Presets, RBAC Users & Personal Access Tokens, Third-Party Service Accounts, Extensible 300+ Plugins Catalog & Read-Only SQL Explorer, Interactive MCP Playground & Trace Inspector, SHA-256 Audit Trail, X.509 TLS Certificate Management, and Asynchronous Action Execution & Job Queue Management (Tab 9).
    - **Tab 5 Master-Detail Catalog**: Instant client-side search, 10 domain category pills with live count badges, type filter toggles (`All`, `Native`, `Declarative`), client-side pagination, dynamic parameter form generation with typed controls (boolean toggles, numeric inputs, regex pattern hints), two-way JSON mode synchronization, and formatted execution telemetry.
 6. **RBAC User Management, Personal Access Tokens & Third-Party Service Accounts (`internal/auth/manager.go`)**:
    - Role-Based Access Control (`admin`, `operator`, `viewer`), Personal Access Tokens (`gat_pat_...`) for remote CLI/API calls, and machine-to-machine Third-Party Service Accounts (`gat_svc_...`) with wildcard action scoping (`allowed_actions`: e.g. `disk-usage`, `ubuntu-*`, `db-exposure`, `plugin:sys-diagnostics:*`) and instant key rotation.
@@ -55,6 +55,14 @@
    - Every MCP interaction generates an immutable `TraceRecord` (`mcp_tr_<hex>`) persisted to SQLite/JSONL and cross-referenced with the SHA-256 audit log (`GET /api/v1/mcp/traces`).
 9. **Tamper-Evident SHA-256 Hash-Chained Audit Trail & Structured Logging (`internal/audit/audit.go`, `internal/core/logger.go`)**:
    - Every command execution, auth event, plugin call, TLS rotation, and MCP invocation is chained cryptographically (`prev_hash` -> `entry_hash` starting from `GENESIS`) and verifiable on demand via `GET /api/v1/audit/verify`.
+10. **Asynchronous Action Execution Engine & Priority Job Queue (`internal/jobs/`)**:
+    - **Non-Blocking Dispatch**: Decouples long-running system commands and plugin operations from synchronous HTTP request threads via `POST /api/v1/jobs`, returning `202 Accepted` with deterministic poll (`/api/v1/jobs/{id}`) and live log tailing (`/api/v1/jobs/{id}/logs`) URLs.
+    - **3-Tier Priority Heap Queue (`container/heap`)**: Jobs are prioritized across `High`, `Normal`, and `Low` tiers with monotonic sequence tie-breaking (FIFO within tiers) and bounded backpressure (`429 Too Many Requests` when queue capacity of 1,000 jobs is reached).
+    - **Graceful Worker Pool**: Bounded concurrent worker goroutines with graceful drain on server shutdown.
+    - **Concurrency-Safe Live Log Streaming**: In-memory ring buffer (`JobLogBuffer`) capturing stdout/stderr in real time up to `2 MiB` per job with chunked offset retrieval (`?offset=X`), truncation flags, and EOF detection.
+    - **Immediate Subprocess Group Termination**: `POST /api/v1/jobs/{id}/cancel` instantly terminates running process groups (`taskkill /T /F` on Windows; negative-PID `SIGKILL` on Unix).
+    - **Tamper-Evident SHA-256 Chaining**: Every job lifecycle transition (`job.enqueued`, `job.started`, `job.completed`, `job.failed`, `job.cancelled`) records a SHA-256 audit event verified via `/api/v1/audit/verify`.
+    - **Web Administration Console Tab 9**: Real-time queue telemetry (queued jobs, active workers, queue capacity), interactive submission form (commands or plugins), filtered execution history table, and live streaming log viewer modal with auto-refresh.
 
 ---
 
@@ -86,6 +94,7 @@
 │   ├── auth/                                    # RBAC users, Personal Access Tokens & Service Accounts
 │   ├── core/                                    # Config loader, timeout hierarchy, OS presets, TLS manager, logger
 │   ├── database/                                # SQLite persistence with pure-Go in-memory fallback (CGO_ENABLED=0)
+│   ├── jobs/                                    # Priority queue, worker pool, log buffer & persistent SQLite store
 │   ├── mcp/                                     # JSON-RPC 2.0 Model Context Protocol server & trace store
 │   └── plugins/                                 # Plugin registry, declarative runner, db-exposure & sys-diagnostics
 ├── plugins/                                     # 280 declarative YAML plugin manifests across 10 operational domains
@@ -358,13 +367,134 @@ curl -k "https://localhost:8080/api/v1/mcp/traces?limit=20"
 
 ---
 
+### 5. Asynchronous Action Execution, Priority Job Queue & Live Log Streaming
+
+The **Asynchronous Execution Engine** (`internal/jobs/`) decouples long-running system diagnostics, database queries, and plugin workflows from synchronous HTTP connection lifecycles:
+
+#### Submit a Command or Plugin Job (`POST /api/v1/jobs`)
+
+Jobs can be submitted with priority tiers (`high`, `normal`, `low`) and per-job timeout overrides:
+
+```bash
+# Submit a long-running predefined command job with high priority
+curl -k -X POST https://localhost:8080/api/v1/jobs \
+  -H "X-API-Token: gat_pat_<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "command",
+    "action": "list-processes",
+    "priority": "high",
+    "timeout": "45s"
+  }'
+
+# Submit a declarative or native plugin action asynchronously
+curl -k -X POST https://localhost:8080/api/v1/jobs \
+  -H "X-API-Token: gat_pat_<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "plugin",
+    "plugin_id": "sys-diagnostics",
+    "action": "runtime_stats",
+    "priority": "normal",
+    "params": {}
+  }'
+```
+
+Response (`202 Accepted`):
+```json
+{
+  "job_id": "job_01j9a8b7c6d5e4f3a2b1c0d9",
+  "status": "queued",
+  "priority": "high",
+  "action": "list-processes",
+  "type": "command",
+  "created_at": "2026-11-09T10:45:00Z",
+  "poll_url": "/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9",
+  "logs_url": "/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/logs"
+}
+```
+
+#### Inspect Job Metadata & Execution State (`GET /api/v1/jobs/{id}`)
+
+```bash
+curl -k https://localhost:8080/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9 \
+  -H "X-API-Token: gat_pat_<token>"
+```
+
+#### Stream Live Chunked Output Logs (`GET /api/v1/jobs/{id}/logs`)
+
+Stream logs incrementally starting from a byte offset until `eof: true`:
+
+```bash
+# Poll initial log chunk from byte offset 0
+curl -k "https://localhost:8080/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/logs?offset=0" \
+  -H "X-API-Token: gat_pat_<token>"
+```
+
+Response (`200 OK`):
+```json
+{
+  "job_id": "job_01j9a8b7c6d5e4f3a2b1c0d9",
+  "status": "running",
+  "logs": "[2026-11-09T10:45:01Z] Process inspection started...\nPID 1 root /sbin/init\n",
+  "offset": 0,
+  "next_offset": 82,
+  "truncated": false,
+  "eof": false
+}
+```
+
+#### Cancel a Queued or Running Job (`POST /api/v1/jobs/{id}/cancel`)
+
+Cancelling a running job immediately sends a termination signal to its underlying subprocess process group:
+
+```bash
+curl -k -X POST https://localhost:8080/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/cancel \
+  -H "X-API-Token: gat_pat_<token>"
+```
+
+#### Inspect Queue Depth & Worker Telemetry (`GET /api/v1/jobs/queue`)
+
+```bash
+curl -k https://localhost:8080/api/v1/jobs/queue \
+  -H "X-API-Token: gat_pat_<token>"
+```
+
+Response (`200 OK`):
+```json
+{
+  "queued_jobs": 0,
+  "workers_total": 4,
+  "workers_active": 1,
+  "capacity": 1000
+}
+```
+
+#### Prometheus Telemetry for Asynchronous Jobs
+
+| Metric Name | Type | Labels | Description |
+|---|---|---|---|
+| `job_queue_depth` | Gauge | — | Current depth of the asynchronous job queue awaiting workers |
+| `job_workers_active` | Gauge | — | Number of worker goroutines currently executing jobs |
+| `job_workers_total` | Gauge | — | Total configured worker goroutines in the pool (default: 4) |
+| `job_executions_total` | Counter | `status`, `action` | Total executed jobs partitioned by status (`completed`, `failed`, `cancelled`, `timed_out`) and action |
+| `job_execution_duration_seconds` | Histogram | `action` | Execution duration distribution of asynchronous jobs in seconds |
+
+---
+
 ## Complete REST API Summary
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/` | Pure 8-tab Web Administration Console (`web/static/index.html`) |
+| `GET` | `/` | Pure 9-tab Web Administration Console (`web/static/index.html`) |
 | `GET` | `/api/v1/commands` | List active commands with OS family and default timeout metadata |
 | `POST` | `/api/v1/execute` | Execute a predefined command with optional per-call `timeout` override |
+| `POST` | `/api/v1/jobs` | Submit a command or plugin action for asynchronous execution (`202 Accepted`) |
+| `GET` | `/api/v1/jobs` | List active and historical jobs with filtering (`status`, `action`, `actor`) and pagination |
+| `GET` | `/api/v1/jobs/{id}` | Inspect detailed metadata, duration, error, and status for a job |
+| `GET` | `/api/v1/jobs/{id}/logs` | Stream live chunked execution logs with byte offset tracking |
+| `POST` | `/api/v1/jobs/{id}/cancel` | Abort a queued or running job with immediate subprocess termination |
+| `GET` | `/api/v1/jobs/queue` | Inspect queue depth, worker concurrency, and capacity telemetry |
 | `GET` | `/api/v1/presets` | List predefined Ubuntu and RedHat OS task catalogs |
 | `POST` | `/api/v1/presets/activate` | Dynamically merge Ubuntu and/or RedHat presets into active commands |
 | `POST` | `/api/v1/auth/login` | Authenticate user credentials and issue a Personal Access Token |

@@ -61,7 +61,7 @@ Every required feature from the survey and requirements is cataloged and assigne
 | M2 | REST API Endpoints, RBAC, Metrics & Audit Integration | `internal/api/` handlers for `/api/v1/jobs/*`, RBAC checks, Prometheus gauges/counters, metric path normalization, SHA-256 audit events | M1 | DONE (PR #89, #91; 437 tests pass, Gate 2 PASS) |
 | M3 | Web Administration Console Tab 9 Integration | `web/static/index.html` (Tab 9: queue telemetry, submit form, history table, live log modal) & `internal/api/web_console_test.go` | M1, M2 | DONE (PR #93; 439 tests pass, Gate 3 PASS) |
 | M4 | 4-Tier End-to-End (E2E) Test Suite Expansion | `tests/e2e/`: Tier 1 (Feature), Tier 2 (Boundary), Tier 3 (Cross-feature RBAC/Audit), Tier 4 (Real-world scenario), publish `TEST_READY.md` | M1, M2, M3 | DONE (Issue #94; 88 E2E tests pass, 461 full repository tests pass) |
-| M5 | 100% Verification, Documentation & Governance Registers | Pass 100% `go test -v -cover ./...`, update `README.md`, `docs/swagger.*`, `TEST_INFRA.md`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md` | M1, M2, M3, M4 | PLANNED |
+| M5 | 100% Verification, Documentation & Governance Registers | Pass 100% `go test -v -cover ./...`, update `README.md`, `docs/swagger.*`, `TEST_INFRA.md`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md` | M1, M2, M3, M4 | DONE (Issue #96; 461 tests pass, 100% coverage pass >=80% all packages, full OpenAPI/docs sync) |
 
 ---
 

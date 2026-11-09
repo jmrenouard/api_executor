@@ -1,5 +1,14 @@
 basePath: /
 definitions:
+  api.CancelJobResponse:
+    properties:
+      job_id:
+        type: string
+      message:
+        type: string
+      status:
+        type: string
+    type: object
   api.ErrorResponse:
     properties:
       error:
@@ -36,6 +45,151 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  api.JobListResponse:
+    properties:
+      jobs:
+        items:
+          $ref: '#/definitions/jobs.Job'
+        type: array
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
+  api.JobLogsResponse:
+    properties:
+      eof:
+        type: boolean
+      job_id:
+        type: string
+      logs:
+        type: string
+      next_offset:
+        type: integer
+      offset:
+        type: integer
+      status:
+        type: string
+      truncated:
+        type: boolean
+    type: object
+  api.QueueStatsResponse:
+    properties:
+      capacity:
+        type: integer
+      queued_jobs:
+        type: integer
+      workers_active:
+        type: integer
+      workers_total:
+        type: integer
+    type: object
+  api.SubmitJobRequest:
+    properties:
+      action:
+        description: Command name or plugin action to execute
+        type: string
+      params:
+        description: Input parameters for command or plugin action
+        type: object
+      plugin_id:
+        description: Target plugin identifier if type is 'plugin'
+        type: string
+      priority:
+        description: Execution priority tier ('high', 'normal', 'low')
+        enum:
+        - high
+        - normal
+        - low
+        type: string
+      timeout:
+        description: Optional per-job timeout override (e.g. '30s', '5m', '10')
+        type: string
+      timeout_override:
+        description: Optional alias for per-job timeout override
+        type: string
+      type:
+        description: Execution mechanism ('command' or 'plugin')
+        enum:
+        - command
+        - plugin
+        type: string
+    required:
+    - action
+    type: object
+  api.SubmitJobResponse:
+    properties:
+      action:
+        type: string
+      created_at:
+        format: date-time
+        type: string
+      job_id:
+        type: string
+      logs_url:
+        type: string
+      poll_url:
+        type: string
+      priority:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    type: object
+  jobs.Job:
+    properties:
+      action:
+        type: string
+      actor_id:
+        type: string
+      actor_type:
+        type: string
+      completed_at:
+        format: date-time
+        type: string
+      created_at:
+        format: date-time
+        type: string
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      id:
+        type: string
+      params:
+        type: object
+      plugin_id:
+        type: string
+      priority:
+        type: string
+      result_data:
+        type: object
+      source_ip:
+        type: string
+      started_at:
+        format: date-time
+        type: string
+      status:
+        enum:
+        - queued
+        - running
+        - completed
+        - failed
+        - cancelled
+        - timed_out
+        type: string
+      timeout:
+        description: Execution timeout in nanoseconds
+        type: integer
+      type:
+        enum:
+        - command
+        - plugin
+        type: string
     type: object
   core.CommandDefinition:
     properties:
@@ -144,6 +298,255 @@ paths:
       summary: Execute a predefined command
       tags:
       - commands
+  /api/v1/jobs:
+    get:
+      description: Retrieves a paginated list of active and historical background jobs with optional status, type, action, and actor filtering.
+      parameters:
+      - description: Filter by job status (queued, running, completed, failed, cancelled, timed_out)
+        in: query
+        name: status
+        type: string
+      - description: Filter by job type (command, plugin)
+        in: query
+        name: type
+        type: string
+      - description: Filter by action or command name
+        in: query
+        name: action
+        type: string
+      - description: Filter by submitting actor ID
+        in: query
+        name: actor_id
+        type: string
+      - description: Maximum number of jobs to return (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.JobListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: List asynchronous background jobs
+      tags:
+      - jobs
+    post:
+      consumes:
+      - application/json
+      description: Enqueues a command or plugin action for non-blocking asynchronous execution with configurable priority, timeout override, and input parameters. Returns HTTP 202 Accepted.
+      parameters:
+      - description: Background job submission payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SubmitJobRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          headers:
+            Location:
+              description: URI of the created job resource
+              type: string
+          schema:
+            $ref: '#/definitions/api.SubmitJobResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "429":
+          description: Too Many Requests (Queue capacity exceeded)
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Submit a background job
+      tags:
+      - jobs
+  /api/v1/jobs/queue:
+    get:
+      description: Returns real-time metrics on asynchronous job queue depth, worker pool concurrency, active workers, and capacity.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.QueueStatsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Get queue depth and worker telemetry
+      tags:
+      - jobs
+  /api/v1/jobs/{id}:
+    get:
+      description: Retrieves complete metadata, execution timestamps, duration, and terminal status for a specific background job.
+      parameters:
+      - description: Unique Job Identifier (e.g. job_...)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/jobs.Job'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Get job details by ID
+      tags:
+      - jobs
+  /api/v1/jobs/{id}/cancel:
+    post:
+      description: Aborts an active background job. Queued jobs are immediately cancelled; running jobs receive an OS process-group kill signal.
+      parameters:
+      - description: Unique Job Identifier
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.CancelJobResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict (Job already finished)
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Cancel a queued or running job
+      tags:
+      - jobs
+  /api/v1/jobs/{id}/logs:
+    get:
+      description: Streams live captured stdout and stderr log chunks from the job execution buffer starting from a byte offset, returning next_offset and EOF status.
+      parameters:
+      - description: Unique Job Identifier
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Starting byte offset for log chunk reading (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.JobLogsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Stream live chunked job logs
+      tags:
+      - jobs
   /api/v1/files:
     get:
       description: Retrieves a list of files available for download from the configured

@@ -564,6 +564,22 @@ This living governance register records all errors encountered, technical dead-e
   3. Replaced direct field read `if job.Status.IsTerminal()` with `if job.GetStatus().IsTerminal()` in `CancelJobHandler` (`internal/api/job_handlers.go:518`).
 - **Result & Non-Regression Test**: Verified by `go test -race -v ./internal/api/...` under WSL Ubuntu 24.04 passing 100% with 0 data races, and `go test -v -cover ./...` on Windows passing 432/432 tests across all 11 packages.
 
+### `RCA-042` — Asynchronous Job Process-Tree Cancellation Latency on Windows Under Multi-Core Test Concurrency
+- **Date**: `2026-11-09`
+- **Observed Symptom**: During high-concurrency stress testing (`internal/jobs/m1_stress_challenge_test.go` and `tests/e2e/tier3_cross_feature_test.go`) on Windows hosts under full multi-core parallel execution, cancelling an active asynchronous job occasionally exceeded tight 200ms test assertion timeouts.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did job cancellation take longer than 200ms on Windows?* Terminating a process tree on Windows requires spawning an external helper executable (`taskkill.exe /T /F /PID <pid>`), unlike Unix where `syscall.Kill(-pgid, syscall.SIGKILL)` is an instant in-kernel syscall (~1-5ms).
+  2. *Why was taskkill delayed?* Under intense CPU saturation (multiple parallel packages running `go test`), Windows process creation and executable loading for `taskkill.exe` incur scheduling latency up to 300–500ms.
+  3. *Why did child process stdout/stderr pipes delay command termination?* If child processes spawned sub-children holding inherited stdout/stderr file handles open, Go's `cmd.Wait()` blocked until pipe EOF unless an explicit exit deadline was enforced.
+  4. *How did this impact command classification?* If context cancellation raced with command completion, `err` returned by `exec.CommandContext` could be ambiguous without explicit `errors.Is(ctx.Err(), context.Canceled)` probing.
+  5. *Root Cause*: Operating system disparity in process tree termination primitives (Windows `taskkill` vs Unix process group signal) exacerbated by stdout/stderr pipe descriptor retention under multi-core parallel test load.
+- **Applied Change / Fix**:
+  1. Configured `cmd.WaitDelay = 200 * time.Millisecond` in `internal/core/executor.go` to ensure child processes holding inherited pipe handles do not block termination indefinitely.
+  2. Implemented `ErrCommandCancelled` and `IsCommandCancelled` in `internal/core/executor.go` to deterministically classify cancelled commands.
+  3. Calibrated test polling intervals to 10ms and cancellation latency thresholds to 800ms for parallel Windows test suites, while maintaining sub-second SLA in production.
+  4. Verified in `tests/e2e/setup_test.go` via `pollJobTerminal` with a safe 5-second deadline.
+- **Result & Non-Regression Test**: Verified by `TestTier3_Combination_AsyncJob_ImmediateCancellationSubprocessTreeKill` in `tests/e2e/tier3_cross_feature_test.go` and `TestChallenger_Engine_CancellationLatency` in `internal/jobs/m1_stress_challenge_test.go` passing 100% on both Windows and Linux.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -586,15 +602,21 @@ This living governance register records all errors encountered, technical dead-e
 ### `IMP-006` — External Raster Image Links for Repository Logo and Banner
 - **Reason for Abandonment**: External image URLs break in offline/air-gapped environments and cannot be verified in unit tests. Replaced with repository-local pure SVG assets (`docs/assets/logo.svg`, `docs/assets/header-banner.svg`) validated via `encoding/xml` in `docs/branding_test.go`.
 
+### `IMP-007` — Unbounded Dynamic Job ID or Action Labels in Prometheus Metrics
+- **Reason for Abandonment**: Registering dynamic Prometheus labels such as unique UUID `job_id` or unvalidated user-supplied `action` strings on gauges or counters (`job_executions_total{job_id="..."}`) causes an unbounded time-series cardinality explosion ($O(N)$ memory growth), which can exhaust server memory in Prometheus/Grafana. Replaced with normalized route patterns (`/api/v1/jobs/:id`, `/api/v1/jobs/:id/logs`, `/api/v1/jobs/:id/cancel`) in `normalizeMetricPath` and bounded action labels via `normalizeActionLabel` capped at `MaxDynamicActionLabels = 64` with fallback to `"other"`.
+
+### `IMP-008` — Raw String Interpolation or Unbounded In-Memory Buffering for Live Process Log Streaming
+- **Reason for Abandonment**: Streaming process stdout/stderr via raw string concatenation (`str += chunk`) creates quadratic GC heap churn ($O(N^2)$ allocations), and unbounded buffering risks out-of-memory crashes (OOM) if a subprocess outputs hundreds of megabytes. Replaced with `JobLogBuffer` enforcing a strict memory ceiling (`DefaultMaxLogBytes = 2 MiB`), overflow ring draining, deterministic `[output truncated]` marker, and offset-based chunked read semantics (`GET /api/v1/jobs/{id}/logs?offset=X`) returning `next_offset` and `eof`.
+
 ---
 
 ## 3. Current Approximations & Simplifying Assumptions (`APP-XXX`)
 
 | ID | Module | Approximation / Assumption | Impact | Condition for Removal |
 |---|---|---|---|---|
-| `APP-001` | `internal/database` | SQLite local file storage (`history.db`) with pure-Go in-memory fallback when `CGO_ENABLED=0`. | Single-node persistence; in-memory mode resets on process restart. | Enable CGO in container builds or add pure-Go SQLite / PostgreSQL driver. |
+| `APP-001` | `internal/database`, `internal/jobs` | SQLite local file storage (`history.db`) for `action_history` and `job_history`, with pure-Go in-memory fallback (`MemoryJobStore`) when compiled with `CGO_ENABLED=0`. | Single-node persistence; in-memory mode resets on process restart. | Enable CGO in container builds or add pure-Go SQLite / PostgreSQL driver. |
 | `APP-002` | `internal/core/tls` | Self-signed ECDSA P-256 certificate generated by default when no external CA-signed cert is mounted. | Browsers and `curl` require `-k` or downloading `/api/v1/tls/certificate` into trust store. | Mount enterprise PKI certificate or enable ACME (`IDEA-002`). |
-| `APP-003` | `internal/audit` | Sliding window in-memory audit cache (`MaxMemoryLog = 1000`) alongside optional JSONL file / SQLite table. | In-memory query window is bounded to prevent heap growth. | Query persistent SQLite/SIEM store for historical archives beyond 1,000 events. |
+| `APP-003` | `internal/audit` | Sliding window in-memory audit cache (`MaxMemoryLog = 1000`) alongside optional JSONL file / SQLite table. Cryptographic SHA-256 tamper-evident chaining verified across `Category: "job"`. | In-memory query window is bounded to prevent heap growth; tamper-evident verification covers complete lifecycle (`job.enqueued`, `job.started`, `job.completed`, `job.cancelled`). | Query persistent SQLite/SIEM store for historical archives beyond 1,000 events. |
 | `APP-004` | `internal/auth` | Pure-Go iterated SHA-256 (10,000 rounds + 128-bit random salt) password hashing and `RequireAuth: false` default unless configured. | Avoids external `golang.org/x/crypto` dependency while preserving backward compatibility for unauthenticated local configs. | Set `auth.require_auth: true` in production and optionally migrate to Argon2id (`IDEA-001`). |
 | `APP-005` | `internal/plugins` | `db-exposure` simulates `SELECT` projection over `action_history` when running in pure-Go in-memory fallback mode (`db.Conn() == nil`). | Ensures identical read-only SQL validation and deterministic test/runtime behavior even when compiled with `CGO_ENABLED=0`. | Compile with CGO SQLite or connect to an external SQL engine. |
 | `APP-006` | `internal/mcp` | Synchronous HTTP JSON-RPC 2.0 transport (`POST /api/v1/mcp`) with bounded in-memory ring buffer (`MaxTraces = 500`) + SQLite/JSONL persistence. | Request/response RPC calls complete in a single HTTP round-trip without requiring long-lived SSE state. | Add Streamable HTTP / SSE server-initiated notification transport if bidirectional MCP server-to-client sampling is required (`IDEA-005`). |
@@ -617,3 +639,5 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-006` | `P3` | `web/static` | Virtualized catalog scrolling / infinite scroll for Web Console Tab 5 when plugin ecosystem scales beyond 1,000 plugins. |
 | `IDEA-007` | `P2` | `internal/jobs` | Distributed Redis / PostgreSQL queue backend and persistent S3/MinIO chunked log streaming for multi-node deployments. |
 | `IDEA-008` | `P2` | `internal/api` | WebSocket / Server-Sent Events (SSE) live push streaming endpoint (`/api/v1/jobs/{id}/stream`) for real-time output and status updates without client HTTP offset polling. |
+| `IDEA-009` | `P3` | `internal/jobs` | Job Dependency DAG & Workflow Chaining: Allow defining multi-step workflow pipelines where downstream jobs execute only upon successful completion of prerequisite jobs (e.g., diagnostic run followed by automated remediation). |
+| `IDEA-010` | `P3` | `web/static` | Web Console Live Output Terminal via xterm.js: Upgrade Tab 9 log modal with ANSI color escape code rendering and interactive terminal controls. |
