@@ -12,14 +12,13 @@
   <strong>Zero-Trust Remote Command Executor, Container-Testable Ubuntu &amp; RedHat OS Task Presets, RBAC &amp; Service Accounts, Extensible Declarative/Native Plugins, Read-Only SQL Explorer, Model Context Protocol (MCP) Server with Trace Retention, and SHA-256 Tamper-Evident Audit Logging.</strong>
 </p>
 
-<p align="center">
-  <a href="https://github.com/jmrenouard/api_executor/releases/latest"><img src="https://img.shields.io/github/v/release/jmrenouard/api_executor?style=flat-square&logo=github" alt="GitHub Release" /></a>
-  <a href="https://hub.docker.com/r/jmrenouard/api_executor"><img src="https://img.shields.io/docker/v/jmrenouard/api_executor?sort=semver&style=flat-square&logo=docker&logoColor=white" alt="Docker Image Version" /></a>
-  <a href="docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md"><img src="https://img.shields.io/badge/Security-HTTPS%2FTLS_1.3_Default-10b981?style=flat-square" alt="HTTPS/TLS Default" /></a>
-  <a href="internal/api/router.go"><img src="https://img.shields.io/badge/Prometheus-Per--Action_Telemetry-38bdf8?style=flat-square" alt="Prometheus Per-Action Telemetry" /></a>
-  <a href="internal/mcp/server.go"><img src="https://img.shields.io/badge/MCP-2024--11--05_JSON--RPC_2.0-a78bfa?style=flat-square" alt="MCP Server" /></a>
-  <a href="docs/ACTION_LOGBOOK.md"><img src="https://img.shields.io/badge/Governance-Atomic_PR_Workflow-fbbf24?style=flat-square" alt="Atomic Governance" /></a>
-</p>
+[![GitHub Release](https://img.shields.io/github/v/release/jmrenouard/api_executor?style=flat-square&logo=github)](https://github.com/jmrenouard/api_executor/releases/latest)
+[![Docker Image Version](https://img.shields.io/docker/v/jmrenouard/api_executor?sort=semver&style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/jmrenouard/api_executor)
+[![HTTPS/TLS Default](https://img.shields.io/badge/Security-HTTPS%2FTLS_1.3_Default-10b981?style=flat-square)](docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md)
+[![Prometheus Per-Action Telemetry](https://img.shields.io/badge/Prometheus-Per--Action_Telemetry-38bdf8?style=flat-square)](internal/api/router.go)
+[![MCP Server](https://img.shields.io/badge/MCP-2024--11--05_JSON--RPC_2.0-a78bfa?style=flat-square)](internal/mcp/server.go)
+[![Atomic Governance](https://img.shields.io/badge/Governance-Atomic_PR_Workflow-fbbf24?style=flat-square)](docs/ACTION_LOGBOOK.md)
+
 
 ---
 
