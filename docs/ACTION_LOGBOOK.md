@@ -13,6 +13,31 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-062` — Enforce Least-Privilege Permissions and Job-Level Trigger Constraints in Release Workflow
+- **Timestamp (UTC)**: `2026-11-12T14:35:00Z`
+- **GitHub Issue**: [#124](https://github.com/jmrenouard/api_executor/issues/124)
+- **Branch**: `fix/issue-124-enforce-least-privilege-permissions-and-tag-constraints`
+- **Request**:
+  - Address security hardening findings from adversarial Review Round 3:
+    1. Restrict top-level workflow permissions: Change `.github/workflows/release.yml` top-level `permissions` from `contents: write` to `contents: read` to satisfy GitHub Actions security best practices (Principle of Least Privilege), ensuring that none of the 6 matrix runners in `build-binaries` operate with elevated repository write privileges.
+    2. Elevate permissions only where required: Explicitly assign `permissions: contents: write` exclusively to the `publish-github-release` job.
+    3. Add job-level trigger constraint: Add `if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'` to the `publish-github-release` job so the entire release runner provisioning, artifact download, and checksum validation is skipped unless explicitly targeting a release.
+    4. Expand regression assertions in `docs/branding_test.go` (`TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene`) asserting `contents: read` at top level, `contents: write` for `publish-github-release`, and job-level trigger constraints.
+    5. Update living governance registers `docs/ACTION_LOGBOOK.md` (`ACT-062`) and `docs/RCA_REGISTER.md` (`RCA-051`).
+    6. Complete atomic GitHub lifecycle (#124) under English-only policy.
+- **Changes**:
+  - Modified [`.github/workflows/release.yml`](../.github/workflows/release.yml) (set top-level `contents: read`, elevated `publish-github-release` to `contents: write`, added job-level `if` trigger constraint).
+  - Modified [`docs/branding_test.go`](branding_test.go) (asserted least-privilege permissions and job-level trigger constraint).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recorded `ACT-062`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (recorded `RCA-051`).
+- **Result**:
+  - Validated YAML syntax of `.github/workflows/release.yml`.
+  - 100% test pass on Go unit, integration, and E2E suites.
+  - GitHub Issue [#124](https://github.com/jmrenouard/api_executor/issues/124).
+  - Pull Request opened and merged into `main`.
+
+---
+
 ### `ACT-061` — Guard Checksum Generation Against Stdin Hang, Fix Release Notes Links, and Add Manifest Verification
 - **Timestamp (UTC)**: `2026-11-12T14:24:00Z`
 - **GitHub Issue**: [#122](https://github.com/jmrenouard/api_executor/issues/122)
