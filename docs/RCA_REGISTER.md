@@ -720,6 +720,24 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified via WSL bash simulation (zero archives returns exit code 1 immediately with error message instead of hanging; non-empty archives succeed with exit code 0) and Go tests in `docs/branding_test.go`.
 
+### `RCA-051` — Excessive Workflow-Level `contents: write` Permissions and Missing Job-Level Trigger Constraint in Release Workflow
+- **Date**: `2026-11-12`
+- **Observed Symptom**:
+  In `.github/workflows/release.yml`, `permissions: contents: write` was declared globally at the workflow root, granting repository write tokens to all 6 matrix runners (`linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64`, `windows-arm64`) in the `build-binaries` job. Furthermore, `publish-github-release` lacked an `if` condition at the job level; the trigger check was present only on the final step (`Attach Assets to GitHub Release`), causing the release job runner to be provisioned, artifacts downloaded, and checksums computed even if no release was to be published.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did matrix build runners receive write tokens?* The workflow declared `contents: write` at the root rather than at the specific job level.
+  2. *Why was root write permission specified?* Initial authoring set write permissions globally for the release step without scoping down build jobs.
+  3. *Why does this violate security standards?* Under the Principle of Least Privilege and GitHub Actions hardening guidelines, build runners compiling code and downloading dependencies should never hold write access to repository contents.
+  4. *Why did publish-github-release run steps when not publishing?* The `if` condition was placed at the step level instead of the job level.
+  5. *Root Cause*: Lack of job-level permission isolation (`contents: read` global vs `contents: write` job-level) and absent job-level `if` guard on `publish-github-release`.
+- **Applied Change / Fix**:
+  1. Configured top-level `permissions: contents: read` in `.github/workflows/release.yml`.
+  2. Explicitly assigned `permissions: contents: write` to `publish-github-release`.
+  3. Added job-level `if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'` to `publish-github-release`.
+  4. Expanded regression test `TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene` in `docs/branding_test.go` to assert least-privilege permissions and job-level trigger constraints.
+- **Result & Non-Regression Test**:
+  Verified via YAML parser (`python -c "import yaml; yaml.safe_load(open('.github/workflows/release.yml'))"`) and Go tests in `docs/branding_test.go`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

@@ -207,6 +207,10 @@ func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
 	workflow := string(workflowBytes)
 
 	requiredWorkflowMarkers := []string{
+		"permissions:\n  contents: read",
+		"publish-github-release:",
+		"contents: write",
+		"if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'",
 		"shopt -s nullglob",
 		"archives=(api_executor-*.tar.gz api_executor-*.zip)",
 		"if [ ${#archives[@]} -eq 0 ]; then",
