@@ -13,6 +13,34 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-065` — Expose Certified Native `GET /api/v1/version` Endpoint with Source Truth Restitution
+- **Timestamp (UTC)**: `2026-11-12T18:45:00Z`
+- **GitHub Issue**: [#130](https://github.com/jmrenouard/api_executor/issues/130)
+- **Branch**: `feat/issue-130-certified-native-version-endpoint`
+- **Request**:
+  - Expose a certified native public REST endpoint `GET /api/v1/version` delivering official source version, Git commit hash, build date, and working tree integrity status directly from source truth without intermediaries.
+  - Implement full metadata extraction via `runtime/debug.ReadBuildInfo()` with fallback hierarchy: linker `-ldflags` -> `debug.ReadBuildInfo()` -> `VERSION` file -> `"2.2.0"`.
+  - Include server uptime (`uptime` human-readable duration, `uptime_seconds` float64 rounded to 2 decimals), Go runtime version (`runtime.Version()`), RFC3339 start time, and runtime architecture diagnostics (`os`, `arch`, `compiler`).
+  - Register `/api/v1/version` in `knownStaticPaths` in `internal/api/router.go` to prevent Prometheus label cardinality explosion.
+  - Support public unauthenticated probe access (200 OK even when `RequireAuth=true`), enforce `405 Method Not Allowed` on non-GET methods, and protect with global security headers, token-bucket IP rate limiting, and 1 MiB body bounding.
+- **Changes**:
+  - Created [`internal/version/version.go`](../internal/version/version.go): Implemented certified native version models (`Info`, `VersionResponse`), `debug.ReadBuildInfo()` extraction, linker flag fallback hierarchy, uptime and uptime seconds calculation, and RFC3339 timestamp formatting.
+  - Created [`internal/version/version_test.go`](../internal/version/version_test.go): Comprehensive unit tests verifying linker flags precedence, build info extraction, integrity statuses (`clean`, `modified`, `untracked`), fallback handling, uptime clamping, and JSON marshaling.
+  - Created [`internal/api/version_handler.go`](../internal/api/version_handler.go): Implemented `VersionHandler` on `APIEnv` returning certified build truth, enforcing `GET` method only (returning 405 otherwise).
+  - Created [`internal/api/version_test.go`](../internal/api/version_test.go): Tested HTTP 200 OK, method restrictions (POST/PUT/DELETE/PATCH 405), unauthenticated probe access when `RequireAuth=true`, and static path metric normalization.
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Added `/api/v1/version` to `knownStaticPaths` and registered route in `NewRouter`.
+  - Modified [`internal/api/handlers.go`](../internal/api/handlers.go): Added `StartTime time.Time` to `APIEnv`.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go): Initialized `StartTime: time.Now()` in `initializeServerEnv`.
+  - Modified [`.github/workflows/release.yml`](../.github/workflows/release.yml): Updated linker flags target to `go-admin-tool/internal/version`.
+  - Modified [`tests/e2e/tier1_feature_test.go`](../tests/e2e/tier1_feature_test.go): Added E2E tests `TestTier1_F9_CertifiedVersionEndpoint_PublicUnauthenticated` and `TestTier1_F9_CertifiedVersionEndpoint_MethodNotAllowed`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-065`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - 100% test pass rate across entire project: 679 unit/integration tests across 12 packages (`go test -cover ./...`) and 91 E2E tests (`go test ./tests/e2e/...`).
+  - Unit test coverage: `internal/version` at 97.9% of statements.
+  - GitHub Issue [#130](https://github.com/jmrenouard/api_executor/issues/130).
+
+---
+
 ### `ACT-064` — Deliver API Executor v2.2.0: Unified Mode Telemetry for Synchronous and Asynchronous Calls (Observability Remediation)
 - **Timestamp (UTC)**: `2026-11-12T18:00:00Z`
 - **GitHub Issue**: [#128](https://github.com/jmrenouard/api_executor/issues/128)

@@ -363,6 +363,7 @@ var knownStaticPaths = map[string]struct{}{
 	"/health":                              {},
 	"/metrics":                             {},
 	"/swagger":                             {},
+	"/api/v1/version":                      {},
 	"/api/v1/commands":                     {},
 	"/api/v1/execute":                      {},
 	"/api/v1/presets":                      {},
@@ -485,6 +486,7 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux := http.NewServeMux()
 
 	// API routes
+	mux.Handle("/api/v1/version", http.HandlerFunc(env.VersionHandler))
 	mux.Handle("/api/v1/commands", http.HandlerFunc(env.ListCommandsHandler))
 	mux.Handle("/api/v1/execute", http.HandlerFunc(env.ExecuteCommandHandler))
 	mux.Handle("/api/v1/presets", http.HandlerFunc(env.ListPresetsHandler))

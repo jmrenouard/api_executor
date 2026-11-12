@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir -p build_output
           go build -v -trimpath \
-            -ldflags="-s -w -X main.version=${{ steps.vars.outputs.tag }}" \
+            -ldflags="-s -w -X 'go-admin-tool/internal/version.Version=${{ steps.vars.outputs.tag }}' -X 'go-admin-tool/internal/version.GitCommit=${{ github.sha }}' -X 'go-admin-tool/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
             -o "build_output/${{ matrix.binary_name }}" ./cmd/server
 
       - name: Bundle Archive Deliverable
