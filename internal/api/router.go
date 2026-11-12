@@ -459,7 +459,7 @@ func NewRouter(env *APIEnv) http.Handler {
 	staticFileServer := http.FileServer(http.Dir(resolveStaticDir()))
 	mux.Handle("/", staticFileServer)
 
-	return prometheusMiddleware(mux)
+	return prometheusMiddleware(securityMiddleware(env, mux))
 }
 
 func resolveStaticDir() string {

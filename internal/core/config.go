@@ -31,9 +31,27 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int       `yaml:"port" json:"port"`
-	Host string    `yaml:"host" json:"host"`
-	TLS  TLSConfig `yaml:"tls" json:"tls"`
+	Port                int             `yaml:"port" json:"port"`
+	Host                string          `yaml:"host" json:"host"`
+	TLS                 TLSConfig       `yaml:"tls" json:"tls"`
+	RateLimit           RateLimitConfig `yaml:"rate_limit,omitempty" json:"rate_limit,omitempty"`
+	MaxRequestBodyBytes int64           `yaml:"max_request_body_bytes,omitempty" json:"max_request_body_bytes,omitempty"`
+}
+
+// RateLimitConfig configures per-IP token-bucket HTTP rate limiting against DDoS and brute-force floods.
+type RateLimitConfig struct {
+	Enabled           bool    `yaml:"enabled" json:"enabled"`
+	RequestsPerSecond float64 `yaml:"requests_per_second" json:"requests_per_second"`
+	Burst             int     `yaml:"burst" json:"burst"`
+}
+
+// DefaultRateLimitConfig returns the default per-IP rate limiting parameters.
+func DefaultRateLimitConfig() RateLimitConfig {
+	return RateLimitConfig{
+		Enabled:           true,
+		RequestsPerSecond: 500,
+		Burst:             2000,
+	}
 }
 
 type TLSConfig struct {
@@ -139,9 +157,10 @@ func DefaultTLSConfig() TLSConfig {
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port: 8080,
-			Host: "0.0.0.0",
-			TLS:  DefaultTLSConfig(),
+			Port:      8080,
+			Host:      "0.0.0.0",
+			TLS:       DefaultTLSConfig(),
+			RateLimit: DefaultRateLimitConfig(),
 		},
 		Logging: LoggingConfig{
 			Level: "info",

@@ -15,6 +15,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/jmrenouard/api_executor?style=flat-square&logo=github)](https://github.com/jmrenouard/api_executor/releases/latest)
 [![Docker Image Version](https://img.shields.io/docker/v/jmrenouard/api_executor?sort=semver&style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/jmrenouard/api_executor)
 [![HTTPS/TLS Default](https://img.shields.io/badge/Security-HTTPS%2FTLS_1.3_Default-10b981?style=flat-square)](docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md)
+[![API Security Audit](https://img.shields.io/badge/Security_Audit-SECURITY.md-10b981?style=flat-square)](SECURITY.md)
 [![Prometheus Per-Action Telemetry](https://img.shields.io/badge/Prometheus-Per--Action_Telemetry-38bdf8?style=flat-square)](internal/api/router.go)
 [![MCP Server](https://img.shields.io/badge/MCP-2024--11--05_JSON--RPC_2.0-a78bfa?style=flat-square)](internal/mcp/server.go)
 [![Atomic Governance](https://img.shields.io/badge/Governance-Atomic_PR_Workflow-fbbf24?style=flat-square)](docs/ACTION_LOGBOOK.md)
@@ -72,6 +73,7 @@
 ```text
 .
 ├── AGENTS.md                                    # Mandatory engineering & atomic GitHub workflow rules
+├── SECURITY.md                                  # API security audit, threat mitigations & passing security test catalog
 ├── .agents/rules/                               # Enforceable rules (atomic-workflow, english-only, governance)
 ├── cmd/server/main.go                           # Main HTTPS/HTTP server entrypoint & subsystem wiring
 ├── config.yaml                                  # Default server, TLS, timeout, auth, plugin, MCP & audit config

@@ -355,6 +355,59 @@ func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
 	}
 }
 
+func TestSecurityDocumentationAndWorkflowCompleteness(t *testing.T) {
+	// 1. Verify root SECURITY.md exists and documents the API security audit, mitigations, and passing tests
+	secBytes, err := os.ReadFile("../SECURITY.md")
+	if err != nil {
+		t.Fatalf("failed to read ../SECURITY.md: %v", err)
+	}
+	sec := string(secBytes)
+
+	requiredSecurityMarkers := []string{
+		"# API Security Audit, Threat Mitigations & Automated Verification (`SECURITY.md`)",
+		"Complete API Surface & RBAC Security Matrix",
+		"Authentication & Unauthorized Access Prevention (`401 Unauthorized`)",
+		"Anti-Privilege Escalation & Unauthorized Additions (`403 Forbidden`)",
+		"Injection & Sandbox Confinement (`400` / `403` / `404`)",
+		"Multi-Layer DDoS, Rate-Limiting & Resource Exhaustion Protection",
+		"IPRateLimiter",
+		"MaxRequestBodyBytes",
+		"413 Request Entity Too Large",
+		"429 Too Many Requests",
+		"TestAPISecurityAudit_UnauthorizedAccessMatrix",
+		"TestAPISecurityAudit_PrivilegeEscalationAndForbiddenMutations",
+		"TestAPISecurityAudit_InjectionAndConfinementPrevention",
+		"TestAPISecurityAudit_DDoSRateLimitAndResourceExhaustion",
+		".github/workflows/security.yml",
+	}
+	for _, marker := range requiredSecurityMarkers {
+		if !strings.Contains(sec, marker) {
+			t.Errorf("expected SECURITY.md to contain %q", marker)
+		}
+	}
+
+	// 2. Verify .github/workflows/security.yml exists and runs automated security test suites with least privilege
+	wfBytes, err := os.ReadFile("../.github/workflows/security.yml")
+	if err != nil {
+		t.Fatalf("failed to read ../.github/workflows/security.yml: %v", err)
+	}
+	wf := string(wfBytes)
+
+	requiredWorkflowMarkers := []string{
+		"name: Automated API Security Suite",
+		"permissions:\n  contents: read",
+		"TestAPISecurityAudit",
+		"TestM2Adversarial",
+		"TestTier2_Boundary",
+	}
+	for _, marker := range requiredWorkflowMarkers {
+		if !strings.Contains(wf, marker) {
+			t.Errorf("expected .github/workflows/security.yml to contain %q", marker)
+		}
+	}
+}
+
+
 
 
 
