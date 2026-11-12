@@ -13,6 +13,32 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-069` — Cryptographic Docker Image Signing with Cosign via GitHub Actions OIDC
+- **Timestamp (UTC)**: `2026-11-12T22:56:00Z`
+- **GitHub Issue**: [#138](https://github.com/jmrenouard/api_executor/issues/138)
+- **Branch**: `feat/issue-138-cosign-image-signing`
+- **Request**:
+  - Implement Proposal #9: Cryptographic Docker Image Signing with Cosign (GitHub Actions OIDC).
+  - Update `.github/workflows/docker-publish.yml` to automate OCI container image digest signing with Sigstore Cosign (`sigstore/cosign-installer` + `cosign sign --yes`) using GitHub Actions OIDC.
+  - Enforce least-privilege security permissions: Keep top-level permissions strictly read-only (`permissions: contents: read`), scoping `contents: read`, `packages: write`, and `id-token: write` exclusively to the `docker-hub-publish` job.
+  - Integrate official `sigstore/cosign-installer@v3.8.0` action step after checkout.
+  - Configure `docker/build-push-action@v6` with explicit step identifier `id: build-and-push` to expose immutable multi-platform manifest list digest (`steps.build-and-push.outputs.digest`).
+  - Add container image signing step invoking `echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}` with `env: TAGS: ${{ steps.meta.outputs.tags }}`, `DIGEST: ${{ steps.build-and-push.outputs.digest }}`, and `COSIGN_YES: "true"`, providing cryptographic supply chain integrity and Sigstore Rekor transparency log attestation.
+  - Add regression test `TestDockerPublishWorkflowCosignSigningAndLeastPrivilege` in `docs/branding_test.go` verifying top-level least-privilege read permissions, job-scoped `id-token: write` permission, presence of `sigstore/cosign-installer`, `id: build-and-push`, and `cosign sign --yes` commands.
+  - Verify 100% pass across all unit, integration, documentation, and E2E test suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+- **Changes**:
+  - Modified [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml): Scoped job-level permissions to `contents: read`, `packages: write`, and `id-token: write`, added `sigstore/cosign-installer@v3.8.0`, added `id: build-and-push` to `docker/build-push-action@v6`, and added `Sign Published Docker Image with Cosign` step running `echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}`.
+  - Modified [`docs/branding_test.go`](../docs/branding_test.go): Added `TestDockerPublishWorkflowCosignSigningAndLeastPrivilege` asserting least-privilege top-level permissions, job-level OIDC write permission, Cosign installer step, step ID, and signature command.
+  - Modified [`PROJECT.md`](../PROJECT.md): Marked Milestone M5 / Proposal #9 as `DONE`.
+  - Modified [`docs/RCA_REGISTER.md`](../docs/RCA_REGISTER.md): Updated `IDEA-013` (marked Cosign container signing portion completed), added `APP-019` (OIDC keyless Sigstore signing requirements on external forks/runners), added `IMP-017` (signing by mutable tag vs immutable manifest digest and global vs job-scoped OIDC token), and added `IDEA-020` (in-toto provenance attestation & SBOM).
+  - Modified [`docs/ACTION_LOGBOOK.md`](../docs/ACTION_LOGBOOK.md): Recorded `ACT-069`.
+- **Result**:
+  - 100% test pass rate across all packages: 710 unit/documentation tests and 96 E2E tests (806 tests total).
+  - `actionlint .github/workflows/docker-publish.yml` exits with code 0 (clean).
+  - GitHub Issue [#138](https://github.com/jmrenouard/api_executor/issues/138).
+
+---
+
 ### `ACT-068` — Zero-Allocation Chunked Log Buffers with sync.Pool in JobLogBuffer
 - **Timestamp (UTC)**: `2026-11-12T21:20:00Z`
 - **GitHub Issue**: [#136](https://github.com/jmrenouard/api_executor/issues/136)
