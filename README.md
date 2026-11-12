@@ -232,7 +232,7 @@ services:
 
 ### 3. Download Pre-Compiled Standalone Binaries
 
-Pre-compiled, self-contained binary distributions for release [**v2.1.0**](https://github.com/jmrenouard/api_executor/releases/tag/v2.1.0) are published as standalone compressed archives (`.tar.gz` for Linux and macOS, `.zip` for Windows) attached to the GitHub Release.
+Pre-compiled, self-contained binary distributions are published as standalone compressed archives (`.tar.gz` for Linux and macOS, `.zip` for Windows) attached to each [**GitHub Release**](https://github.com/jmrenouard/api_executor/releases).
 
 Each platform archive is fully self-contained and bundles:
 - The compiled `go-admin-tool` (or `go-admin-tool.exe`) executable
@@ -241,65 +241,74 @@ Each platform archive is fully self-contained and bundles:
 - Pure Web Administration Console assets (`web/`)
 - `LICENSE` and `README.md`
 
-#### Platform Artifact Matrix (v2.1.0)
+#### Supported Platform Matrix
 
-| Operating System | Architecture | Archive Format | Size | Direct Download Link | SHA-256 Checksum |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Linux** | `amd64` (x86_64) | `.tar.gz` | ~9.4 MB | [`api_executor-v2.1.0-linux-amd64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-linux-amd64.tar.gz) | `fe3151e0d38c18b128d97d39c2b07bc73fbce2ef13c66b486f0040ece11f0bff` |
-| **Linux** | `arm64` (aarch64) | `.tar.gz` | ~8.7 MB | [`api_executor-v2.1.0-linux-arm64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-linux-arm64.tar.gz) | `0416391a74ab35f8e738386803f1425881dced9e286a5d2c7864074fd41007af` |
-| **macOS** (Darwin) | `amd64` (Intel) | `.tar.gz` | ~9.5 MB | [`api_executor-v2.1.0-darwin-amd64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-darwin-amd64.tar.gz) | `44472b648619187585727ddb97e8a140ae12eab700ffa3262cc513f15c2f9af3` |
-| **macOS** (Darwin) | `arm64` (Apple Silicon) | `.tar.gz` | ~9.0 MB | [`api_executor-v2.1.0-darwin-arm64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-darwin-arm64.tar.gz) | `e136b9f36f82a78ddf83b704de5b0c6802363bb8fd643f4db53cbc230f054e11` |
-| **Windows** | `amd64` (x86_64) | `.zip` | ~9.8 MB | [`api_executor-v2.1.0-windows-amd64.zip`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-windows-amd64.zip) | `e50d18e9fa956e477b6e4776e72ba8014425704d987babd59456e653d3b0439d` |
-| **Windows** | `arm64` (ARM64) | `.zip` | ~9.0 MB | [`api_executor-v2.1.0-windows-arm64.zip`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-windows-arm64.zip) | `7a683f37173220cd1f8da7fdfe007e36e269fe417673d9e860658e9095a496ef` |
-| **Checksum Manifest** | All Platforms | `.txt` | 630 B | [`SHA256SUMS.txt`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/SHA256SUMS.txt) | `3e3499dea256f04f65d04bbe18e328314c07d30aa3249c662b52cc9d8f3610c2` |
+| Operating System | Architecture | Archive Format | Artifact Deliverable Pattern |
+| :--- | :--- | :--- | :--- |
+| **Linux** | `amd64` (x86_64) | `.tar.gz` | `api_executor-<version>-linux-amd64.tar.gz` |
+| **Linux** | `arm64` (aarch64) | `.tar.gz` | `api_executor-<version>-linux-arm64.tar.gz` |
+| **macOS** (Darwin) | `amd64` (Intel) | `.tar.gz` | `api_executor-<version>-darwin-amd64.tar.gz` |
+| **macOS** (Darwin) | `arm64` (Apple Silicon) | `.tar.gz` | `api_executor-<version>-darwin-arm64.tar.gz` |
+| **Windows** | `amd64` (x86_64) | `.zip` | `api_executor-<version>-windows-amd64.zip` |
+| **Windows** | `arm64` (ARM64) | `.zip` | `api_executor-<version>-windows-arm64.zip` |
+
+Release archives and their corresponding cryptographic checksums (`SHA256SUMS.txt` manifest and individual `<archive>.sha256` files) are published on the [GitHub Releases](https://github.com/jmrenouard/api_executor/releases) page. Version-specific hashes live exclusively in release assets and release notes.
 
 #### Cryptographic Checksum Verification & Quickstart
 
 ##### Linux & macOS (bash / zsh)
 
 ```bash
-# 1. Download binary package and cryptographic checksum manifest
-curl -sLO https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-linux-amd64.tar.gz
-curl -sLO https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/SHA256SUMS.txt
+# 1. Choose target version and platform
+VERSION="v2.1.0"
+ARCHIVE="api_executor-${VERSION}-linux-amd64.tar.gz"
 
-# 2. Verify archive integrity against SHA256SUMS.txt
+# 2. Download binary package and cryptographic checksums
+curl -sLO "https://github.com/jmrenouard/api_executor/releases/download/${VERSION}/${ARCHIVE}"
+curl -sLO "https://github.com/jmrenouard/api_executor/releases/download/${VERSION}/SHA256SUMS.txt"
+curl -sLO "https://github.com/jmrenouard/api_executor/releases/download/${VERSION}/${ARCHIVE}.sha256"
+
+# 3. Verify archive integrity
+# Option A: Verify via unified SHA256SUMS.txt manifest
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
-# 3. Extract and launch the standalone server
-tar -xzf api_executor-v2.1.0-linux-amd64.tar.gz
-cd api_executor-v2.1.0-linux-amd64
+# Option B: Verify via individual .sha256 checksum file
+sha256sum -c "${ARCHIVE}.sha256"
+
+# 4. Extract and launch the standalone server
+tar -xzf "${ARCHIVE}"
+cd "api_executor-${VERSION}-linux-amd64"
 ./go-admin-tool
 ```
 
-> **macOS Note**: If `sha256sum` is not installed by default on macOS, use `shasum -a 256 -c SHA256SUMS.txt --ignore-missing`.
+> **macOS Note**: If `sha256sum` is not installed by default on macOS, use `shasum -a 256 -c SHA256SUMS.txt --ignore-missing` or `shasum -a 256 -c "${ARCHIVE}.sha256"`.
 
 ##### Windows (PowerShell)
 
 ```powershell
-# 1. Download binary package and cryptographic checksum manifest
-Invoke-WebRequest -Uri "https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-windows-amd64.zip" -OutFile "api_executor-v2.1.0-windows-amd64.zip"
-Invoke-WebRequest -Uri "https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/SHA256SUMS.txt" -OutFile "SHA256SUMS.txt"
+# 1. Choose target version and platform
+$VERSION = "v2.1.0"
+$ARCHIVE = "api_executor-$VERSION-windows-amd64.zip"
 
-# 2. Verify SHA-256 cryptographic checksum
-$expectedHash = (Select-String -Path .\SHA256SUMS.txt -Pattern "api_executor-v2.1.0-windows-amd64.zip").Line.Split(" ")[0]
-$actualHash = (Get-FileHash .\api_executor-v2.1.0-windows-amd64.zip -Algorithm SHA256).Hash.ToLower()
+# 2. Download binary package and cryptographic checksums
+Invoke-WebRequest -Uri "https://github.com/jmrenouard/api_executor/releases/download/$VERSION/$ARCHIVE" -OutFile $ARCHIVE
+Invoke-WebRequest -Uri "https://github.com/jmrenouard/api_executor/releases/download/$VERSION/SHA256SUMS.txt" -OutFile "SHA256SUMS.txt"
+Invoke-WebRequest -Uri "https://github.com/jmrenouard/api_executor/releases/download/$VERSION/$ARCHIVE.sha256" -OutFile "$ARCHIVE.sha256"
+
+# 3. Verify SHA-256 cryptographic checksum
+# Option A: Verify via individual .sha256 checksum file
+$expectedHash = (Get-Content "$ARCHIVE.sha256").Split(" ")[0]
+$actualHash = (Get-FileHash $ARCHIVE -Algorithm SHA256).Hash.ToLower()
 if ($actualHash -eq $expectedHash) { Write-Host "Checksum verification PASSED" -ForegroundColor Green } else { Write-Error "Checksum verification FAILED" }
 
-# 3. Extract archive and launch server
-Expand-Archive .\api_executor-v2.1.0-windows-amd64.zip -DestinationPath .\api_executor
-cd .\api_executor\api_executor-v2.1.0-windows-amd64
+# Option B: Verify via unified SHA256SUMS.txt manifest
+$manifestHash = (Select-String -Path .\SHA256SUMS.txt -Pattern $ARCHIVE).Line.Split(" ")[0]
+if ($actualHash -eq $manifestHash) { Write-Host "Manifest verification PASSED" -ForegroundColor Green } else { Write-Error "Manifest verification FAILED" }
+
+# 4. Extract archive and launch server
+Expand-Archive $ARCHIVE -DestinationPath .\api_executor
+cd .\api_executor\api_executor-$VERSION-windows-amd64
 .\go-admin-tool.exe
-```
-
-#### Official SHA-256 Checksums Manifest (v2.1.0)
-
-```text
-44472b648619187585727ddb97e8a140ae12eab700ffa3262cc513f15c2f9af3  api_executor-v2.1.0-darwin-amd64.tar.gz
-e136b9f36f82a78ddf83b704de5b0c6802363bb8fd643f4db53cbc230f054e11  api_executor-v2.1.0-darwin-arm64.tar.gz
-fe3151e0d38c18b128d97d39c2b07bc73fbce2ef13c66b486f0040ece11f0bff  api_executor-v2.1.0-linux-amd64.tar.gz
-0416391a74ab35f8e738386803f1425881dced9e286a5d2c7864074fd41007af  api_executor-v2.1.0-linux-arm64.tar.gz
-e50d18e9fa956e477b6e4776e72ba8014425704d987babd59456e653d3b0439d  api_executor-v2.1.0-windows-amd64.zip
-7a683f37173220cd1f8da7fdfe007e36e269fe417673d9e860658e9095a496ef  api_executor-v2.1.0-windows-arm64.zip
 ```
 
 ### 4. Test Predefined Ubuntu & RedHat OS Tasks via Docker

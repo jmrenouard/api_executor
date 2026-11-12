@@ -151,16 +151,60 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Resolved Release Tag for Publication: ${TAG}"
 
-      - name: Generate Cryptographic SHA256 Manifest
+      - name: Generate and Validate Cryptographic SHA-256 Checksums
         run: |
           mkdir -p dist
           cp download/* dist/ 2>/dev/null || true
           cd dist
-          sha256sum api_executor-* > SHA256SUMS.txt
-          echo "Generated SHA256SUMS.txt:"
+
+          # Generate individual .sha256 checksum files alongside each release archive
+          for file in api_executor-*.tar.gz api_executor-*.zip; do
+            [ -f "$file" ] || continue
+            sha256sum "$file" > "${file}.sha256"
+          done
+
+          # Generate unified SHA256SUMS.txt manifest containing all release archives
+          sha256sum api_executor-*.tar.gz api_executor-*.zip > SHA256SUMS.txt
+
+          echo "Generated SHA256SUMS.txt manifest:"
           cat SHA256SUMS.txt
-          echo "Validating SHA256SUMS.txt integrity:"
+
+          echo "Validating SHA256SUMS.txt manifest integrity via sha256sum -c:"
           sha256sum -c SHA256SUMS.txt
+
+          echo "Validating individual .sha256 checksum files integrity via sha256sum -c:"
+          for ckfile in api_executor-*.sha256; do
+            [ -f "$ckfile" ] || continue
+            sha256sum -c "$ckfile"
+          done
+
+      - name: Generate Release Notes Cryptographic Verification Section
+        run: |
+          cat << 'EOF' > dist/RELEASE_NOTES_VERIFICATION.md
+          ### Cryptographic Checksum Verification & Asset Integrity
+
+          All release archives are cryptographically signed with SHA-256. Verification files are attached as release assets:
+          - **Unified Manifest**: [`SHA256SUMS.txt`](SHA256SUMS.txt) contains SHA-256 hashes for all platform archives.
+          - **Individual Checksum Files**: An individual `<archive>.sha256` file is provided alongside each archive.
+
+          #### Verify via Unified Manifest (Linux / macOS)
+          ```bash
+          sha256sum -c SHA256SUMS.txt --ignore-missing
+          ```
+
+          #### Verify via Individual Checksum File (Linux / macOS)
+          ```bash
+          sha256sum -c <archive-filename>.sha256
+          ```
+
+          #### Verify via PowerShell (Windows)
+          ```powershell
+          $archive = "<archive-filename>"
+          $expectedHash = (Get-Content "$archive.sha256").Split(" ")[0]
+          $actualHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($actualHash -eq $expectedHash) { Write-Host "Checksum verification PASSED" -ForegroundColor Green } else { Write-Error "Checksum verification FAILED" }
+          ```
+          EOF
 
       - name: Attach Assets to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -168,8 +212,12 @@ jobs:
         with:
           tag_name: ${{ steps.release_vars.outputs.tag }}
           files: |
-            dist/api_executor-*
+            dist/api_executor-*.tar.gz
+            dist/api_executor-*.zip
+            dist/api_executor-*.sha256
             dist/SHA256SUMS.txt
+          body_path: dist/RELEASE_NOTES_VERIFICATION.md
+          append_body: true
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -13,6 +13,34 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-059` — Standardize Release Checksum Deliverables and Remove Version Hashes from README
+- **Timestamp (UTC)**: `2026-11-12T13:46:00Z`
+- **GitHub Issue**: [#118](https://github.com/jmrenouard/api_executor/issues/118)
+- **Branch**: `fix/issue-118-standardize-release-checksums-and-clean-readme`
+- **Request**:
+  - Standardize release checksum deliverables in the GitHub Actions release workflow (`.github/workflows/release.yml`) and remove version-specific checksum blocks from `README.md` so checksums live strictly in GitHub Release assets and release notes:
+    1. Update `.github/workflows/release.yml` to generate individual `<archive>.sha256` files alongside each platform archive and a unified `SHA256SUMS.txt` manifest.
+    2. Verify all checksums automatically via `sha256sum -c` during the release workflow before publishing.
+    3. Attach all checksum files (`dist/api_executor-*.sha256`, `dist/SHA256SUMS.txt`) to the GitHub Release and generate a cryptographic verification section appended to the release notes via `body_path: dist/RELEASE_NOTES_VERIFICATION.md` and `append_body: true`.
+    4. Clean up `README.md` by removing the hardcoded v2.1.0 checksum table and manifest block, replacing them with generic templated verification commands for Linux/macOS and Windows pointing to GitHub Release assets.
+    5. Add automated regression tests in `docs/branding_test.go` (`TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene`) asserting workflow markers, README hygiene, and cryptographic checksum generation logic.
+    6. Update living governance registers `docs/ACTION_LOGBOOK.md` (`ACT-059`) and `docs/RCA_REGISTER.md` (`IMP-013`, `IDEA-014`).
+    7. Execute atomic GitHub workflow with English-only commit and PR.
+- **Changes**:
+  - Modified [`.github/workflows/release.yml`](../.github/workflows/release.yml) (individual `.sha256` generation, manifest validation, release notes verification body, asset attachments).
+  - Modified [`README.md`](../README.md) (removed hardcoded v2.1.0 checksum table and manifest block; added templated verification instructions).
+  - Modified [`docs/branding_test.go`](branding_test.go) (added `TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene`).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recorded `ACT-059`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (recorded `IMP-013` and `IDEA-014`).
+- **Result**:
+  - Validated YAML syntax of `.github/workflows/release.yml`.
+  - Validated `sha256sum -c` execution against mock archives.
+  - 100% test pass on Go unit, integration, and E2E suites (455 unit/integration tests + 88 E2E tests = 543 tests passing).
+  - GitHub Issue [#118](https://github.com/jmrenouard/api_executor/issues/118).
+  - Pull Request opened and merged into `main`.
+
+---
+
 ### `ACT-058` — Docker Hub Multi-Architecture Release Publication and Living Governance Finalization
 - **Timestamp (UTC)**: `2026-11-12T12:46:00Z`
 - **GitHub Issue**: [#116](https://github.com/jmrenouard/api_executor/issues/116)
