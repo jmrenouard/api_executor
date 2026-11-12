@@ -873,3 +873,82 @@ func TestTier1_F6_AsyncJob_ChunkedLogStreaming(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// Tier 1 - Feature 9: Certified Native Version Endpoint (GET /api/v1/version)
+// ============================================================================
+
+func TestTier1_F9_CertifiedVersionEndpoint_PublicUnauthenticated(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// Direct unauthenticated call without any Authorization header
+	resp, err := srv.client.Get(srv.baseURL + "/api/v1/version")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/version: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for /api/v1/version, got %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected application/json Content-Type, got %s", contentType)
+	}
+
+	var payload struct {
+		Version         string  `json:"version"`
+		GitCommit       string  `json:"git_commit"`
+		BuildDate       string  `json:"build_date"`
+		IntegrityStatus string  `json:"integrity_status"`
+		Integrity       string  `json:"integrity"`
+		Uptime          string  `json:"uptime"`
+		UptimeSeconds   float64 `json:"uptime_seconds"`
+		GoVersion       string  `json:"go_version"`
+		StartTime       string  `json:"start_time"`
+		OS              string  `json:"os"`
+		Arch            string  `json:"arch"`
+		Compiler        string  `json:"compiler"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("failed to decode JSON response from /api/v1/version: %v", err)
+	}
+
+	if payload.Version == "" {
+		t.Errorf("expected non-empty version")
+	}
+	if payload.GitCommit == "" {
+		t.Errorf("expected non-empty git_commit")
+	}
+	if payload.BuildDate == "" {
+		t.Errorf("expected non-empty build_date")
+	}
+	if payload.IntegrityStatus == "" || payload.Integrity == "" {
+		t.Errorf("expected non-empty integrity_status and integrity")
+	}
+	if payload.GoVersion == "" {
+		t.Errorf("expected non-empty go_version")
+	}
+	if payload.StartTime == "" {
+		t.Errorf("expected non-empty start_time")
+	}
+	if payload.UptimeSeconds < 0 {
+		t.Errorf("expected non-negative uptime_seconds")
+	}
+}
+
+func TestTier1_F9_CertifiedVersionEndpoint_MethodNotAllowed(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	resp, err := srv.client.Post(srv.baseURL + "/api/v1/version", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("failed to execute POST /api/v1/version: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed for POST /api/v1/version, got %d", resp.StatusCode)
+	}
+}
+

@@ -33,6 +33,7 @@ type APIEnv struct {
 	PluginRegistry *plugins.Registry
 	MCPServer      *mcp.Server
 	JobEngine      *jobs.Engine
+	StartTime      time.Time
 	commandsMu     sync.RWMutex
 }
 

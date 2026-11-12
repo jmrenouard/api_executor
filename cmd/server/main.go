@@ -212,6 +212,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		PluginRegistry: pluginRegistry,
 		MCPServer:      mcpServer,
 		JobEngine:      jobEngine,
+		StartTime:      time.Now(),
 	}
 
 	router := api.NewRouter(apiEnv)
