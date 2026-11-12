@@ -683,6 +683,9 @@ This living governance register records all errors encountered, technical dead-e
 ### `IMP-010` — Passing Non-Existent Step Outputs to Docker Build-Args
 - **Reason for Abandonment**: Attempting to pass `${{ steps.meta.outputs.created }}` from `docker/metadata-action@v5` into `docker/build-push-action@v6` build-args causes static analysis failure under `actionlint` (exit code 1) and injects an empty string argument (`CREATED=""`). Since `docker/metadata-action` already generates standard OCI labels (including `org.opencontainers.image.created`) in `steps.meta.outputs.labels`, passing `CREATED` as a build argument is both invalid and redundant.
 
+### `IMP-011` — Using Unpinned Latest-Only Container Image References in Production Documentation
+- **Reason for Abandonment**: Documenting only `jmrenouard/api_executor:latest` without pinning explicit immutable semantic release tags (`jmrenouard/api_executor:v2.1.0`) prevents reproducible deployments, makes container rollback unmanageable, and risks breaking production environments when new major or breaking updates are published. Best practices require documenting explicit immutable semantic tags (`:v2.1.0`) as the primary target alongside `:latest`.
+
 ---
 
 ## 3. Current Approximations & Simplifying Assumptions (`APP-XXX`)
@@ -700,6 +703,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-009` | `internal/jobs` | In-memory log buffer retained per active job bounded to 2 MiB (`DefaultMaxLogBytes = 2 MiB`), with completed log eviction upon engine pruning. | Bounded memory consumption; historical logs after memory eviction rely on output summaries stored in `JobStore`. | Add persistent chunked log archive to disk or object storage if unbounded historical log retrieval is needed (`IDEA-007`). |
 | `APP-010` | `internal/api` | In-memory chunked log streaming via `JobLogBuffer` returns `eof=true` and empty chunk after buffer eviction, relying on output summary in `JobStore`. | Historical logs after buffer eviction cannot be re-streamed byte-for-byte via the chunked log endpoint. | Add persistent chunked log archive to disk or object storage (`IDEA-007`). |
 | `APP-011` | `.github/workflows`, CI/CD | GitHub Actions automated Docker Hub publishing relies on repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. If secrets are absent or restricted on forks/local branches, automated push fails or is skipped, requiring local Docker Buildx delivery by an authenticated maintainer. | CI/CD cannot push Docker images from unauthenticated forks or without configured organization secrets; out-of-band releases require maintainer CLI invocation. | Configure protected GitHub Actions repository secrets (`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`) with least-privilege Personal Access Tokens on Docker Hub, or migrate to GitHub Container Registry (`ghcr.io`) using native `GITHUB_TOKEN`. |
+| `APP-012` | `Dockerfile`, Deployment | Non-root container UID/GID 10001 host volume permissions: Bind-mounted host directories (`./certs`, `./data`, `./secure_files`) must grant write permissions to UID 10001 if the server auto-generates certificates or writes `history.db`. | Auto-generation or database writes fail with permission denied if host directories are owned strictly by root without 10001 write access. | Document named Docker volumes and explicit `chown -R 10001:10001` commands for bind-mounted host volumes. |
 
 ---
 
@@ -718,3 +722,4 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-009` | `P3` | `internal/jobs` | Job Dependency DAG & Workflow Chaining: Allow defining multi-step workflow pipelines where downstream jobs execute only upon successful completion of prerequisite jobs (e.g., diagnostic run followed by automated remediation). |
 | `IDEA-010` | `P3` | `web/static` | Web Console Live Output Terminal via xterm.js: Upgrade Tab 9 log modal with ANSI color escape code rendering and interactive terminal controls. |
 | `IDEA-011` | `P3` | `packaging` | Native OS package manager distribution: Homebrew formula for macOS, Winget / Chocolatey manifests for Windows, and automated Debian (.deb) / RPM (.rpm) package generation via GoReleaser or nfpm. |
+| `IDEA-012` | `P3` | `packaging/helm` | Production Helm Chart & Kubernetes Operator Manifests: Package an official Helm chart (`charts/api-executor`) with configurable values for ingress TLS, persistent volume claims (PVC) for SQLite `history.db`, horizontal pod autoscaler (HPA), and Prometheus Operator ServiceMonitor. |
