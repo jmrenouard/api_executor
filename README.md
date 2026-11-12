@@ -135,17 +135,172 @@ Open **`https://localhost:8080`** in your browser to access the **Web Administra
 
 ### 2. Run Pre-Built Container Image from Docker Hub
 
-```bash
-# Pull the latest hardened multi-arch image (linux/amd64, linux/arm64)
-docker pull jmrenouard/api_executor:latest
+Official multi-architecture production container images supporting **Linux AMD64** (`linux/amd64`) and **Linux ARM64** (`linux/arm64`) are published to Docker Hub at [**`jmrenouard/api_executor`**](https://hub.docker.com/r/jmrenouard/api_executor). The image is built on a minimal Alpine Linux 3.21 base, runs as an unprivileged non-root user (`appuser`, UID/GID `10001`), and includes pre-installed runtime dependencies, the Web Administration Console, and the complete 305+ plugins ecosystem.
 
-# Run container with HTTPS exposed on port 8080
-docker run -d -p 8080:8080 --name api-executor jmrenouard/api_executor:latest
+#### Pull Container Image
+
+```bash
+# Pull the specific v2.1.0 release image
+docker pull jmrenouard/api_executor:v2.1.0
+
+# Or pull the latest stable image
+docker pull jmrenouard/api_executor:latest
 ```
+
+#### Standalone Container Quickstart
+
+```bash
+# Launch the container with HTTPS exposed on port 8080
+# (automatically provisions an ECDSA P-256 TLS certificate in /app/certs if none exists)
+docker run -d \
+  --name api-executor \
+  -p 8080:8080 \
+  jmrenouard/api_executor:v2.1.0
+```
+
+#### Production Deployment with Persistent Volumes & Environment Configuration
+
+For enterprise production deployments, mount persistent host directories for TLS certificates, SQLite history databases, custom plugin configurations, and secure file directories:
+
+```bash
+# Ensure local persistent host directories exist with permissions for UID 10001
+mkdir -p certs data plugins secure_files
+
+# Run production container with persistent volumes and explicit CONFIG_PATH
+docker run -d \
+  --name api-executor \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -u 10001:10001 \
+  -e CONFIG_PATH=/app/config.yaml \
+  -e TZ=UTC \
+  -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  -v $(pwd)/certs:/app/certs \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/plugins:/app/plugins:ro \
+  -v $(pwd)/secure_files:/var/log/secure_files \
+  --security-opt no-new-privileges:true \
+  --cap-drop ALL \
+  jmrenouard/api_executor:v2.1.0
+```
+
+#### Container Healthcheck & Verification
+
+The container defines a built-in Docker healthcheck probing `https://127.0.0.1:8080/metrics` every 30 seconds (`--interval=30s --timeout=5s --start-period=5s --retries=3`).
+
+```bash
+# Inspect container healthcheck status (expected: "healthy")
+docker inspect --format='{{json .State.Health.Status}}' api-executor
+
+# Verify API and Prometheus telemetry over HTTPS
+curl -k https://localhost:8080/metrics
+```
+
+#### Production Docker Compose (`docker-compose.yml`)
+
+```yaml
+services:
+  api-executor:
+    image: jmrenouard/api_executor:v2.1.0
+    container_name: api-executor
+    restart: unless-stopped
+    user: "10001:10001"
+    ports:
+      - "8080:8080"
+    environment:
+      - CONFIG_PATH=/app/config.yaml
+      - TZ=UTC
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs
+      - ./data:/app/data
+      - ./plugins:/app/plugins:ro
+      - ./secure_files:/var/log/secure_files
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1:8080/metrics"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+```
+
+---
 
 ### 3. Download Pre-Compiled Standalone Binaries
 
-Download pre-compiled binaries for Linux (amd64, arm64), macOS (arm64), and Windows (amd64) directly from [GitHub Releases](https://github.com/jmrenouard/api_executor/releases/latest), verified with cryptographic `SHA256SUMS.txt`.
+Pre-compiled, self-contained binary distributions for release [**v2.1.0**](https://github.com/jmrenouard/api_executor/releases/tag/v2.1.0) are published as standalone compressed archives (`.tar.gz` for Linux and macOS, `.zip` for Windows) attached to the GitHub Release.
+
+Each platform archive is fully self-contained and bundles:
+- The compiled `go-admin-tool` (or `go-admin-tool.exe`) executable
+- Default server configuration (`config.yaml`)
+- The complete catalog of 305+ declarative and native plugins (`plugins/`)
+- Pure Web Administration Console assets (`web/`)
+- `LICENSE` and `README.md`
+
+#### Platform Artifact Matrix (v2.1.0)
+
+| Operating System | Architecture | Archive Format | Size | Direct Download Link | SHA-256 Checksum |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Linux** | `amd64` (x86_64) | `.tar.gz` | ~9.4 MB | [`api_executor-v2.1.0-linux-amd64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-linux-amd64.tar.gz) | `fe3151e0d38c18b128d97d39c2b07bc73fbce2ef13c66b486f0040ece11f0bff` |
+| **Linux** | `arm64` (aarch64) | `.tar.gz` | ~8.7 MB | [`api_executor-v2.1.0-linux-arm64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-linux-arm64.tar.gz) | `0416391a74ab35f8e738386803f1425881dced9e286a5d2c7864074fd41007af` |
+| **macOS** (Darwin) | `amd64` (Intel) | `.tar.gz` | ~9.5 MB | [`api_executor-v2.1.0-darwin-amd64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-darwin-amd64.tar.gz) | `44472b648619187585727ddb97e8a140ae12eab700ffa3262cc513f15c2f9af3` |
+| **macOS** (Darwin) | `arm64` (Apple Silicon) | `.tar.gz` | ~9.0 MB | [`api_executor-v2.1.0-darwin-arm64.tar.gz`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-darwin-arm64.tar.gz) | `e136b9f36f82a78ddf83b704de5b0c6802363bb8fd643f4db53cbc230f054e11` |
+| **Windows** | `amd64` (x86_64) | `.zip` | ~9.8 MB | [`api_executor-v2.1.0-windows-amd64.zip`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-windows-amd64.zip) | `e50d18e9fa956e477b6e4776e72ba8014425704d987babd59456e653d3b0439d` |
+| **Windows** | `arm64` (ARM64) | `.zip` | ~9.0 MB | [`api_executor-v2.1.0-windows-arm64.zip`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-windows-arm64.zip) | `7a683f37173220cd1f8da7fdfe007e36e269fe417673d9e860658e9095a496ef` |
+| **Checksum Manifest** | All Platforms | `.txt` | 630 B | [`SHA256SUMS.txt`](https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/SHA256SUMS.txt) | `3e3499dea256f04f65d04bbe18e328314c07d30aa3249c662b52cc9d8f3610c2` |
+
+#### Cryptographic Checksum Verification & Quickstart
+
+##### Linux & macOS (bash / zsh)
+
+```bash
+# 1. Download binary package and cryptographic checksum manifest
+curl -sLO https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-linux-amd64.tar.gz
+curl -sLO https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/SHA256SUMS.txt
+
+# 2. Verify archive integrity against SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# 3. Extract and launch the standalone server
+tar -xzf api_executor-v2.1.0-linux-amd64.tar.gz
+cd api_executor-v2.1.0-linux-amd64
+./go-admin-tool
+```
+
+> **macOS Note**: If `sha256sum` is not installed by default on macOS, use `shasum -a 256 -c SHA256SUMS.txt --ignore-missing`.
+
+##### Windows (PowerShell)
+
+```powershell
+# 1. Download binary package and cryptographic checksum manifest
+Invoke-WebRequest -Uri "https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/api_executor-v2.1.0-windows-amd64.zip" -OutFile "api_executor-v2.1.0-windows-amd64.zip"
+Invoke-WebRequest -Uri "https://github.com/jmrenouard/api_executor/releases/download/v2.1.0/SHA256SUMS.txt" -OutFile "SHA256SUMS.txt"
+
+# 2. Verify SHA-256 cryptographic checksum
+$expectedHash = (Select-String -Path .\SHA256SUMS.txt -Pattern "api_executor-v2.1.0-windows-amd64.zip").Line.Split(" ")[0]
+$actualHash = (Get-FileHash .\api_executor-v2.1.0-windows-amd64.zip -Algorithm SHA256).Hash.ToLower()
+if ($actualHash -eq $expectedHash) { Write-Host "Checksum verification PASSED" -ForegroundColor Green } else { Write-Error "Checksum verification FAILED" }
+
+# 3. Extract archive and launch server
+Expand-Archive .\api_executor-v2.1.0-windows-amd64.zip -DestinationPath .\api_executor
+cd .\api_executor\api_executor-v2.1.0-windows-amd64
+.\go-admin-tool.exe
+```
+
+#### Official SHA-256 Checksums Manifest (v2.1.0)
+
+```text
+44472b648619187585727ddb97e8a140ae12eab700ffa3262cc513f15c2f9af3  api_executor-v2.1.0-darwin-amd64.tar.gz
+e136b9f36f82a78ddf83b704de5b0c6802363bb8fd643f4db53cbc230f054e11  api_executor-v2.1.0-darwin-arm64.tar.gz
+fe3151e0d38c18b128d97d39c2b07bc73fbce2ef13c66b486f0040ece11f0bff  api_executor-v2.1.0-linux-amd64.tar.gz
+0416391a74ab35f8e738386803f1425881dced9e286a5d2c7864074fd41007af  api_executor-v2.1.0-linux-arm64.tar.gz
+e50d18e9fa956e477b6e4776e72ba8014425704d987babd59456e653d3b0439d  api_executor-v2.1.0-windows-amd64.zip
+7a683f37173220cd1f8da7fdfe007e36e269fe417673d9e860658e9095a496ef  api_executor-v2.1.0-windows-arm64.zip
+```
 
 ### 4. Test Predefined Ubuntu & RedHat OS Tasks via Docker
 

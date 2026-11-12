@@ -13,6 +13,27 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-056` — Add v2.1.0 Binary Download Table and Docker Hub Deployment Guide to README
+- **Timestamp (UTC)**: `2026-11-12T11:40:00Z`
+- **GitHub Issue**: [#112](https://github.com/jmrenouard/api_executor/issues/112)
+- **Branch**: `docs/issue-112-v210-download-links-and-docker-guide`
+- **Request**:
+  - Update `README.md` with:
+    1. A structured pre-compiled standalone binary download table for release `v2.1.0` covering all 6 target platforms (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`) with direct GitHub Release asset links and `SHA256SUMS.txt`.
+    2. Cryptographic checksum verification commands for Linux/macOS (`sha256sum`, `shasum`) and Windows PowerShell (`Get-FileHash`, `Select-String`).
+    3. Production-ready Docker Hub deployment instructions pulling `jmrenouard/api_executor:v2.1.0` and `latest`, specifying port `8080`, volume mounts (`/app/config.yaml:ro`, `/app/certs`, `/app/data`, `/app/plugins:ro`, `/var/log/secure_files`), non-root UID `10001`, `CONFIG_PATH`, healthcheck inspection, and Docker Compose configuration.
+    4. Synchronize living governance registers `docs/ACTION_LOGBOOK.md` (`ACT-056`) and `docs/RCA_REGISTER.md` (`IMP-011`, `APP-012`, `IDEA-012`).
+- **Changes**:
+  - Modified [`README.md`](../README.md) (added binary download table, checksum verification guide, and Docker Hub production deployment instructions).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recorded `ACT-056`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (recorded `IMP-011`, `APP-012`, `IDEA-012`).
+- **Result**:
+  - 100% test pass on `go test -v ./docs/...`, `go test -v -cover ./...`, and `go test -v ./tests/e2e/...` (545 tests passing).
+  - GitHub Issue [#112](https://github.com/jmrenouard/api_executor/issues/112).
+  - Pull Request merged into `main`.
+
+---
+
 ### `ACT-055` — Docker Publication Workflow Schema, Tag Trigger, and Secret Hardening
 - **Timestamp (UTC)**: `2026-11-12T11:20:00Z`
 - **GitHub Issue**: [#110](https://github.com/jmrenouard/api_executor/issues/110)
