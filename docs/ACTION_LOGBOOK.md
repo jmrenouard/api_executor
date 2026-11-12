@@ -13,6 +13,34 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-064` — Deliver API Executor v2.2.0: Unified Mode Telemetry for Synchronous and Asynchronous Calls (Observability Remediation)
+- **Timestamp (UTC)**: `2026-11-12T18:00:00Z`
+- **GitHub Issue**: [#128](https://github.com/jmrenouard/api_executor/issues/128)
+- **Branch**: `feat/issue-128-v2-2-0-metric-observability`
+- **Request**:
+  - Deliver version v2.2.0 of the API Executor to drastically improve metric observability by taking asynchronous calls into account and providing telemetry for both synchronous and asynchronous calls across the API.
+  - Requirement R1: Distinguish Synchronous and Asynchronous Call Metrics via unified mode metrics (`action_mode_calls_total` with labels `action`, `mode`, `status` and `action_mode_call_duration_seconds` with labels `action`, `mode`).
+  - Wire asynchronous telemetry ingestion from `RecordJobExecution` forwarding to `RecordActionCallWithMode` with status mapping.
+  - Add comprehensive automated unit and E2E tests verifying distinct synchronous vs asynchronous telemetry on Prometheus scrapes.
+  - Requirement R2: Version bump to 2.2.0 and governance alignment in `VERSION`, `docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md`, and `README.md`.
+  - *Remediation note*: Remediates previous uncommitted attempt; incremented to ACT-064 following origin/main fast-forward containing PR #127 (ACT-063).
+- **Changes**:
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Declared and registered `action_mode_calls_total` (CounterVec with labels `["action", "mode", "status"]`) and `action_mode_call_duration_seconds` (HistogramVec with labels `["action", "mode"]` with 13 custom latency buckets). Implemented `RecordActionCallWithMode` with cardinality bounding and status mapping, updated legacy `recordActionCall` to forward `mode="sync"`, pre-initialized configured commands in `initConfiguredActionMetricsLocked`, added vector resets in `ResetActionMetrics`, and provided test accessor `GetActionModeCallCount`.
+  - Modified [`internal/api/job_metrics.go`](../internal/api/job_metrics.go): In `RecordJobExecution`, forwarded terminal job statuses (`completed`, `failed`, `timed_out`, `cancelled`) to `RecordActionCallWithMode` with `mode="async"`, preserving existing `job_executions_total` and `job_execution_duration_seconds` without regression.
+  - Modified [`internal/api/metrics_timeout_test.go`](../internal/api/metrics_timeout_test.go): Added comprehensive unit tests (`TestActionModeCallMetrics_SyncAndAsync`, `TestActionModeMetrics_PreInitializationAndScrape`, `TestActionModeMetrics_LabelCardinalityBounding`) validating dual-mode recording, Prometheus exposition scraping, and cardinality limits.
+  - Modified [`tests/e2e/tier3_cross_feature_test.go`](../tests/e2e/tier3_cross_feature_test.go): Enriched `TestTier3_Combination_PluginExecution_PrometheusMetricCorrelation` and `TestTier3_Combination_AsynchronousJobWorker_PrometheusExposition`, and added `TestTier3_Combination_UnifiedModeTelemetry_SyncAndAsyncDifferentiation` verifying concurrent sync and async action executions on `/metrics`.
+  - Modified [`VERSION`](../VERSION): Bumped project version to `2.2.0`.
+  - Modified [`README.md`](../README.md): Documented `action_mode_calls_total` and `action_mode_call_duration_seconds` in the Observability/Metrics section, updated container and binary release examples to `v2.2.0`.
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): Added `APP-014` (dual-mode Prometheus telemetry partition trade-off) and `IDEA-016` (Prometheus exemplars and OpenTelemetry trace correlation).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-064`.
+- **Result**:
+  - 100% test pass rate across entire project: 424 unit and integration tests across 11 packages (`go test -v -cover ./...`), and 89 E2E tests (`go test -v ./tests/e2e/...`) (total: 513 passing tests, 0 failures, 0 skips).
+  - Code coverage: `internal/api` at 84.3%, all codebase modules exceed 80% coverage requirement.
+  - Static analysis: `go vet ./...` clean with 0 warnings or errors.
+  - Release verification: `docs/branding_test.go` passed 100%.
+
+---
+
 ### `ACT-063` — Comprehensive API Security Audit, DDoS/Rate-Limit/RBAC Hardening, Automated CI Security Suite & `SECURITY.md`
 - **Timestamp (UTC)**: `2026-11-12T17:40:00Z`
 - **GitHub Issue**: [#126](https://github.com/jmrenouard/api_executor/issues/126)
@@ -37,9 +65,6 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 - **Result**:
   - 100% test pass across all Go unit, security audit, documentation, and E2E suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
   - GitHub Issue [#126](https://github.com/jmrenouard/api_executor/issues/126).
-
----
-
 ### `ACT-062` — Enforce Least-Privilege Permissions and Job-Level Trigger Constraints in Release Workflow
 - **Timestamp (UTC)**: `2026-11-12T14:35:00Z`
 - **GitHub Issue**: [#124](https://github.com/jmrenouard/api_executor/issues/124)

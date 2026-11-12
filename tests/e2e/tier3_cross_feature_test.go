@@ -1,6 +1,8 @@
 package e2e_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -217,6 +219,11 @@ func TestTier3_Combination_PrometheusMetricCorrelation_OnPluginAction(t *testing
 	expectedMetricKey := `action_calls_total{action="plugin:sys-diagnostics:runtime_stats"}`
 	if !strings.Contains(metricsBody, expectedMetricKey) {
 		t.Errorf("expected /metrics to include %s, metrics output was:\n%s", expectedMetricKey, metricsBody)
+	}
+
+	expectedModeKey := `action_mode_calls_total{action="plugin:sys-diagnostics:runtime_stats",mode="sync",status="ok"}`
+	if !strings.Contains(metricsBody, expectedModeKey) {
+		t.Errorf("expected /metrics to include %s, metrics output was:\n%s", expectedModeKey, metricsBody)
 	}
 }
 
@@ -490,6 +497,9 @@ func TestTier3_Combination_PrometheusTelemetryInvariants_AcrossJobLifecycle(t *t
 	if !strings.Contains(mBody, `job_executions_total{action="echo-cmd",status="completed"}`) {
 		t.Errorf("expected job_executions_total metric for echo-cmd in /metrics:\n%s", mBody)
 	}
+	if !strings.Contains(mBody, `action_mode_calls_total{action="echo-cmd",mode="async",status="ok"}`) {
+		t.Errorf("expected action_mode_calls_total with mode=async in /metrics:\n%s", mBody)
+	}
 	if !strings.Contains(mBody, "job_queue_depth") {
 		t.Errorf("expected job_queue_depth gauge in /metrics")
 	}
@@ -633,4 +643,78 @@ func TestTier3_Combination_AsyncJob_CancellationAndProcessTermination(t *testing
 		t.Errorf("expected job.cancelled event in audit log")
 	}
 }
+
+func TestTier3_Combination_UnifiedModeTelemetry_SyncAndAsyncDifferentiation(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// 1. Execute "echo-cmd" synchronously via /api/v1/execute
+	reqBody, _ := json.Marshal(map[string]any{"name": "echo-cmd"})
+	syncReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.baseURL+"/api/v1/execute", bytes.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to build sync execute request: %v", err)
+	}
+	syncReq.Header.Set("Authorization", "Bearer "+srv.adminPAT)
+	syncReq.Header.Set("Content-Type", "application/json")
+	syncResp, err := srv.client.Do(syncReq)
+	if err != nil {
+		t.Fatalf("sync execute failed: %v", err)
+	}
+	defer syncResp.Body.Close()
+	if syncResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for sync execute, got %d", syncResp.StatusCode)
+	}
+
+	// 2. Submit "echo-cmd" asynchronously via /api/v1/jobs
+	asyncCode, asyncResp, asyncRaw := httpSubmitJob(t, srv, srv.adminPAT, map[string]any{
+		"type":     "command",
+		"action":   "echo-cmd",
+		"priority": "normal",
+	})
+	if asyncCode != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for async job submission, got %d: %s", asyncCode, asyncRaw)
+	}
+
+	// Wait for asynchronous job to reach completed terminal status
+	termJob := pollJobTerminal(t, srv, srv.adminPAT, asyncResp.JobID, 5*time.Second)
+	if termJob.Status != jobs.StatusCompleted {
+		t.Fatalf("expected job status completed, got %s", termJob.Status)
+	}
+
+	// 3. Scrape /metrics endpoint
+	mCode, mBody := httpGetMetrics(t, srv)
+	if mCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from /metrics, got %d", mCode)
+	}
+
+	// Assert that sync call recorded mode="sync"
+	expectedSync := `action_mode_calls_total{action="echo-cmd",mode="sync",status="ok"}`
+	if !strings.Contains(mBody, expectedSync) {
+		t.Errorf("expected /metrics to contain sync mode metric: %s\nOutput:\n%s", expectedSync, mBody)
+	}
+
+	// Assert that async job completion recorded mode="async"
+	expectedAsync := `action_mode_calls_total{action="echo-cmd",mode="async",status="ok"}`
+	if !strings.Contains(mBody, expectedAsync) {
+		t.Errorf("expected /metrics to contain async mode metric: %s\nOutput:\n%s", expectedAsync, mBody)
+	}
+
+	// Assert latency histograms exist for both modes
+	expectedSyncHist := `action_mode_call_duration_seconds_count{action="echo-cmd",mode="sync"}`
+	expectedAsyncHist := `action_mode_call_duration_seconds_count{action="echo-cmd",mode="async"}`
+	if !strings.Contains(mBody, expectedSyncHist) {
+		t.Errorf("expected /metrics to contain sync duration count: %s", expectedSyncHist)
+	}
+	if !strings.Contains(mBody, expectedAsyncHist) {
+		t.Errorf("expected /metrics to contain async duration count: %s", expectedAsyncHist)
+	}
+
+	// Assert legacy metrics remain intact without regression
+	if !strings.Contains(mBody, `action_calls_total{action="echo-cmd"}`) {
+		t.Errorf("expected legacy action_calls_total for echo-cmd in /metrics")
+	}
+	if !strings.Contains(mBody, `job_executions_total{action="echo-cmd",status="completed"}`) {
+		t.Errorf("expected legacy job_executions_total for echo-cmd in /metrics")
+	}
+}
+
 

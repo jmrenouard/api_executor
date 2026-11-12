@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"go-admin-tool/docs"
 	"go-admin-tool/internal/core"
@@ -473,4 +474,135 @@ func TestSwaggerDocIncludesTimeoutParameters(t *testing.T) {
 		}
 	}
 }
+
+func TestActionModeCallMetrics_SyncAndAsync(t *testing.T) {
+	ResetActionMetrics()
+	ResetJobMetrics()
+
+	// 1. Synchronous call via RecordActionCall forwards mode="sync"
+	RecordActionCall("echo-task", "ok", false, 50*time.Millisecond)
+
+	if got := GetActionModeCallCount("echo-task", "sync", "ok"); got != 1 {
+		t.Errorf("expected 1 sync ok call for echo-task, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-task", "async", "ok"); got != 0 {
+		t.Errorf("expected 0 async ok calls for echo-task, got %v", got)
+	}
+
+	// Legacy metric check: action_calls_total must be 1
+	legacySnap := GetActionMetricsSnapshot("echo-task")
+	if legacySnap.CallsTotal != 1 || legacySnap.CallsOK != 1 {
+		t.Errorf("expected legacy snapshot CallsTotal=1, CallsOK=1; got %+v", legacySnap)
+	}
+
+	// 2. Asynchronous job completion via RecordJobExecution forwards mode="async"
+	RecordJobExecution("echo-task", "completed", 120*time.Millisecond)
+
+	if got := GetActionModeCallCount("echo-task", "async", "ok"); got != 1 {
+		t.Errorf("expected 1 async ok call for echo-task, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-task", "sync", "ok"); got != 1 {
+		t.Errorf("expected 1 sync ok call for echo-task, got %v", got)
+	}
+	if got := GetJobExecutionCount("completed", "echo-task"); got != 1 {
+		t.Errorf("expected 1 completed job execution for echo-task, got %v", got)
+	}
+
+	// Legacy metric check: action_calls_total MUST NOT be incremented by async execution
+	legacySnapAfterAsync := GetActionMetricsSnapshot("echo-task")
+	if legacySnapAfterAsync.CallsTotal != 1 {
+		t.Errorf("expected legacy CallsTotal to remain 1 after async execution, got %v", legacySnapAfterAsync.CallsTotal)
+	}
+
+	// 3. Test various asynchronous status mappings:
+	// Failed job -> outcome "failure", timedOut: false -> status "failure"
+	RecordJobExecution("fail-task", "failed", 10*time.Millisecond)
+	if got := GetActionModeCallCount("fail-task", "async", "failure"); got != 1 {
+		t.Errorf("expected 1 async failure call for fail-task, got %v", got)
+	}
+
+	// Timed out job -> status "timed_out" -> status "timeout"
+	RecordJobExecution("slow-task", "timed_out", 5*time.Second)
+	if got := GetActionModeCallCount("slow-task", "async", "timeout"); got != 1 {
+		t.Errorf("expected 1 async timeout call for slow-task, got %v", got)
+	}
+
+	// Cancelled job -> status "cancelled" -> status "cancelled"
+	RecordJobExecution("cancel-task", "cancelled", 0)
+	if got := GetActionModeCallCount("cancel-task", "async", "cancelled"); got != 1 {
+		t.Errorf("expected 1 async cancelled call for cancel-task, got %v", got)
+	}
+
+	// 4. Test direct RecordActionCallWithMode invocations
+	RecordActionCallWithMode("direct-sync-err", "sync", "error", false, 5*time.Millisecond)
+	if got := GetActionModeCallCount("direct-sync-err", "sync", "error"); got != 1 {
+		t.Errorf("expected 1 sync error call for direct-sync-err, got %v", got)
+	}
+
+	RecordActionCallWithMode("direct-sync-timeout", "sync", "failure", true, 200*time.Millisecond)
+	if got := GetActionModeCallCount("direct-sync-timeout", "sync", "timeout"); got != 1 {
+		t.Errorf("expected 1 sync timeout call for direct-sync-timeout, got %v", got)
+	}
+}
+
+func TestActionModeMetrics_PreInitializationAndScrape(t *testing.T) {
+	ResetActionMetrics()
+	ResetJobMetrics()
+	env := setupTestEnvForMetricsAndTimeout(t)
+	router := NewRouter(env)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on /metrics, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// Metric declarations must exist
+	if !strings.Contains(body, "action_mode_calls_total") {
+		t.Errorf("expected /metrics to declare action_mode_calls_total")
+	}
+	if !strings.Contains(body, "action_mode_call_duration_seconds") {
+		t.Errorf("expected /metrics to declare action_mode_call_duration_seconds")
+	}
+
+	// Pre-initialized configured actions must exist for both sync and async
+	expectedSyncSeries := `action_mode_calls_total{action="action-ok",mode="sync",status="ok"} 0`
+	expectedAsyncSeries := `action_mode_calls_total{action="action-ok",mode="async",status="ok"} 0`
+	if !strings.Contains(body, expectedSyncSeries) {
+		t.Errorf("expected pre-initialized sync series %q in /metrics:\n%s", expectedSyncSeries, body)
+	}
+	if !strings.Contains(body, expectedAsyncSeries) {
+		t.Errorf("expected pre-initialized async series %q in /metrics:\n%s", expectedAsyncSeries, body)
+	}
+}
+
+func TestActionModeMetrics_LabelCardinalityBounding(t *testing.T) {
+	ResetActionMetrics()
+
+	// Generate more than MaxDynamicActionLabels distinct action calls
+	for i := 0; i < MaxDynamicActionLabels+10; i++ {
+		action := fmt.Sprintf("dynamic-mode-action-%d", i)
+		RecordActionCallWithMode(action, "sync", "ok", false, 10*time.Millisecond)
+	}
+
+	// First action should be tracked under its own name
+	if got := GetActionModeCallCount("dynamic-mode-action-0", "sync", "ok"); got != 1 {
+		t.Errorf("expected 1 for dynamic-mode-action-0, got %v", got)
+	}
+
+	// Action beyond MaxDynamicActionLabels should be clamped to "unknown"
+	overflowAction := fmt.Sprintf("dynamic-mode-action-%d", MaxDynamicActionLabels+5)
+	if got := GetActionModeCallCount(overflowAction, "sync", "ok"); got != 0 {
+		t.Errorf("expected 0 for clamped dynamic action %s, got %v", overflowAction, got)
+	}
+
+	// The 10 overflow calls must be bucketed into "unknown"
+	if got := GetActionModeCallCount("unknown", "sync", "ok"); got != 10 {
+		t.Errorf("expected 10 overflow calls bucketed under 'unknown', got %v", got)
+	}
+}
+
 
