@@ -700,6 +700,26 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified via WSL bash simulation with single-archive inputs (exit code 0) and asserted `shopt -s nullglob` in `docs/branding_test.go`.
 
+### `RCA-050` — Stdin Hang on `sha256sum` with `nullglob` on Zero Matched Archives, Broken Release Notes Link, and Missing Windows Manifest Verification
+- **Date**: `2026-11-12`
+- **Observed Symptom**:
+  In `.github/workflows/release.yml`, when `download/` contained zero release archives (e.g., failed artifact download, single-platform dry runs, or empty artifact directory), `shopt -s nullglob` expanded `api_executor-*.tar.gz api_executor-*.zip` to zero positional arguments. `sha256sum > SHA256SUMS.txt` was then invoked without operands, reading from standard input (stdin) and hanging indefinitely until GitHub Actions runner timeout (up to 360 minutes). Furthermore, `.github/RELEASE_NOTES_VERIFICATION.md` contained a broken relative link `[SHA256SUMS.txt](SHA256SUMS.txt)` that returned HTTP 404 on GitHub Releases, and omitted Option B (manifest verification via `Select-String`) in Windows PowerShell guidance.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did sha256sum hang indefinitely?* `sha256sum` was invoked with zero positional arguments because both globs expanded to empty strings under `shopt -s nullglob`.
+  2. *Why did sha256sum wait on stdin instead of erroring?* By POSIX and GNU coreutils specification, `sha256sum` defaults to reading standard input when no file operand is supplied.
+  3. *Why was the array not validated before invoking sha256sum?* The step assumed at least one archive would always be downloaded, failing to guard against an empty array.
+  4. *Why was the relative link broken on GitHub Releases?* Release notes are rendered in the context of `/releases/tag/<tag>`, where `(SHA256SUMS.txt)` resolves as a relative URL (`/releases/tag/SHA256SUMS.txt`) rather than pointing to release assets.
+  5. *Root Cause*: Lack of zero-argument array bounds checking before invoking `sha256sum`, and using relative file paths in GitHub Release notes.
+- **Applied Change / Fix**:
+  1. Populated bash array `archives=(api_executor-*.tar.gz api_executor-*.zip)` and added an explicit check `if [ ${#archives[@]} -eq 0 ]; then echo "Error: No release archives found..." >&2; exit 1; fi`.
+  2. Guarded checksum files check with `ckfiles=(api_executor-*.sha256)` before verification.
+  3. Set `fail_on_unmatched_files: false` in `softprops/action-gh-release@v2`.
+  4. Replaced broken relative link `[SHA256SUMS.txt](SHA256SUMS.txt)` with code formatting `` `SHA256SUMS.txt` `` in `.github/RELEASE_NOTES_VERIFICATION.md`.
+  5. Added Option B Windows PowerShell manifest verification in `.github/RELEASE_NOTES_VERIFICATION.md`.
+  6. Expanded `TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene` in `docs/branding_test.go` to assert archive presence checks, relative link ban, and Option B manifest verification.
+- **Result & Non-Regression Test**:
+  Verified via WSL bash simulation (zero archives returns exit code 1 immediately with error message instead of hanging; non-empty archives succeed with exit code 0) and Go tests in `docs/branding_test.go`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

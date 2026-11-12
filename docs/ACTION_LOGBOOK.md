@@ -13,6 +13,35 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-061` — Guard Checksum Generation Against Stdin Hang, Fix Release Notes Links, and Add Manifest Verification
+- **Timestamp (UTC)**: `2026-11-12T14:24:00Z`
+- **GitHub Issue**: [#122](https://github.com/jmrenouard/api_executor/issues/122)
+- **Branch**: `fix/issue-122-guard-checksum-stdin-hang-and-resilience`
+- **Request**:
+  - Address findings from adversarial Review Round 2:
+    1. Guard checksum generation against stdin hang: In `.github/workflows/release.yml`, when `download/` contained zero release archives, `shopt -s nullglob` caused `sha256sum api_executor-*.tar.gz api_executor-*.zip > SHA256SUMS.txt` to run with zero arguments, which by coreutils convention reads stdin and hangs indefinitely until GitHub Actions runner timeout. Guard this by populating `archives=(api_executor-*.tar.gz api_executor-*.zip)` and failing fast with exit code 1 if length is 0.
+    2. Guard checksum files verification loop with `ckfiles=(api_executor-*.sha256)` before iteration.
+    3. Fix broken relative link in release notes: In `.github/RELEASE_NOTES_VERIFICATION.md`, replace `[SHA256SUMS.txt](SHA256SUMS.txt)` (which 404s on GitHub Releases) with code-formatted `` `SHA256SUMS.txt` ``.
+    4. Complete Windows PowerShell verification: Add Option B (manifest verification via `Select-String`) in `.github/RELEASE_NOTES_VERIFICATION.md` to match Linux instructions and `README.md`.
+    5. Add `fail_on_unmatched_files: false` to `softprops/action-gh-release@v2` step for single-platform dispatch resilience.
+    6. Expand regression tests in `docs/branding_test.go` (`TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene`) asserting archive guards, relative link absence, and Option B manifest verification.
+    7. Update living governance registers `docs/ACTION_LOGBOOK.md` (`ACT-061`) and `docs/RCA_REGISTER.md` (`RCA-050`).
+    8. Execute atomic GitHub workflow (#122) under English-only policy.
+- **Changes**:
+  - Modified [`.github/workflows/release.yml`](../.github/workflows/release.yml) (guarded archive array, guarded checksum files check, added `fail_on_unmatched_files: false`).
+  - Modified [`.github/RELEASE_NOTES_VERIFICATION.md`](../.github/RELEASE_NOTES_VERIFICATION.md) (fixed broken relative link, added Option B Windows manifest verification).
+  - Modified [`docs/branding_test.go`](branding_test.go) (asserted archive non-empty guard, broken relative link ban, Option B manifest verification).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recorded `ACT-061`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (recorded `RCA-050`).
+- **Result**:
+  - Validated YAML syntax of `.github/workflows/release.yml`.
+  - Verified WSL bash behavior for empty archive case (returns exit code 1 immediately without hanging on stdin) and non-empty archive cases (exit code 0).
+  - 100% test pass on Go unit, integration, and E2E suites (455 unit/integration tests + 88 E2E tests = 543 tests passing).
+  - GitHub Issue [#122](https://github.com/jmrenouard/api_executor/issues/122).
+  - Pull Request opened and merged into `main`.
+
+---
+
 ### `ACT-060` — Fix Release Notes Markdown Indentation, Add Nullglob Resilience, and Document macOS Shasum
 - **Timestamp (UTC)**: `2026-11-12T14:08:00Z`
 - **GitHub Issue**: [#120](https://github.com/jmrenouard/api_executor/issues/120)
