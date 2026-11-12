@@ -17,6 +17,14 @@ func buildFallbackSanitizedView(cfg *core.Config) *core.SanitizedConfigView {
 		commandsCount = len(cfg.Executor.Commands)
 	}
 
+	var sanitizedHeaders map[string]string
+	if cfg.OTLPExport.Headers != nil {
+		sanitizedHeaders = make(map[string]string, len(cfg.OTLPExport.Headers))
+		for k := range cfg.OTLPExport.Headers {
+			sanitizedHeaders[k] = "[REDACTED]"
+		}
+	}
+
 	return &core.SanitizedConfigView{
 		ActiveProfile: "default",
 		ConfigFile:    "config.yaml",
@@ -30,9 +38,9 @@ func buildFallbackSanitizedView(cfg *core.Config) *core.SanitizedConfigView {
 			},
 		},
 		Server: core.SanitizedServerConfig{
-			Port:                cfg.Server.Port,
-			Host:                cfg.Server.Host,
-			TLSEnabled:          cfg.Server.TLS.Enabled,
+			Port:       cfg.Server.Port,
+			Host:       cfg.Server.Host,
+			TLSEnabled: cfg.Server.TLS.Enabled,
 			TLS: core.SanitizedTLS{
 				Enabled:      cfg.Server.TLS.Enabled,
 				AutoGenerate: cfg.Server.TLS.AutoGenerate,
@@ -67,6 +75,14 @@ func buildFallbackSanitizedView(cfg *core.Config) *core.SanitizedConfigView {
 		},
 		Plugins: cfg.Plugins,
 		MCP:     cfg.MCP,
+		OTLPExport: core.SanitizedOTLPExportConfig{
+			Enabled:            cfg.OTLPExport.Enabled,
+			Endpoint:           cfg.OTLPExport.Endpoint,
+			PushInterval:       cfg.OTLPExport.EffectivePushInterval().String(),
+			Headers:            sanitizedHeaders,
+			ResourceAttributes: cfg.OTLPExport.ResourceAttributes,
+			Timeout:            cfg.OTLPExport.EffectiveTimeout().String(),
+		},
 	}
 }
 

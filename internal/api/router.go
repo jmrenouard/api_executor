@@ -362,6 +362,7 @@ var knownStaticPaths = map[string]struct{}{
 	"/index.html":                          {},
 	"/health":                              {},
 	"/metrics":                             {},
+	"/api/v1/metrics/otlp":                 {},
 	"/swagger":                             {},
 	"/api/v1/version":                      {},
 	"/api/v1/config":                       {},
@@ -545,6 +546,8 @@ func NewRouter(env *APIEnv) http.Handler {
 
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/api/v1/metrics/otlp", http.HandlerFunc(env.OTLPMetricsHandler))
+	mux.Handle("/api/v1/metrics/otlp/", http.HandlerFunc(env.OTLPMetricsHandler))
 
 	// Swagger Docs
 	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
@@ -564,4 +567,3 @@ func resolveStaticDir() string {
 	}
 	return "./web/static"
 }
-

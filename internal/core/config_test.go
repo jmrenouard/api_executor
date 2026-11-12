@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go-admin-tool/internal/core"
 )
@@ -205,5 +206,109 @@ func TestMultiConfigManager_RegisterProfile(t *testing.T) {
 	resolved := mgr.ResolveConfig(req)
 	if resolved.Server.Port != 9999 {
 		t.Errorf("expected resolved port 9999, got %d", resolved.Server.Port)
+	}
+}
+
+func TestOTLPExport_DefaultConfig(t *testing.T) {
+	cfg := core.DefaultConfig()
+	if !cfg.OTLPExport.Enabled {
+		t.Errorf("expected OTLPExport.Enabled to be true by default")
+	}
+	if cfg.OTLPExport.PushInterval != "30s" {
+		t.Errorf("expected PushInterval '30s', got %q", cfg.OTLPExport.PushInterval)
+	}
+	if cfg.OTLPExport.Timeout != "10s" {
+		t.Errorf("expected Timeout '10s', got %q", cfg.OTLPExport.Timeout)
+	}
+	if cfg.OTLPExport.EffectivePushInterval() != 30*time.Second {
+		t.Errorf("expected EffectivePushInterval 30s, got %v", cfg.OTLPExport.EffectivePushInterval())
+	}
+	if cfg.OTLPExport.EffectiveTimeout() != 10*time.Second {
+		t.Errorf("expected EffectiveTimeout 10s, got %v", cfg.OTLPExport.EffectiveTimeout())
+	}
+	if cfg.OTLPExport.ResourceAttributes["service.name"] != "api-executor" {
+		t.Errorf("expected service.name 'api-executor', got %q", cfg.OTLPExport.ResourceAttributes["service.name"])
+	}
+}
+
+func TestOTLPExport_EffectiveDurations(t *testing.T) {
+	// Custom string duration
+	c1 := core.OTLPExportConfig{
+		PushInterval: "45s",
+		Timeout:      "15s",
+	}
+	if c1.EffectivePushInterval() != 45*time.Second {
+		t.Errorf("expected 45s, got %v", c1.EffectivePushInterval())
+	}
+	if c1.EffectiveTimeout() != 15*time.Second {
+		t.Errorf("expected 15s, got %v", c1.EffectiveTimeout())
+	}
+
+	// Seconds integers
+	c2 := core.OTLPExportConfig{
+		PushIntervalSeconds: 60,
+		TimeoutSeconds:      20,
+	}
+	if c2.EffectivePushInterval() != 60*time.Second {
+		t.Errorf("expected 60s, got %v", c2.EffectivePushInterval())
+	}
+	if c2.EffectiveTimeout() != 20*time.Second {
+		t.Errorf("expected 20s, got %v", c2.EffectiveTimeout())
+	}
+
+	// Fallback defaults on zero / empty
+	c3 := core.OTLPExportConfig{}
+	if c3.EffectivePushInterval() != 30*time.Second {
+		t.Errorf("expected default 30s, got %v", c3.EffectivePushInterval())
+	}
+	if c3.EffectiveTimeout() != 10*time.Second {
+		t.Errorf("expected default 10s, got %v", c3.EffectiveTimeout())
+	}
+}
+
+func TestOTLPExport_SanitizedView_Redaction(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.OTLPExport = core.OTLPExportConfig{
+		Enabled:      true,
+		Endpoint:     "https://otlp.datadoghq.com/v1/metrics",
+		PushInterval: "15s",
+		Timeout:      "5s",
+		Headers: map[string]string{
+			"DD-API-KEY":    "secret-datadog-key-12345",
+			"Authorization": "Bearer token-67890",
+			"X-Custom-Env":  "prod",
+		},
+		ResourceAttributes: map[string]string{
+			"service.name": "custom-service",
+		},
+	}
+
+	mgr, err := core.NewMultiConfigManager("config.yaml", cfg)
+	if err != nil {
+		t.Fatalf("failed to create MultiConfigManager: %v", err)
+	}
+
+	view, err := mgr.SanitizedView("default")
+	if err != nil {
+		t.Fatalf("unexpected error from SanitizedView: %v", err)
+	}
+
+	if !view.OTLPExport.Enabled {
+		t.Errorf("expected OTLPExport.Enabled true in view")
+	}
+	if view.OTLPExport.Endpoint != "https://otlp.datadoghq.com/v1/metrics" {
+		t.Errorf("expected endpoint preserved, got %q", view.OTLPExport.Endpoint)
+	}
+	if view.OTLPExport.Headers["DD-API-KEY"] != "[REDACTED]" {
+		t.Errorf("expected DD-API-KEY redacted, got %q", view.OTLPExport.Headers["DD-API-KEY"])
+	}
+	if view.OTLPExport.Headers["Authorization"] != "[REDACTED]" {
+		t.Errorf("expected Authorization redacted, got %q", view.OTLPExport.Headers["Authorization"])
+	}
+	if view.OTLPExport.Headers["X-Custom-Env"] != "[REDACTED]" {
+		t.Errorf("expected X-Custom-Env redacted, got %q", view.OTLPExport.Headers["X-Custom-Env"])
+	}
+	if view.OTLPExport.ResourceAttributes["service.name"] != "custom-service" {
+		t.Errorf("expected service.name preserved, got %q", view.OTLPExport.ResourceAttributes["service.name"])
 	}
 }

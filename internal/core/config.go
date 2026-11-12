@@ -32,6 +32,46 @@ type Config struct {
 	MCP         MCPConfig        `yaml:"mcp,omitempty" json:"mcp"`
 	Audit       AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 	MultiConfig MultiConfig      `yaml:"multi_config,omitempty" json:"multi_config,omitempty"`
+	OTLPExport  OTLPExportConfig `yaml:"otlp_export,omitempty" json:"otlp_export,omitempty"`
+}
+
+// OTLPExportConfig configures the native OpenTelemetry (OTLP) metrics export subsystem.
+type OTLPExportConfig struct {
+	Enabled             bool              `yaml:"enabled" json:"enabled"`
+	Endpoint            string            `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	PushInterval        string            `yaml:"push_interval,omitempty" json:"push_interval,omitempty"`
+	PushIntervalSeconds int               `yaml:"push_interval_seconds,omitempty" json:"push_interval_seconds,omitempty"`
+	Headers             map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	ResourceAttributes  map[string]string `yaml:"resource_attributes,omitempty" json:"resource_attributes,omitempty"`
+	Timeout             string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	TimeoutSeconds      int               `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+	InsecureSkipVerify  bool              `yaml:"insecure_skip_verify,omitempty" json:"insecure_skip_verify,omitempty"`
+}
+
+// EffectivePushInterval returns the push interval duration, defaulting to 30s.
+func (c OTLPExportConfig) EffectivePushInterval() time.Duration {
+	if c.PushInterval != "" {
+		if d, err := ParseTimeoutDuration(c.PushInterval); err == nil && d > 0 {
+			return d
+		}
+	}
+	if c.PushIntervalSeconds > 0 {
+		return time.Duration(c.PushIntervalSeconds) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// EffectiveTimeout returns the HTTP client push timeout, defaulting to 10s.
+func (c OTLPExportConfig) EffectiveTimeout() time.Duration {
+	if c.Timeout != "" {
+		if d, err := ParseTimeoutDuration(c.Timeout); err == nil && d > 0 {
+			return d
+		}
+	}
+	if c.TimeoutSeconds > 0 {
+		return time.Duration(c.TimeoutSeconds) * time.Second
+	}
+	return 10 * time.Second
 }
 
 // MultiConfig configures the native multi-configuration and backward compatibility subsystem.
@@ -60,16 +100,27 @@ type ConfigProfileSummary struct {
 
 // SanitizedConfigView represents the client-facing view of a configuration with sensitive credentials masked.
 type SanitizedConfigView struct {
-	ActiveProfile   string                  `json:"active_profile"`
-	ConfigFile      string                  `json:"config_file"`
-	Profiles        []ConfigProfileSummary  `json:"profiles"`
-	Server          SanitizedServerConfig   `json:"server"`
-	Logging         LoggingConfig           `json:"logging"`
-	FileServer      FileServerConfig        `json:"file_server"`
-	CommandExecutor SanitizedExecutorConfig `json:"command_executor"`
-	Auth            SanitizedAuthConfig     `json:"auth"`
-	Plugins         PluginsConfig           `json:"plugins"`
-	MCP             MCPConfig               `json:"mcp"`
+	ActiveProfile   string                    `json:"active_profile"`
+	ConfigFile      string                    `json:"config_file"`
+	Profiles        []ConfigProfileSummary    `json:"profiles"`
+	Server          SanitizedServerConfig     `json:"server"`
+	Logging         LoggingConfig             `json:"logging"`
+	FileServer      FileServerConfig          `json:"file_server"`
+	CommandExecutor SanitizedExecutorConfig   `json:"command_executor"`
+	Auth            SanitizedAuthConfig       `json:"auth"`
+	Plugins         PluginsConfig             `json:"plugins"`
+	MCP             MCPConfig                 `json:"mcp"`
+	OTLPExport      SanitizedOTLPExportConfig `json:"otlp_export,omitempty"`
+}
+
+// SanitizedOTLPExportConfig represents the client-facing view of OTLP export with sensitive headers masked.
+type SanitizedOTLPExportConfig struct {
+	Enabled            bool              `json:"enabled"`
+	Endpoint           string            `json:"endpoint,omitempty"`
+	PushInterval       string            `json:"push_interval,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	ResourceAttributes map[string]string `json:"resource_attributes,omitempty"`
+	Timeout            string            `json:"timeout,omitempty"`
 }
 
 // SanitizedServerConfig represents the sanitized server configuration.
@@ -290,6 +341,14 @@ func DefaultConfig() *Config {
 			Enabled:        false,
 			Endpoint:       "/api/v1/config",
 			DefaultProfile: "default",
+		},
+		OTLPExport: OTLPExportConfig{
+			Enabled:      true,
+			PushInterval: "30s",
+			Timeout:      "10s",
+			ResourceAttributes: map[string]string{
+				"service.name": "api-executor",
+			},
 		},
 	}
 }
@@ -691,14 +750,22 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 		})
 	}
 
+	var sanitizedHeaders map[string]string
+	if cfg.OTLPExport.Headers != nil {
+		sanitizedHeaders = make(map[string]string, len(cfg.OTLPExport.Headers))
+		for k := range cfg.OTLPExport.Headers {
+			sanitizedHeaders[k] = "[REDACTED]"
+		}
+	}
+
 	view := &SanitizedConfigView{
 		ActiveProfile: targetName,
 		ConfigFile:    configPath,
 		Profiles:      summaries,
 		Server: SanitizedServerConfig{
-			Port:                cfg.Server.Port,
-			Host:                cfg.Server.Host,
-			TLSEnabled:          cfg.Server.TLS.Enabled,
+			Port:       cfg.Server.Port,
+			Host:       cfg.Server.Host,
+			TLSEnabled: cfg.Server.TLS.Enabled,
 			TLS: SanitizedTLS{
 				Enabled:      cfg.Server.TLS.Enabled,
 				AutoGenerate: cfg.Server.TLS.AutoGenerate,
@@ -733,6 +800,14 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 		},
 		Plugins: cfg.Plugins,
 		MCP:     cfg.MCP,
+		OTLPExport: SanitizedOTLPExportConfig{
+			Enabled:            cfg.OTLPExport.Enabled,
+			Endpoint:           cfg.OTLPExport.Endpoint,
+			PushInterval:       cfg.OTLPExport.EffectivePushInterval().String(),
+			Headers:            sanitizedHeaders,
+			ResourceAttributes: cfg.OTLPExport.ResourceAttributes,
+			Timeout:            cfg.OTLPExport.EffectiveTimeout().String(),
+		},
 	}
 
 	return view, nil

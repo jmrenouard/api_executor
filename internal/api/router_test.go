@@ -70,6 +70,7 @@ func TestNormalizeMetricPath(t *testing.T) {
 		{"index html", "/index.html", "/index.html"},
 		{"health endpoint", "/health", "/health"},
 		{"metrics endpoint", "/metrics", "/metrics"},
+		{"otlp metrics endpoint", "/api/v1/metrics/otlp", "/api/v1/metrics/otlp"},
 		{"swagger base", "/swagger", "/swagger"},
 		{"swagger trailing slash", "/swagger/", "/swagger"},
 		{"swagger doc json", "/swagger/doc.json", "/swagger"},
@@ -111,6 +112,7 @@ func TestNormalizeMetricPath(t *testing.T) {
 		{"health with trailing slash", "/health/", "/health"},
 		{"commands with trailing slash", "/api/v1/commands/", "/api/v1/commands"},
 		{"metrics with trailing slash", "/metrics/", "/metrics"},
+		{"otlp metrics with trailing slash", "/api/v1/metrics/otlp/", "/api/v1/metrics/otlp"},
 		{"jobs with trailing slash", "/api/v1/jobs/", "/api/v1/jobs"},
 		{"jobs queue with trailing slash", "/api/v1/jobs/queue/", "/api/v1/jobs/queue"},
 
