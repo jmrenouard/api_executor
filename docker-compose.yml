@@ -1,0 +1,30 @@
+services:
+  api-executor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api-executor
+    restart: unless-stopped
+    user: "10001:10001"
+    ports:
+      - "8080:8080"
+    environment:
+      - CONFIG_PATH=/app/config.yaml
+      - TZ=UTC
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs
+      - ./data:/app/data
+      - ./plugins:/app/plugins:ro
+      - ./secure_files:/var/log/secure_files
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    userns_mode: "keep-id"
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1:8080/metrics"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3

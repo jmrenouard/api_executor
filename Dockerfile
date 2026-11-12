@@ -51,18 +51,18 @@ WORKDIR /app
 RUN addgroup -g 10001 -S appgroup && adduser -u 10001 -S appuser -G appgroup
 
 # Copy the binary from the builder stage
-COPY --from=builder /go-admin-tool .
+COPY --chown=10001:10001 --from=builder /go-admin-tool .
 
 # Copy configuration, declarative plugins, and static files
-COPY config.yaml .
-COPY --from=builder /app/plugins ./plugins
-COPY --chown=appuser:appgroup web ./web
+COPY --chown=10001:10001 config.yaml .
+COPY --chown=10001:10001 --from=builder /app/plugins ./plugins
+COPY --chown=10001:10001 web ./web
 
-# Create secure file directory and TLS certificate directory owned by appuser
-RUN mkdir -p /var/log/secure_files /app/certs && chown -R appuser:appgroup /app /var/log/secure_files
+# Create secure file directory, data directory, and TLS certificate directory owned by appuser
+RUN mkdir -p /var/log/secure_files /app/certs /app/data && chown -R appuser:appgroup /app /var/log/secure_files
 
-# Switch to the non-root user
-USER appuser
+# Switch to the non-root user (appuser UID/GID 10001:10001)
+USER 10001:10001
 
 # Expose the application port
 EXPOSE 8080

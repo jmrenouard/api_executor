@@ -13,6 +13,51 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-070` — Rootless Container Sandbox by Default (--userns=keep-id / UID 10001)
+- **Timestamp (UTC)**: `2026-11-12T23:30:00Z`
+- **GitHub Issue**: [#140](https://github.com/jmrenouard/api_executor/issues/140)
+- **Branch**: `feat/issue-140-rootless-container-sandbox-default`
+- **Request**:
+  - Implement Proposal #10: Rootless Container Sandbox by Default (`--userns=keep-id` / UID 10001).
+  - Enforce rootless container sandbox execution by default (UID/GID `10001`, `--userns=keep-id` / non-root user namespace isolation) across Dockerfiles, docker-compose manifests, and core configuration, explicitly forbidding root privileges (UID 0 / GID 0).
+  - Add `SandboxConfig` to `internal/core/config.go` with default values: `Enabled: true`, `EnforceNonRoot: true`, `UID: 10001`, `GID: 10001`, `UserNS: "keep-id"`, `UserNSMode: "keep-id"`, `DropPrivileges: true`, `NoNewPrivileges: true`, and `DropCaps: true`.
+  - Add validation logic (`Validate()`) rejecting root execution (`UID == 0` or `GID == 0`) with `ErrRootExecutionForbidden` when sandbox is enabled, and validating UserNS modes (`"keep-id"`, `"auto"`, `""`, `"nomap"`, rejecting `"host"`).
+  - Include `SanitizedSandboxConfig` in `SanitizedConfigView` for client and Web Administration Console inspection.
+  - Update `internal/core/executor_unix.go` and `internal/core/executor_windows.go` with `ConfigureCommandProcessGroupAndSandbox` to drop process privileges to UID 10001 when running as root on Unix, and prevent privilege escalation on all platforms.
+  - Harmonize all Dockerfiles (`Dockerfile`, `docker/Dockerfile.redhat`, `docker/Dockerfile.ubuntu`) to deterministically create `appgroup` (GID 10001) and `appuser` (UID 10001), use `--chown=10001:10001` on copies, pre-create `/app/data`, and drop to `USER 10001:10001`.
+  - Update `docker-compose.os-test.yml` with `user: "10001:10001"`, `userns_mode: "keep-id"`, `security_opt: ["no-new-privileges:true"]`, and `cap_drop: ["ALL"]`.
+  - Create `docker-compose.yml` and `docker-compose.prod.yml` with hardened rootless defaults.
+  - Update `config.yaml`, `configs/ubuntu-tasks.yaml`, and `configs/redhat-tasks.yaml` with the default `sandbox:` block.
+  - Add unit tests in `internal/core/config_test.go` and `internal/core/executor_test.go` covering default sandbox config, rejection of UID 0, user namespace validation, sanitized view, and container runtime wrapping.
+  - Add manifest regression tests in `docs/branding_test.go` (`TestRootlessContainerSandboxManifestsAndDockerfiles`) validating deterministic UID/GID 10001, compose isolation directives, and documentation markers.
+  - Verify 100% test pass rate across all unit, integration, documentation, and E2E test suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+- **Changes**:
+  - Modified [`internal/core/config.go`](../internal/core/config.go): Added `SandboxConfig`, `DefaultSandboxConfig()`, `Validate()`, `SanitizedSandboxConfig`, `CommandDefinition.Sandbox`, and wired `SanitizedView`.
+  - Modified [`internal/core/config_test.go`](../internal/core/config_test.go): Added `TestSandboxConfig_Defaults`, `TestSandboxConfig_Validation`, and `TestSandboxConfig_SanitizedView`.
+  - Modified [`internal/core/executor.go`](../internal/core/executor.go): Added `ErrRootExecutionForbidden`, `WrapContainerSandboxCommand`, and sandbox enforcement in `ExecuteCommandWithContext`.
+  - Modified [`internal/core/executor_unix.go`](../internal/core/executor_unix.go): Configured `cmd.SysProcAttr.Credential` dropping privileges to UID 10001 when running on Unix as root.
+  - Modified [`internal/core/executor_windows.go`](../internal/core/executor_windows.go): Added `ConfigureCommandProcessGroupAndSandbox` preserving process tree cancellation on Windows.
+  - Modified [`internal/core/executor_test.go`](../internal/core/executor_test.go): Added `TestExecutor_RejectRootPrivilegeEscalation`, `TestExecutor_ConfigureCommandProcessGroupAndSandbox`, `TestWrapContainerSandboxCommand_Podman`, `TestWrapContainerSandboxCommand_Docker`, and `TestWrapContainerSandboxCommand_RootRejected`.
+  - Modified [`Dockerfile`](../Dockerfile): Enforced deterministic `--chown=10001:10001`, pre-created `/app/data`, and set `USER 10001:10001`.
+  - Modified [`docker/Dockerfile.redhat`](../docker/Dockerfile.redhat): Enforced `groupadd -g 10001`, `useradd -u 10001`, `--chown=10001:10001`, `/app/data`, `USER 10001:10001`, and `HEALTHCHECK`.
+  - Modified [`docker/Dockerfile.ubuntu`](../docker/Dockerfile.ubuntu): Enforced `groupadd -g 10001`, `useradd -u 10001`, `--chown=10001:10001`, `/app/data`, `USER 10001:10001`, and `HEALTHCHECK`.
+  - Modified [`docker-compose.os-test.yml`](../docker-compose.os-test.yml): Added `user: "10001:10001"`, `userns_mode: "keep-id"`, `security_opt: ["no-new-privileges:true"]`, and `cap_drop: ["ALL"]`.
+  - Created [`docker-compose.yml`](../docker-compose.yml): Added canonical rootless development compose manifest.
+  - Created [`docker-compose.prod.yml`](../docker-compose.prod.yml): Added canonical rootless production compose manifest.
+  - Modified [`config.yaml`](../config.yaml): Declared `sandbox:` configuration block.
+  - Modified [`configs/ubuntu-tasks.yaml`](../configs/ubuntu-tasks.yaml): Declared `sandbox:` configuration block.
+  - Modified [`configs/redhat-tasks.yaml`](../configs/redhat-tasks.yaml): Declared `sandbox:` configuration block.
+  - Modified [`docs/branding_test.go`](../docs/branding_test.go): Added `TestRootlessContainerSandboxManifestsAndDockerfiles` asserting UID 10001, compose isolation parameters, and non-root USER directives.
+  - Modified [`PROJECT.md`](../PROJECT.md): Marked Milestone M6 (Proposal #10) as `DONE`.
+  - Modified [`docs/RCA_REGISTER.md`](../docs/RCA_REGISTER.md): Added `IMP-018`, `APP-020`, `IDEA-021`, and `IDEA-022`.
+  - Modified [`docs/ACTION_LOGBOOK.md`](../docs/ACTION_LOGBOOK.md): Recorded `ACT-070`.
+- **Result**:
+  - 100% test pass rate across all packages with zero regressions: 726 unit/docs tests + 96 E2E tests (822 tests total).
+  - Verified rootless sandbox validation and deterministic UID 10001 enforcement across all container images and compose manifests.
+  - GitHub Issue [#140](https://github.com/jmrenouard/api_executor/issues/140).
+
+---
+
 ### `ACT-069` — Cryptographic Docker Image Signing with Cosign via GitHub Actions OIDC
 - **Timestamp (UTC)**: `2026-11-12T22:56:00Z`
 - **GitHub Issue**: [#138](https://github.com/jmrenouard/api_executor/issues/138)

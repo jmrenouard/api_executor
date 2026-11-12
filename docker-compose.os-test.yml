@@ -4,6 +4,12 @@ services:
       context: .
       dockerfile: docker/Dockerfile.ubuntu
     container_name: api-executor-ubuntu
+    user: "10001:10001"
+    userns_mode: "keep-id"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "8443:8080"
     healthcheck:
@@ -17,6 +23,12 @@ services:
       context: .
       dockerfile: docker/Dockerfile.redhat
     container_name: api-executor-redhat
+    user: "10001:10001"
+    userns_mode: "keep-id"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "8444:8080"
     healthcheck:

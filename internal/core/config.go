@@ -19,6 +19,12 @@ const (
 	DefaultCommandTimeout = 30 * time.Second
 	// DefaultTimeoutSeconds is the default execution timeout in seconds.
 	DefaultTimeoutSeconds = 30
+	// DefaultRootlessUID is the deterministic rootless container UID (10001).
+	DefaultRootlessUID uint32 = 10001
+	// DefaultRootlessGID is the deterministic rootless container GID (10001).
+	DefaultRootlessGID uint32 = 10001
+	// DefaultUserNSMode is the default user namespace mode ("keep-id").
+	DefaultUserNSMode = "keep-id"
 )
 
 type Config struct {
@@ -33,6 +39,7 @@ type Config struct {
 	Audit       AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 	MultiConfig MultiConfig      `yaml:"multi_config,omitempty" json:"multi_config,omitempty"`
 	OTLPExport  OTLPExportConfig `yaml:"otlp_export,omitempty" json:"otlp_export,omitempty"`
+	Sandbox     SandboxConfig    `yaml:"sandbox" json:"sandbox"`
 }
 
 // OTLPExportConfig configures the native OpenTelemetry (OTLP) metrics export subsystem.
@@ -98,6 +105,89 @@ type ConfigProfileSummary struct {
 	IsDefault     bool   `json:"is_default"`
 }
 
+// SandboxConfig configures rootless container and process sandbox isolation.
+type SandboxConfig struct {
+	Enabled          bool   `yaml:"enabled" json:"enabled"`
+	EnforceNonRoot   bool   `yaml:"enforce_non_root" json:"enforce_non_root"`
+	UID              uint32 `yaml:"uid,omitempty" json:"uid,omitempty"`
+	GID              uint32 `yaml:"gid,omitempty" json:"gid,omitempty"`
+	UserNS           string `yaml:"userns,omitempty" json:"userns,omitempty"`
+	UserNSMode       string `yaml:"userns_mode,omitempty" json:"userns_mode,omitempty"`
+	DropPrivileges   bool   `yaml:"drop_privileges,omitempty" json:"drop_privileges,omitempty"`
+	NoNewPrivileges  bool   `yaml:"no_new_privileges,omitempty" json:"no_new_privileges,omitempty"`
+	DropCaps         bool   `yaml:"drop_caps,omitempty" json:"drop_caps,omitempty"`
+	ContainerRuntime string `yaml:"container_runtime,omitempty" json:"container_runtime,omitempty"`
+}
+
+// DefaultSandboxConfig returns secure default sandbox settings (UID/GID 10001, keep-id).
+func DefaultSandboxConfig() SandboxConfig {
+	return SandboxConfig{
+		Enabled:         true,
+		EnforceNonRoot:  true,
+		UID:             DefaultRootlessUID,
+		GID:             DefaultRootlessGID,
+		UserNS:          DefaultUserNSMode,
+		UserNSMode:      DefaultUserNSMode,
+		DropPrivileges:  true,
+		NoNewPrivileges: true,
+		DropCaps:        true,
+	}
+}
+
+// EffectiveUID returns the configured UID or DefaultRootlessUID (10001) if unset.
+func (s SandboxConfig) EffectiveUID() uint32 {
+	if s.UID > 0 {
+		return s.UID
+	}
+	return DefaultRootlessUID
+}
+
+// EffectiveGID returns the configured GID or DefaultRootlessGID (10001) if unset.
+func (s SandboxConfig) EffectiveGID() uint32 {
+	if s.GID > 0 {
+		return s.GID
+	}
+	return DefaultRootlessGID
+}
+
+// EffectiveUserNS returns the configured user namespace mode, falling back to DefaultUserNSMode ("keep-id").
+func (s SandboxConfig) EffectiveUserNS() string {
+	if s.UserNS != "" {
+		return s.UserNS
+	}
+	if s.UserNSMode != "" {
+		return s.UserNSMode
+	}
+	return DefaultUserNSMode
+}
+
+// EffectiveUserNSMode returns EffectiveUserNS for convenience.
+func (s SandboxConfig) EffectiveUserNSMode() string {
+	return s.EffectiveUserNS()
+}
+
+// Validate validates that the sandbox configuration conforms to security policies.
+// When Enabled, root execution (UID 0 or GID 0) is forbidden and host user namespace sharing is rejected.
+func (s SandboxConfig) Validate() error {
+	if !s.Enabled {
+		return nil
+	}
+	if s.UID == 0 || s.GID == 0 {
+		return ErrRootExecutionForbidden
+	}
+	userns := s.EffectiveUserNS()
+	if userns == "host" {
+		return fmt.Errorf("invalid userns mode %q: host user namespace sharing violates container sandbox isolation", userns)
+	}
+	switch userns {
+	case "keep-id", "auto", "nomap", "private", "":
+		// valid modes
+	default:
+		return fmt.Errorf("invalid userns mode %q: unrecognized user namespace mode", userns)
+	}
+	return nil
+}
+
 // SanitizedConfigView represents the client-facing view of a configuration with sensitive credentials masked.
 type SanitizedConfigView struct {
 	ActiveProfile   string                    `json:"active_profile"`
@@ -111,6 +201,19 @@ type SanitizedConfigView struct {
 	Plugins         PluginsConfig             `json:"plugins"`
 	MCP             MCPConfig                 `json:"mcp"`
 	OTLPExport      SanitizedOTLPExportConfig `json:"otlp_export,omitempty"`
+	Sandbox         SanitizedSandboxConfig    `json:"sandbox,omitempty"`
+}
+
+// SanitizedSandboxConfig represents the client-facing view of sandbox settings.
+type SanitizedSandboxConfig struct {
+	Enabled         bool   `json:"enabled"`
+	EnforceNonRoot  bool   `json:"enforce_non_root"`
+	UID             uint32 `json:"uid,omitempty"`
+	GID             uint32 `json:"gid,omitempty"`
+	UserNS          string `json:"userns,omitempty"`
+	NoNewPrivileges bool   `json:"no_new_privileges,omitempty"`
+	DropCaps        bool   `json:"drop_caps,omitempty"`
+	DropPrivileges  bool   `json:"drop_privileges,omitempty"`
 }
 
 // SanitizedOTLPExportConfig represents the client-facing view of OTLP export with sensitive headers masked.
@@ -227,15 +330,16 @@ type ExecutorConfig struct {
 }
 
 type CommandDefinition struct {
-	Name           string   `yaml:"name" json:"name"`
-	Description    string   `yaml:"description,omitempty" json:"description,omitempty"`
-	OSFamily       string   `yaml:"os_family,omitempty" json:"os_family,omitempty"`
-	Category       string   `yaml:"category,omitempty" json:"category,omitempty"`
-	Command        string   `yaml:"command" json:"command"`
-	Args           []string `yaml:"args" json:"args"`
-	TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
-	Timeout        string   `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Preset         bool     `yaml:"preset,omitempty" json:"preset,omitempty"`
+	Name           string         `yaml:"name" json:"name"`
+	Description    string         `yaml:"description,omitempty" json:"description,omitempty"`
+	OSFamily       string         `yaml:"os_family,omitempty" json:"os_family,omitempty"`
+	Category       string         `yaml:"category,omitempty" json:"category,omitempty"`
+	Command        string         `yaml:"command" json:"command"`
+	Args           []string       `yaml:"args" json:"args"`
+	TimeoutSeconds int            `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+	Timeout        string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Preset         bool           `yaml:"preset,omitempty" json:"preset,omitempty"`
+	Sandbox        *SandboxConfig `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
 }
 
 // AuthConfig configures user authentication, personal access tokens, and third-party service accounts.
@@ -350,6 +454,7 @@ func DefaultConfig() *Config {
 				"service.name": "api-executor",
 			},
 		},
+		Sandbox: DefaultSandboxConfig(),
 	}
 }
 
@@ -807,6 +912,16 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 			Headers:            sanitizedHeaders,
 			ResourceAttributes: cfg.OTLPExport.ResourceAttributes,
 			Timeout:            cfg.OTLPExport.EffectiveTimeout().String(),
+		},
+		Sandbox: SanitizedSandboxConfig{
+			Enabled:         cfg.Sandbox.Enabled,
+			EnforceNonRoot:  cfg.Sandbox.EnforceNonRoot,
+			UID:             cfg.Sandbox.EffectiveUID(),
+			GID:             cfg.Sandbox.EffectiveGID(),
+			UserNS:          cfg.Sandbox.EffectiveUserNS(),
+			NoNewPrivileges: cfg.Sandbox.NoNewPrivileges,
+			DropCaps:        cfg.Sandbox.DropCaps,
+			DropPrivileges:  cfg.Sandbox.DropPrivileges,
 		},
 	}
 

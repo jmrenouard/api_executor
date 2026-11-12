@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -310,5 +311,140 @@ func TestOTLPExport_SanitizedView_Redaction(t *testing.T) {
 	}
 	if view.OTLPExport.ResourceAttributes["service.name"] != "custom-service" {
 		t.Errorf("expected service.name preserved, got %q", view.OTLPExport.ResourceAttributes["service.name"])
+	}
+}
+
+func TestSandboxConfig_Defaults(t *testing.T) {
+	cfg := core.DefaultConfig()
+	if !cfg.Sandbox.Enabled {
+		t.Errorf("expected Sandbox.Enabled to be true by default")
+	}
+	if cfg.Sandbox.UID != 10001 {
+		t.Errorf("expected Sandbox.UID 10001, got %d", cfg.Sandbox.UID)
+	}
+	if cfg.Sandbox.GID != 10001 {
+		t.Errorf("expected Sandbox.GID 10001, got %d", cfg.Sandbox.GID)
+	}
+	if cfg.Sandbox.UserNS != "keep-id" {
+		t.Errorf("expected Sandbox.UserNS 'keep-id', got %q", cfg.Sandbox.UserNS)
+	}
+	if !cfg.Sandbox.NoNewPrivileges {
+		t.Errorf("expected Sandbox.NoNewPrivileges to be true by default")
+	}
+	if !cfg.Sandbox.DropCaps {
+		t.Errorf("expected Sandbox.DropCaps to be true by default")
+	}
+	if !cfg.Sandbox.DropPrivileges {
+		t.Errorf("expected Sandbox.DropPrivileges to be true by default")
+	}
+}
+
+func TestSandboxConfig_Validation(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutate    func(*core.SandboxConfig)
+		wantError bool
+		errSubstr string
+	}{
+		{
+			name:      "valid default sandbox",
+			mutate:    func(s *core.SandboxConfig) {},
+			wantError: false,
+		},
+		{
+			name: "reject root UID 0",
+			mutate: func(s *core.SandboxConfig) {
+				s.UID = 0
+			},
+			wantError: true,
+			errSubstr: "root execution",
+		},
+		{
+			name: "reject root GID 0",
+			mutate: func(s *core.SandboxConfig) {
+				s.GID = 0
+			},
+			wantError: true,
+			errSubstr: "root execution",
+		},
+		{
+			name: "reject host userns",
+			mutate: func(s *core.SandboxConfig) {
+				s.UserNS = "host"
+			},
+			wantError: true,
+			errSubstr: "userns",
+		},
+		{
+			name: "accept auto userns",
+			mutate: func(s *core.SandboxConfig) {
+				s.UserNS = "auto"
+			},
+			wantError: false,
+		},
+		{
+			name: "accept nomap userns",
+			mutate: func(s *core.SandboxConfig) {
+				s.UserNS = "nomap"
+			},
+			wantError: false,
+		},
+		{
+			name: "allow disabled sandbox with root for edge test cases if explicit",
+			mutate: func(s *core.SandboxConfig) {
+				s.Enabled = false
+				s.UID = 0
+			},
+			wantError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := core.DefaultSandboxConfig()
+			tc.mutate(&sc)
+			err := sc.Validate()
+			if tc.wantError {
+				if err == nil {
+					t.Fatalf("expected error for %s, got nil", tc.name)
+				}
+				if tc.errSubstr != "" && !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(tc.errSubstr)) {
+					t.Errorf("expected error containing %q, got %q", tc.errSubstr, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error for %s: %v", tc.name, err)
+				}
+			}
+		})
+	}
+}
+
+func TestSandboxConfig_SanitizedView(t *testing.T) {
+	cfg := core.DefaultConfig()
+	mgr, err := core.NewMultiConfigManager("config.yaml", cfg)
+	if err != nil {
+		t.Fatalf("failed to create MultiConfigManager: %v", err)
+	}
+
+	view, err := mgr.SanitizedView("default")
+	if err != nil {
+		t.Fatalf("unexpected error from SanitizedView: %v", err)
+	}
+
+	if !view.Sandbox.Enabled {
+		t.Errorf("expected Sandbox.Enabled true in view")
+	}
+	if view.Sandbox.UID != 10001 {
+		t.Errorf("expected Sandbox.UID 10001, got %d", view.Sandbox.UID)
+	}
+	if view.Sandbox.GID != 10001 {
+		t.Errorf("expected Sandbox.GID 10001, got %d", view.Sandbox.GID)
+	}
+	if view.Sandbox.UserNS != "keep-id" {
+		t.Errorf("expected Sandbox.UserNS 'keep-id', got %q", view.Sandbox.UserNS)
+	}
+	if !view.Sandbox.NoNewPrivileges {
+		t.Errorf("expected Sandbox.NoNewPrivileges true in view")
 	}
 }
