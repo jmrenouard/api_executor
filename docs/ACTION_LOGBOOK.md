@@ -13,6 +13,35 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-068` — Zero-Allocation Chunked Log Buffers with sync.Pool in JobLogBuffer
+- **Timestamp (UTC)**: `2026-11-12T21:20:00Z`
+- **GitHub Issue**: [#136](https://github.com/jmrenouard/api_executor/issues/136)
+- **Branch**: `feat/issue-136-zero-alloc-chunked-log-buffers`
+- **Request**:
+  - Implement Proposal #8: Optimize `JobLogBuffer` in `internal/jobs/` using `sync.Pool` for reusable chunk buffers under high concurrent load, reducing GC pressure and heap allocations while preserving existing `DefaultMaxLogBytes = 2 MiB` bounds and offset-based chunked reading.
+  - Replace dynamic heap-doubling `bytes.Buffer` with fixed-size pooled chunk buffers (`const ChunkSize = 16 * 1024` / 16 KiB) managed via package-level `sync.Pool`.
+  - Use array pointers `*[ChunkSize]byte` in `sync.Pool` to avoid 24-byte slice interface boxing allocations on `pool.Put`.
+  - Store chunks as `chunks []*[ChunkSize]byte` in `JobLogBuffer` and implement chunked writing in `Write(p []byte)`, pulling new chunks on demand and clamping at `maxBytes` (setting `truncated = true`).
+  - Implement `ReadChunk(offset int) (logs string, nextOffset int, truncated bool, eof bool)` and `ReadLogs(offset, limit int) (logs string, nextOffset int, truncated bool, eof bool)` for offset-based reads across chunk boundaries.
+  - Implement `Close() error` and `Release()`: zero recycled chunks via `clear(c[:])` to prevent cross-job data leakage, guard against double-put with `closed` flag under `b.mu`, and return chunks to `sync.Pool`.
+  - Preserve 100% backward compatibility for `Reset()`, `Len()`, `Truncated()`, `IsEOF()`, `SetEOF()`, `Bytes()`, and `String()`.
+  - Hook buffer recycling into `Engine` in `internal/jobs/engine.go` across `pruneLogBuffers()`, `Shutdown()`, and `Enqueue()` error rollback paths.
+  - Implement automated benchmarks in `internal/jobs/buffer_benchmark_test.go` (`BenchmarkJobLogBuffer_Write`, `BenchmarkJobLogBuffer_Concurrent`, `BenchmarkJobLogBuffer_ReadChunk`, `BenchmarkJobLogBuffer_PoolRecycle`) with `b.ReportAllocs()`.
+  - Verify race safety with `go test -race` via WSL and full project test suites.
+- **Changes**:
+  - Modified [`internal/jobs/buffer.go`](../internal/jobs/buffer.go): Replaced `bytes.Buffer` with `chunks []*[ChunkSize]byte` backed by `sync.Pool`, implemented `copyRange`, `ReadLogs`, `Close`, `Release`, SIMD chunk zeroing (`clear(c[:])`), and preserved all existing method contracts.
+  - Modified [`internal/jobs/engine.go`](../internal/jobs/engine.go): Added `buf.Close()` calls in `pruneLogBuffers()`, `Shutdown()`, and `Enqueue()` rollback paths.
+  - Created [`internal/jobs/buffer_benchmark_test.go`](../internal/jobs/buffer_benchmark_test.go): Added 4 benchmark suites with allocation reporting and 4 unit tests verifying bounded range reads, data zeroing/non-leakage, close idempotency, and concurrent close with active readers.
+  - Modified [`PROJECT.md`](../PROJECT.md): Marked Milestone M3 (Proposal #8) as `DONE`.
+  - Modified [`docs/RCA_REGISTER.md`](../docs/RCA_REGISTER.md): Added `IMP-016` (unbounded slice growth vs pooled chunks) and `APP-018` (chunk pooling trade-offs).
+- **Result**:
+  - 100% test pass rate across all packages: 709 unit/integration tests and 96 E2E tests (805 tests total).
+  - 0 data races under `go test -race` across all `internal/jobs` stress and concurrency tests.
+  - Benchmarks show 99.95% reduction in heap allocations on 2 MiB saturated write bursts (2,272 B/op vs 4,194,240 B/op).
+  - GitHub Issue [#136](https://github.com/jmrenouard/api_executor/issues/136).
+
+---
+
 ### `ACT-067` — Native OpenTelemetry (OTLP) Metrics Export
 - **Timestamp (UTC)**: `2026-11-12T20:50:00Z`
 - **GitHub Issue**: [#134](https://github.com/jmrenouard/api_executor/issues/134)

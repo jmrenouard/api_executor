@@ -47,7 +47,7 @@ This project implements the verified architectural requirements from `ORIGINAL_R
 |---|------|-------|-------------|--------|
 | M1 | Certified Version Endpoint | `internal/version/`, `internal/api/version_handler.go`, `router.go`, tests (`ACT-065`) | none | DONE |
 | M2 | Native Multi-Config & Backward Compatibility | `internal/core/config.go`, `internal/api/config_handlers.go`, `router.go`, configs, tests (`ACT-066`) | M1 | DONE |
-| M3 | Zero-Allocation JobLogBuffer Pooling | `internal/jobs/buffer.go`, `internal/jobs/engine.go`, tests (`ACT-067`) | M2 | PLANNED |
+| M3 | Zero-Allocation JobLogBuffer Pooling | `internal/jobs/buffer.go`, `internal/jobs/engine.go`, tests (`ACT-068`) | M2 | DONE |
 | M4 | OpenTelemetry (OTLP) Metrics Export | `internal/api/metrics_otlp.go`, `internal/api/router.go`, tests (`ACT-067`) | M2 | DONE |
 | M5 | Cosign OCI Container Image Signing | `.github/workflows/docker-publish.yml` (`ACT-069`) | M4 | PLANNED |
 | M6 | Rootless Container Sandbox Enforcement | `internal/core/executor_unix.go`, `internal/core/config.go`, tests (`ACT-070`) | M5 | PLANNED |

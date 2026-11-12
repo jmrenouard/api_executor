@@ -186,6 +186,9 @@ func (e *Engine) pruneLogBuffers() {
 	if len(toEvict) > 0 {
 		e.mu.Lock()
 		for _, id := range toEvict {
+			if buf, ok := e.logBuffers[id]; ok && buf != nil {
+				_ = buf.Close()
+			}
 			delete(e.logBuffers, id)
 		}
 		e.mu.Unlock()
@@ -273,6 +276,7 @@ func (e *Engine) Enqueue(req JobRequest) (*Job, error) {
 		e.mu.Lock()
 		delete(e.logBuffers, jobID)
 		e.mu.Unlock()
+		_ = logBuf.Close()
 		job.SetLogBuffer(nil)
 		return nil, fmt.Errorf("failed to save job to store: %w", err)
 	}
@@ -283,6 +287,7 @@ func (e *Engine) Enqueue(req JobRequest) (*Job, error) {
 		e.mu.Lock()
 		delete(e.logBuffers, jobID)
 		e.mu.Unlock()
+		_ = logBuf.Close()
 		job.SetLogBuffer(nil)
 		if errors.Is(err, ErrQueueFull) {
 			job.SetFailed(time.Now().UTC(), "queue capacity exceeded")
@@ -400,6 +405,11 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 		e.pruneTicker.Stop()
 		close(e.stopPrune)
 		e.pruneTicker = nil
+	}
+	for _, buf := range e.logBuffers {
+		if buf != nil {
+			_ = buf.Close()
+		}
 	}
 	e.logBuffers = make(map[string]*JobLogBuffer)
 	e.mu.Unlock()
