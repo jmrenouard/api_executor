@@ -1,13 +1,20 @@
-name: Release & Distribution
+name: Release Binaries & Packaging
 
 on:
+  push:
+    tags:
+      - 'v*'
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag override (e.g. v2.1.0, leave empty to auto-detect)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   build-binaries:
@@ -26,11 +33,19 @@ jobs:
             binary_name: go-admin-tool
             archive_ext: tar.gz
           - goos: darwin
+            goarch: amd64
+            binary_name: go-admin-tool
+            archive_ext: tar.gz
+          - goos: darwin
             goarch: arm64
             binary_name: go-admin-tool
             archive_ext: tar.gz
           - goos: windows
             goarch: amd64
+            binary_name: go-admin-tool.exe
+            archive_ext: zip
+          - goos: windows
+            goarch: arm64
             binary_name: go-admin-tool.exe
             archive_ext: zip
 
@@ -44,6 +59,23 @@ jobs:
           go-version: '1.24'
           cache: true
 
+      - name: Resolve Version Tag
+        id: vars
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.ref_name }}"
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then
+            TAG=$(cat VERSION 2>/dev/null || echo "2.1.0")
+          fi
+          TAG="v${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved Release Tag: ${TAG}"
+
       - name: Compile Cross-Platform Binary
         env:
           GOOS: ${{ matrix.goos }}
@@ -51,23 +83,25 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p build_output
-          go build -v -a -ldflags="-w -s" -o "build_output/${{ matrix.binary_name }}" ./cmd/server
+          go build -v -trimpath \
+            -ldflags="-s -w -X main.version=${{ steps.vars.outputs.tag }}" \
+            -o "build_output/${{ matrix.binary_name }}" ./cmd/server
 
       - name: Bundle Archive Deliverable
         run: |
           mkdir -p dist
-          TAG="${{ github.event.release.tag_name }}"
-          if [ -z "$TAG" ]; then
-            TAG="${GITHUB_REF_NAME:-v2.1.0}"
-          fi
+          TAG="${{ steps.vars.outputs.tag }}"
           ARCHIVE_BASE="api_executor-${TAG}-${{ matrix.goos }}-${{ matrix.goarch }}"
 
           TMP_STAGE=$(mktemp -d)
           BUNDLE_DIR="${TMP_STAGE}/${ARCHIVE_BASE}"
           mkdir -p "${BUNDLE_DIR}"
 
-          # Copy binary, configurations, plugins catalog, web UI, and license
+          # Stage binary with verified POSIX executable permissions (0755)
           cp "build_output/${{ matrix.binary_name }}" "${BUNDLE_DIR}/"
+          chmod 755 "${BUNDLE_DIR}/${{ matrix.binary_name }}"
+
+          # Stage runtime configuration, license, documentation, plugins catalog, and web UI
           cp config.yaml LICENSE README.md "${BUNDLE_DIR}/"
           cp -r plugins "${BUNDLE_DIR}/"
           cp -r web "${BUNDLE_DIR}/"
@@ -79,7 +113,7 @@ jobs:
           fi
           rm -rf "${TMP_STAGE}"
 
-      - name: Upload Artifact
+      - name: Upload Intermediate Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -100,66 +134,42 @@ jobs:
           path: download/
           merge-multiple: true
 
+      - name: Resolve Release Tag
+        id: release_vars
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.ref_name }}"
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then
+            TAG=$(cat VERSION 2>/dev/null || echo "2.1.0")
+          fi
+          TAG="v${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved Release Tag for Publication: ${TAG}"
+
       - name: Generate Cryptographic SHA256 Manifest
         run: |
           mkdir -p dist
           cp download/* dist/ 2>/dev/null || true
           cd dist
-          sha256sum * > SHA256SUMS.txt
+          sha256sum api_executor-* > SHA256SUMS.txt
+          echo "Generated SHA256SUMS.txt:"
           cat SHA256SUMS.txt
+          echo "Validating SHA256SUMS.txt integrity:"
+          sha256sum -c SHA256SUMS.txt
 
       - name: Attach Assets to GitHub Release
         uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release'
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
+          tag_name: ${{ steps.release_vars.outputs.tag }}
           files: |
-            dist/*
-
-  publish-docker-hub:
-    name: Build & Push Multi-Arch Docker Hub Image
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Resolve Docker Hub Image Tags
-        id: meta
-        run: |
-          IMAGE="jmrenouard/api_executor"
-          RAW_TAG="${{ github.event.release.tag_name }}"
-          if [ -z "$RAW_TAG" ]; then
-            RAW_TAG="${GITHUB_REF_NAME:-v2.1.0}"
-          fi
-          CLEAN_VERSION="${RAW_TAG#v}"
-
-          TAGS="${IMAGE}:${RAW_TAG},${IMAGE}:${CLEAN_VERSION}"
-
-          # Conditionally append :latest tag only if release is not a prerelease
-          IS_PRERELEASE="${{ github.event.release.prerelease }}"
-          if [ "$IS_PRERELEASE" != "true" ]; then
-            TAGS="${TAGS},${IMAGE}:latest"
-          fi
-
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-
-      - name: Build and Push Multi-Arch Docker Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            dist/api_executor-*
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -13,6 +13,45 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-054` — Multi-Architecture Release Matrix & Docker Publication Workflows
+- **Timestamp (UTC)**: `2026-11-12T10:45:00Z`
+- **GitHub Issue**: [#108](https://github.com/jmrenouard/api_executor/issues/108)
+- **Branch**: `ci/issue-108-multiarch-release-and-docker-workflows`
+- **Request**:
+  - Automate multi-architecture Go binary compilation and multi-arch Docker image publication via GitHub Actions in `.github/workflows/`:
+    1. Upgrade `.github/workflows/release.yml` to support all 6 target platforms (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`), add `push: tags: ['v*.*.*', 'v*']` and `workflow_dispatch` triggers, package runtime assets (`config.yaml`, `plugins/`, `web/`, `LICENSE`, `README.md`), generate `SHA256SUMS.txt`, and attach assets to GitHub Releases via `softprops/action-gh-release@v2`.
+    2. Create `.github/workflows/docker-publish.yml` triggered on `push: tags: ['v*.*.*']` and `workflow_dispatch`, setting up QEMU, Docker Buildx, Docker Hub login (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`), extracting OCI metadata tags, and publishing `linux/amd64,linux/arm64` container images to `jmrenouard/api_executor`.
+    3. Update living governance registers (`docs/ACTION_LOGBOOK.md` backfilling `ACT-053` and logging `ACT-054`, and `docs/RCA_REGISTER.md` recording `RCA-045`, `IMP-009`, `APP-011`, `IDEA-011`).
+- **Changes**:
+  - Modified [`.github/workflows/release.yml`](../.github/workflows/release.yml).
+  - Created [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (backfilling `ACT-053` and completing `ACT-054`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (adding `RCA-045`, `IMP-009`, `APP-011`, `IDEA-011`).
+- **Result**:
+  - 100% test pass on Go unit and E2E test suites (545 tests passing).
+  - Validated YAML syntax for all workflows in `.github/workflows/`.
+  - GitHub Issue [#108](https://github.com/jmrenouard/api_executor/issues/108).
+  - Pull Request merged into `main`.
+
+---
+
+### `ACT-053` — Standardize Markdown Badge Ribbon and Add Repository Version Metadata
+- **Timestamp (UTC)**: `2026-11-10T00:51:21Z`
+- **GitHub Issue**: [#106](https://github.com/jmrenouard/api_executor/issues/106)
+- **Branch**: `docs/standardize-readme-badges-and-version`
+- **Request**:
+  - Standardize README badge links from raw HTML block to clean Markdown ribbon format matching project interface standards.
+  - Add root `VERSION` metadata file specifying semantic version `2.1.0`.
+- **Changes**:
+  - Modified [`README.md`](../README.md) (standardized badge ribbon).
+  - Created [`VERSION`](../VERSION) (containing `2.1.0`).
+- **Result**:
+  - 100% test pass on Go test suite (454 passed in 11 packages).
+  - GitHub Issue [#106](https://github.com/jmrenouard/api_executor/issues/106).
+  - Pull Request [#107](https://github.com/jmrenouard/api_executor/pull/107) merged into `main` (`16e8588`).
+
+---
+
 ### `ACT-052` — Release Automation, Go Cross-Compilation Matrix, and Multi-Arch Docker Hub Publishing
 - **Timestamp (UTC)**: `2026-11-10T00:50:00Z`
 - **GitHub Issue**: [#104](https://github.com/jmrenouard/api_executor/issues/104)
