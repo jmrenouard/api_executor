@@ -157,17 +157,23 @@ jobs:
           cp download/* dist/ 2>/dev/null || true
           cd dist
 
-          # Enable nullglob so unmatched archive patterns expand to empty string
+          # Enable nullglob so unmatched archive patterns expand to empty list
           shopt -s nullglob
+          archives=(api_executor-*.tar.gz api_executor-*.zip)
+
+          # Verify that at least one release archive deliverable exists; fail fast if empty to prevent sha256sum stdin hang
+          if [ ${#archives[@]} -eq 0 ]; then
+            echo "Error: No release archives found matching api_executor-*.tar.gz or api_executor-*.zip in dist/" >&2
+            exit 1
+          fi
 
           # Generate individual .sha256 checksum files alongside each release archive
-          for file in api_executor-*.tar.gz api_executor-*.zip; do
-            [ -f "$file" ] || continue
+          for file in "${archives[@]}"; do
             sha256sum "$file" > "${file}.sha256"
           done
 
           # Generate unified SHA256SUMS.txt manifest containing all release archives
-          sha256sum api_executor-*.tar.gz api_executor-*.zip > SHA256SUMS.txt
+          sha256sum "${archives[@]}" > SHA256SUMS.txt
 
           echo "Generated SHA256SUMS.txt manifest:"
           cat SHA256SUMS.txt
@@ -176,8 +182,12 @@ jobs:
           sha256sum -c SHA256SUMS.txt
 
           echo "Validating individual .sha256 checksum files integrity via sha256sum -c:"
-          for ckfile in api_executor-*.sha256; do
-            [ -f "$ckfile" ] || continue
+          ckfiles=(api_executor-*.sha256)
+          if [ ${#ckfiles[@]} -eq 0 ]; then
+            echo "Error: No .sha256 checksum files found for verification in dist/" >&2
+            exit 1
+          fi
+          for ckfile in "${ckfiles[@]}"; do
             sha256sum -c "$ckfile"
           done
 
@@ -199,5 +209,6 @@ jobs:
           body_path: dist/RELEASE_NOTES_VERIFICATION.md
           append_body: true
           generate_release_notes: true
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

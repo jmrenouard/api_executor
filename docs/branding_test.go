@@ -208,15 +208,19 @@ func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
 
 	requiredWorkflowMarkers := []string{
 		"shopt -s nullglob",
+		"archives=(api_executor-*.tar.gz api_executor-*.zip)",
+		"if [ ${#archives[@]} -eq 0 ]; then",
 		`sha256sum "$file" > "${file}.sha256"`,
-		"sha256sum api_executor-*.tar.gz api_executor-*.zip > SHA256SUMS.txt",
+		`sha256sum "${archives[@]}" > SHA256SUMS.txt`,
 		"sha256sum -c SHA256SUMS.txt",
+		"ckfiles=(api_executor-*.sha256)",
 		`sha256sum -c "$ckfile"`,
 		"dist/api_executor-*.sha256",
 		"dist/SHA256SUMS.txt",
 		"cp .github/RELEASE_NOTES_VERIFICATION.md dist/RELEASE_NOTES_VERIFICATION.md",
 		"body_path: dist/RELEASE_NOTES_VERIFICATION.md",
 		"append_body: true",
+		"fail_on_unmatched_files: false",
 	}
 
 	for _, marker := range requiredWorkflowMarkers {
@@ -238,11 +242,16 @@ func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
 		"sha256sum -c <archive-filename>.sha256",
 		"shasum -a 256",
 		"Get-FileHash $archive -Algorithm SHA256",
+		"Select-String -Path .\\SHA256SUMS.txt -Pattern $archive",
 	}
 	for _, marker := range requiredNotesMarkers {
 		if !strings.Contains(notes, marker) {
 			t.Errorf("expected RELEASE_NOTES_VERIFICATION.md to contain %q", marker)
 		}
+	}
+
+	if strings.Contains(notes, "[SHA256SUMS.txt](SHA256SUMS.txt)") {
+		t.Errorf("RELEASE_NOTES_VERIFICATION.md contains broken relative asset link [SHA256SUMS.txt](SHA256SUMS.txt)")
 	}
 
 	// Ensure headings and code fences start at column 0 (no CommonMark indented code block collapse)
