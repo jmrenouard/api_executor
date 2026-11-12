@@ -13,6 +13,34 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-058` — Docker Hub Multi-Architecture Release Publication and Living Governance Finalization
+- **Timestamp (UTC)**: `2026-11-12T12:46:00Z`
+- **GitHub Issue**: [#116](https://github.com/jmrenouard/api_executor/issues/116)
+- **Branch**: `docs/issue-116-dockerhub-publication-and-governance`
+- **Request**:
+  - Finalize Milestone M4 release lifecycle:
+    1. Assess Docker Hub publication channels: verify GitHub repository secrets (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`) and local Docker daemon authentication status for target repository `jmrenouard/api_executor`.
+    2. Dispatch and verify automated multi-architecture Docker container image publication (`linux/amd64` and `linux/arm64`) tagged `v2.1.0` and `latest` to Docker Hub `jmrenouard/api_executor` via GitHub Actions `.github/workflows/docker-publish.yml` (Run ID: `43220667806`).
+    3. Verify remote multi-architecture OCI manifest list (`application/vnd.oci.image.index.v1+json`) on Docker Hub covering `linux/amd64` and `linux/arm64` platform manifests and provenance attestations.
+    4. Update living governance register `docs/ACTION_LOGBOOK.md` (`ACT-058`) documenting Milestone M4 completion, release packaging traceability, and full verification metrics.
+    5. Update living governance register `docs/RCA_REGISTER.md` by:
+       - Updating and clarifying `APP-011` regarding verified Docker Hub publication status and secrets management.
+       - Recording `IMP-012` documenting the technical dead-end of attempting multi-arch image push without BuildKit / Buildx manifest lists or unauthenticated push.
+       - Recording `IDEA-013` documenting dual registry publication (`ghcr.io` + `docker.io`) and container image provenance signing with Cosign.
+    6. Follow mandatory 9-step atomic GitHub lifecycle and strict English-only policy.
+- **Changes**:
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recorded `ACT-058`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (clarified `APP-011`, added `IMP-012`, added `IDEA-013`).
+- **Result**:
+  - Successfully published and verified multi-architecture container images on Docker Hub:
+    - `jmrenouard/api_executor:v2.1.0` (Digest: `sha256:2ce95c6dfd32948a2fbdb84d9c00309ad777bf1fd56460802145155c376eef83`, platforms: `linux/amd64`, `linux/arm64`).
+    - `jmrenouard/api_executor:latest` (Digest: `sha256:2ce95c6dfd32948a2fbdb84d9c00309ad777bf1fd56460802145155c376eef83`, platforms: `linux/amd64`, `linux/arm64`).
+  - 100% test pass on Go unit, E2E, and documentation suites (545 tests passing).
+  - GitHub Issue [#116](https://github.com/jmrenouard/api_executor/issues/116).
+  - Pull Request merged into `main`.
+
+---
+
 ### `ACT-057` — Isolate Symlink Test Target in m1_stress_challenge_test to Prevent Duplicate Plugin Registration on Linux
 - **Timestamp (UTC)**: `2026-11-12T12:08:00Z`
 - **GitHub Issue**: [#114](https://github.com/jmrenouard/api_executor/issues/114)
