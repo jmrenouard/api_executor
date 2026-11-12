@@ -627,6 +627,28 @@ This living governance register records all errors encountered, technical dead-e
 - **Applied Change / Fix**: Upgraded `.github/workflows/release.yml` to trigger on `push: tags: ['v*.*.*', 'v*']`, `workflow_dispatch`, and `release: types: [published]`; expanded the matrix to all 6 platforms (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`); updated upload gates to support tag pushes and dispatch; added `.github/workflows/docker-publish.yml` for automated multi-arch Docker image publication; and prepared standalone archive packaging for `v2.1.0` assets via `gh release upload`.
 - **Result & Non-Regression Test**: Validated YAML syntax for `.github/workflows/release.yml` and `.github/workflows/docker-publish.yml`; full matrix build definitions verified; 100% test suite pass across unit, E2E, and documentation suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
 
+### `RCA-046` — Actionlint Schema Failure on `steps.meta.outputs.created` and Release Tag Filter Asymmetry in Docker Workflow
+- **Date**: `2026-11-12`
+- **Observed Symptom**:
+  Adversarial validation with `actionlint` failed on `.github/workflows/docker-publish.yml` with exit code 1:
+  `property "created" is not defined in object type {annotations: string; bake-file: string; bake-file-annotations: string; bake-file-labels: string; bake-file-tags: string; json: string; labels: string; tag-names: string; tags: string; version: string} [expression]` at line 78.
+  In addition, tag pattern analysis revealed that `docker-publish.yml` listened only to `push: tags: ['v*.*.*']`, whereas `release.yml` listened to `['v*']`, creating release divergence where shortened semantic tags (e.g. `v2.1`) trigger binary packaging but fail to trigger Docker image publishing.
+  Finally, inline secret interpolation in `if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]` breached CI/CD shell security best practices.
+- **Root Cause Analysis**:
+  1. *Why did actionlint fail?* `docker/metadata-action@v5` does not define a top-level `created` output property. It encodes creation timestamps within `labels` (`org.opencontainers.image.created`) or raw `json`.
+  2. *Why was `created` passed in build-args?* An assumption was made that `metadata-action` mirrors all standard OCI build arguments as direct step outputs.
+  3. *Why did tag filter divergence occur?* `release.yml` used a broad glob (`v*`), while `docker-publish.yml` used a strict 3-segment glob (`v*.*.*`), omitting valid 2-segment semantic releases like `v2.1`.
+  4. *Why were secrets interpolated into bash?* The verification script checked secret presence using direct template interpolation `${{ secrets... }}` inside `run: |` rather than step `env:` variables.
+  5. *What is the risk of inline secret interpolation?* Untrusted or special characters (`"`, `$`, `\`) can lead to bash syntax breakage or injection vulnerabilities.
+- **Applied Change / Fix**:
+  1. Removed `CREATED=${{ steps.meta.outputs.created }}` from `build-args` in `.github/workflows/docker-publish.yml`, relying on `labels: ${{ steps.meta.outputs.labels }}` for standard OCI creation timestamping.
+  2. Expanded `push: tags` in `.github/workflows/docker-publish.yml` to `['v*.*.*', 'v*.*', 'v*']`, harmonizing triggers with `release.yml`.
+  3. Mapped `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` via step `env:` variables (`DOCKERHUB_USER`, `DOCKERHUB_PASS`) in `docker-publish.yml`.
+- **Result & Non-Regression Test**:
+  - `actionlint .github/workflows/docker-publish.yml` exits with code 0 (clean).
+  - Python `fnmatch` confirms tags `v2.1.0`, `v2.1`, `v2` match both `release.yml` and `docker-publish.yml`.
+  - 100% test pass on Go unit, E2E, and documentation suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -657,6 +679,9 @@ This living governance register records all errors encountered, technical dead-e
 
 ### `IMP-009` — Uploading Unbundled Raw Executables Directly to GitHub Releases Without Manifests or Runtime Assets
 - **Reason for Abandonment**: Uploading standalone raw executables (`go-admin-tool`, `go-admin-tool.exe`) directly as release assets without bundling companion runtime dependencies (`config.yaml`, the 305+ plugins in `plugins/`, the Web Console in `web/`, `LICENSE`, `README.md`) causes runtime failures (HTTP 404 on Web Console, missing plugin commands, uninitialized configs) when users execute the binary. Furthermore, releasing without a cryptographic checksums manifest (`SHA256SUMS.txt`) prevents automated integrity verification. Release deliverables must strictly be packaged into self-contained directory archives (`.tar.gz` for Linux/macOS, `.zip` for Windows) containing the executable and all runtime assets, verified by `SHA256SUMS.txt`.
+
+### `IMP-010` — Passing Non-Existent Step Outputs to Docker Build-Args
+- **Reason for Abandonment**: Attempting to pass `${{ steps.meta.outputs.created }}` from `docker/metadata-action@v5` into `docker/build-push-action@v6` build-args causes static analysis failure under `actionlint` (exit code 1) and injects an empty string argument (`CREATED=""`). Since `docker/metadata-action` already generates standard OCI labels (including `org.opencontainers.image.created`) in `steps.meta.outputs.labels`, passing `CREATED` as a build argument is both invalid and redundant.
 
 ---
 
