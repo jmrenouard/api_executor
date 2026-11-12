@@ -35,8 +35,9 @@
 2. **Hierarchical Call Timeout System (`internal/core/executor.go`)**:
    - Deterministic 4-level timeout resolution: **Per-Call API Override (`"timeout": "5s"`) > Per-Command YAML Timeout > Global `executor.default_timeout` > Built-In `30s` Fallback** (`DefaultCommandTimeout`).
    - Process-group termination (`Setpgid` + negative-PID `SIGKILL` on Linux/macOS; `WaitDelay` on Windows/Unix) prevents orphan grandchild processes from hanging stdout/stderr pipes after timeout expiration.
-3. **Enriched Per-Action Prometheus Metrics (`internal/api/router.go`)**:
-   - Tracks total calls (`action_calls_total`), successful calls (`action_calls_ok_total`), invalid/system error calls (`action_calls_error_total`), failed/non-zero/timed-out calls (`action_calls_failure_total`), timeout count (`action_calls_timeout_total`), partitioned status vector (`action_calls_status_total{action,status}`), and latency histogram (`action_call_duration_seconds`).
+3. **Unified Mode & Per-Action Prometheus Metrics (`internal/api/router.go`)**:
+   - Explicitly partitions execution mode across synchronous calls (`/api/v1/execute`, `/api/v1/plugins/execute`, `/api/v1/mcp`) and asynchronous background jobs (`/api/v1/jobs`): `action_mode_calls_total{action, mode, status}` and `action_mode_call_duration_seconds{action, mode}`.
+   - Preserves legacy backward compatibility with total calls (`action_calls_total`), successful calls (`action_calls_ok_total`), invalid/system error calls (`action_calls_error_total`), failed/non-zero/timed-out calls (`action_calls_failure_total`), timeout count (`action_calls_timeout_total`), partitioned status vector (`action_calls_status_total{action,status}`), and latency histogram (`action_call_duration_seconds`).
    - Protects against label cardinality DoS via `MaxDynamicActionLabels = 64`.
 4. **Predefined Ubuntu & RedHat / RHEL OS Tasks (`internal/core/os_presets.go`)**:
    - Ready-to-run, container-safe system administration catalogs for **Ubuntu / Debian** (`configs/ubuntu-tasks.yaml`, `docker/Dockerfile.ubuntu`) and **RedHat / RHEL / UBI9** (`configs/redhat-tasks.yaml`, `docker/Dockerfile.redhat`), orchestrated via `docker-compose.os-test.yml` and dynamically activatable at runtime (`POST /api/v1/presets/activate`).
@@ -142,8 +143,8 @@ Official multi-architecture production container images supporting **Linux AMD64
 #### Pull Container Image
 
 ```bash
-# Pull the specific v2.1.0 release image
-docker pull jmrenouard/api_executor:v2.1.0
+# Pull the specific v2.2.0 release image
+docker pull jmrenouard/api_executor:v2.2.0
 
 # Or pull the latest stable image
 docker pull jmrenouard/api_executor:latest
@@ -157,7 +158,7 @@ docker pull jmrenouard/api_executor:latest
 docker run -d \
   --name api-executor \
   -p 8080:8080 \
-  jmrenouard/api_executor:v2.1.0
+  jmrenouard/api_executor:v2.2.0
 ```
 
 #### Production Deployment with Persistent Volumes & Environment Configuration
@@ -183,7 +184,7 @@ docker run -d \
   -v $(pwd)/secure_files:/var/log/secure_files \
   --security-opt no-new-privileges:true \
   --cap-drop ALL \
-  jmrenouard/api_executor:v2.1.0
+  jmrenouard/api_executor:v2.2.0
 ```
 
 #### Container Healthcheck & Verification
@@ -203,7 +204,7 @@ curl -k https://localhost:8080/metrics
 ```yaml
 services:
   api-executor:
-    image: jmrenouard/api_executor:v2.1.0
+    image: jmrenouard/api_executor:v2.2.0
     container_name: api-executor
     restart: unless-stopped
     user: "10001:10001"
@@ -262,7 +263,7 @@ Release archives and their corresponding cryptographic checksums (`SHA256SUMS.tx
 
 ```bash
 # 1. Choose target version and platform
-VERSION="v2.1.0"
+VERSION="v2.2.0"
 ARCHIVE="api_executor-${VERSION}-linux-amd64.tar.gz"
 
 # 2. Download binary package and cryptographic checksums
@@ -289,7 +290,7 @@ cd "api_executor-${VERSION}-linux-amd64"
 
 ```powershell
 # 1. Choose target version and platform
-$VERSION = "v2.1.0"
+$VERSION = "v2.2.0"
 $ARCHIVE = "api_executor-$VERSION-windows-amd64.zip"
 
 # 2. Download binary package and cryptographic checksums
@@ -346,11 +347,13 @@ curl -k -X POST https://localhost:8080/api/v1/execute \
   -d '{"name": "list-processes", "timeout": "5s"}'
 ```
 
-Prometheus `/metrics` exposes per-action counters and histograms:
+Prometheus `/metrics` exposes per-action counters and histograms, including unified execution mode telemetry (v2.2.0+):
 
 | Metric Name | Type | Labels | Description |
 |---|---|---|---|
-| `action_calls_total` | Counter | `action` | Total number of calls per action |
+| `action_mode_calls_total` | Counter | `action`, `mode`, `status` | Total action calls partitioned by action, execution mode (`mode="sync"\|"async"`), and terminal status (`status="ok"\|"failure"\|"error"\|"timeout"\|"cancelled"`) |
+| `action_mode_call_duration_seconds` | Histogram | `action`, `mode` | Execution latency distribution in seconds partitioned by action and execution mode (`sync` vs `async`) |
+| `action_calls_total` | Counter | `action` | Total number of calls per action (legacy sync) |
 | `action_calls_ok_total` | Counter | `action` | Total number of successful (`exit 0`) calls per action |
 | `action_calls_error_total` | Counter | `action` | Total number of calls in error (invalid parameters, unknown action, or spawn error) |
 | `action_calls_failure_total` | Counter | `action` | Total number of failed calls (non-zero exit status or timeout) |
@@ -660,6 +663,8 @@ Response (`200 OK`):
 | `job_workers_total` | Gauge | — | Total configured worker goroutines in the pool (default: 4) |
 | `job_executions_total` | Counter | `status`, `action` | Total executed jobs partitioned by status (`completed`, `failed`, `cancelled`, `timed_out`) and action |
 | `job_execution_duration_seconds` | Histogram | `action` | Execution duration distribution of asynchronous jobs in seconds |
+
+> **Note**: Asynchronous job completions also automatically feed the unified mode telemetry vectors `action_mode_calls_total{action, mode="async", status}` and `action_mode_call_duration_seconds{action, mode="async"}` alongside legacy job metrics.
 
 ---
 

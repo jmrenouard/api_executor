@@ -69,7 +69,8 @@ func UpdateJobWorkersTotal(total int) {
 	jobWorkersTotal.Set(float64(total))
 }
 
-// RecordJobExecution increments the executions counter and records duration in the histogram.
+// RecordJobExecution increments the executions counter and records duration in the histogram,
+// and forwards unified asynchronous mode telemetry to RecordActionCallWithMode.
 func RecordJobExecution(action, status string, dur time.Duration) {
 	normAction := normalizeActionLabel(action)
 	normStatus := strings.ToLower(strings.TrimSpace(status))
@@ -81,6 +82,27 @@ func RecordJobExecution(action, status string, dur time.Duration) {
 	if dur > 0 {
 		jobExecutionDuration.WithLabelValues(normAction).Observe(dur.Seconds())
 	}
+
+	var outcome string
+	var timedOut bool
+	switch normStatus {
+	case string(jobs.StatusCompleted):
+		outcome = "ok"
+		timedOut = false
+	case string(jobs.StatusFailed):
+		outcome = "failure"
+		timedOut = false
+	case string(jobs.StatusTimedOut):
+		outcome = "failure"
+		timedOut = true
+	case string(jobs.StatusCancelled):
+		outcome = "cancelled"
+		timedOut = false
+	default:
+		outcome = "error"
+		timedOut = false
+	}
+	RecordActionCallWithMode(action, "async", outcome, timedOut, dur)
 }
 
 // ResetJobMetrics resets all async job Prometheus metric vectors (useful for isolated tests).

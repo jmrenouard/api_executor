@@ -126,6 +126,23 @@ var (
 		},
 		[]string{"action"},
 	)
+
+	// Mode-partitioned Prometheus metrics (v2.2.0+) distinguishing synchronous and asynchronous calls
+	actionModeCallsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "action_mode_calls_total",
+			Help: "Total number of action calls partitioned by action, execution mode (sync, async), and status.",
+		},
+		[]string{"action", "mode", "status"},
+	)
+	actionModeCallDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "action_mode_call_duration_seconds",
+			Help:    "Histogram of action execution latencies in seconds partitioned by action and execution mode.",
+			Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300},
+		},
+		[]string{"action", "mode"},
+	)
 )
 
 func init() {
@@ -138,6 +155,8 @@ func init() {
 	prometheus.MustRegister(actionCallsTimeoutTotal)
 	prometheus.MustRegister(actionCallsStatusTotal)
 	prometheus.MustRegister(actionCallDuration)
+	prometheus.MustRegister(actionModeCallsTotal)
+	prometheus.MustRegister(actionModeCallDuration)
 }
 
 // ResetActionMetrics resets all per-action Prometheus metric vectors (useful for isolated tests).
@@ -154,6 +173,9 @@ func ResetActionMetrics() {
 	actionCallsTimeoutTotal.Reset()
 	actionCallsStatusTotal.Reset()
 	actionCallDuration.Reset()
+
+	actionModeCallsTotal.Reset()
+	actionModeCallDuration.Reset()
 }
 
 // ResetHTTPMetrics resets HTTP request metric vectors (useful for isolated tests).
@@ -221,6 +243,59 @@ func recordActionCall(action, outcome string, timedOut bool, duration time.Durat
 	if duration > 0 {
 		actionCallDuration.WithLabelValues(label).Observe(duration.Seconds())
 	}
+
+	RecordActionCallWithMode(action, "sync", outcome, timedOut, duration)
+}
+
+// RecordActionCallWithMode updates Prometheus counters and latency histograms for an action call
+// partitioned by execution mode ("sync" vs "async") and terminal status.
+func RecordActionCallWithMode(action, mode, outcome string, timedOut bool, duration time.Duration) {
+	normAction := normalizeActionLabel(action)
+	normMode := strings.ToLower(strings.TrimSpace(mode))
+	if normMode != "async" {
+		normMode = "sync"
+	}
+
+	var status string
+	if timedOut {
+		status = "timeout"
+	} else {
+		normOutcome := strings.ToLower(strings.TrimSpace(outcome))
+		switch normOutcome {
+		case "ok", "completed":
+			status = "ok"
+		case "failure", "failed":
+			status = "failure"
+		case "error":
+			status = "error"
+		case "timeout", "timed_out":
+			status = "timeout"
+		case "cancelled", "canceled":
+			status = "cancelled"
+		default:
+			status = "error"
+		}
+	}
+
+	actionModeCallsTotal.WithLabelValues(normAction, normMode, status).Inc()
+	if duration > 0 {
+		actionModeCallDuration.WithLabelValues(normAction, normMode).Observe(duration.Seconds())
+	}
+}
+
+// GetActionModeCallCount returns current counter value for action, mode, and status.
+func GetActionModeCallCount(action, mode, status string) float64 {
+	act := strings.TrimSpace(action)
+	normMode := strings.ToLower(strings.TrimSpace(mode))
+	if normMode != "async" {
+		normMode = "sync"
+	}
+	normStatus := strings.ToLower(strings.TrimSpace(status))
+	counter, err := actionModeCallsTotal.GetMetricWithLabelValues(act, normMode, normStatus)
+	if err != nil {
+		return 0
+	}
+	return readCounterValue(counter)
 }
 
 // initConfiguredActionMetrics pre-initializes Prometheus counters to 0 for all configured commands
@@ -262,6 +337,11 @@ func initConfiguredActionMetricsLocked(env *APIEnv) {
 		actionCallsStatusTotal.WithLabelValues(name, "error").Add(0)
 		actionCallsStatusTotal.WithLabelValues(name, "failure").Add(0)
 		actionCallDuration.WithLabelValues(name)
+
+		actionModeCallsTotal.WithLabelValues(name, "sync", "ok").Add(0)
+		actionModeCallsTotal.WithLabelValues(name, "async", "ok").Add(0)
+		actionModeCallDuration.WithLabelValues(name, "sync")
+		actionModeCallDuration.WithLabelValues(name, "async")
 	}
 }
 
