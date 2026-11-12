@@ -13,6 +13,29 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-057` — Isolate Symlink Test Target in m1_stress_challenge_test to Prevent Duplicate Plugin Registration on Linux
+- **Timestamp (UTC)**: `2026-11-12T12:08:00Z`
+- **GitHub Issue**: [#114](https://github.com/jmrenouard/api_executor/issues/114)
+- **Branch**: `fix/issue-114-isolate-symlink-test-target`
+- **Request**:
+  - Resolve the Linux CI test failure in `internal/plugins/m1_stress_challenge_test.go`:
+    1. Isolate the symlink test target in `TestChallenger_RecursiveDirectoryDiscovery_DeepAndMixed` into a separate temporary directory outside `tmpDir` (`outsideDir := t.TempDir()`) with a distinct plugin ID (`external-symlink`).
+    2. Point the symlink `tmpDir/netops/symlinked.yaml` to `outsideDir/external.yaml`.
+    3. Assert that when symlink creation succeeds (on Linux or privileged platforms), `external-symlink` is discovered with inferred category `NetOps`.
+    4. Maintain graceful fallback on unprivileged systems (Windows) where `os.Symlink` returns an error.
+    5. Update living governance registers `docs/ACTION_LOGBOOK.md` (`ACT-057`) and `docs/RCA_REGISTER.md` (`RCA-047`).
+- **Changes**:
+  - Modified [`internal/plugins/m1_stress_challenge_test.go`](../internal/plugins/m1_stress_challenge_test.go) (isolated symlink target to external temporary directory and added category assertion).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recorded `ACT-057`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (recorded `RCA-047`).
+- **Result**:
+  - `TestChallenger_RecursiveDirectoryDiscovery_DeepAndMixed` passes on both Windows and WSL Linux (Ubuntu-24.04).
+  - 100% test pass on `go test -v -cover ./...` and `go test -v ./tests/e2e/...`.
+  - GitHub Issue [#114](https://github.com/jmrenouard/api_executor/issues/114).
+  - Pull Request merged into `main`.
+
+---
+
 ### `ACT-056` — Add v2.1.0 Binary Download Table and Docker Hub Deployment Guide to README
 - **Timestamp (UTC)**: `2026-11-12T11:40:00Z`
 - **GitHub Issue**: [#112](https://github.com/jmrenouard/api_executor/issues/112)
