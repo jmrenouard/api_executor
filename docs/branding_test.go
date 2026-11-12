@@ -407,7 +407,66 @@ func TestSecurityDocumentationAndWorkflowCompleteness(t *testing.T) {
 	}
 }
 
+func TestDockerPublishWorkflowCosignSigningAndLeastPrivilege(t *testing.T) {
+	workflowPath := "../.github/workflows/docker-publish.yml"
+	workflowBytes, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", workflowPath, err)
+	}
+	workflow := string(workflowBytes)
 
+	// 1. Verify top-level permissions strictly enforce least-privilege (contents: read only)
+	if !strings.Contains(workflow, "permissions:\n  contents: read") {
+		t.Errorf("expected top-level permissions to enforce least-privilege 'contents: read'")
+	}
 
+	// Ensure top-level does NOT grant write permissions globally before jobs:
+	jobsIdx := strings.Index(workflow, "jobs:")
+	if jobsIdx == -1 {
+		t.Fatalf("expected workflow to define 'jobs:' block")
+	}
+	topLevel := workflow[:jobsIdx]
+	for _, forbidden := range []string{"id-token: write", "packages: write", "contents: write", "write-all"} {
+		if strings.Contains(topLevel, forbidden) {
+			t.Errorf("top-level permissions must NOT contain %q; write permissions must be scoped strictly to the publish job", forbidden)
+		}
+	}
 
+	// 2. Verify job-level permissions scoped strictly to docker-hub-publish
+	jobSection := workflow[jobsIdx:]
+	requiredJobMarkers := []string{
+		"docker-hub-publish:",
+		"permissions:",
+		"contents: read",
+		"packages: write",
+		"id-token: write",
+	}
+	for _, marker := range requiredJobMarkers {
+		if !strings.Contains(jobSection, marker) {
+			t.Errorf("expected docker-publish.yml job section to contain %q", marker)
+		}
+	}
+
+	// 3. Verify presence of Sigstore Cosign installer step
+	if !strings.Contains(jobSection, "sigstore/cosign-installer") {
+		t.Errorf("expected workflow to contain 'sigstore/cosign-installer' step")
+	}
+
+	// 4. Verify build step has id: build-and-push so output digest is accessible
+	if !strings.Contains(jobSection, "id: build-and-push") {
+		t.Errorf("expected docker/build-push-action step to define 'id: build-and-push'")
+	}
+
+	// 5. Verify presence of Cosign signing command with --yes, xargs, and digest binding
+	requiredSigningMarkers := []string{
+		"cosign sign --yes",
+		"steps.build-and-push.outputs.digest",
+		"xargs -I {} cosign sign --yes {}@${DIGEST}",
+	}
+	for _, marker := range requiredSigningMarkers {
+		if !strings.Contains(jobSection, marker) {
+			t.Errorf("expected job section to contain %q for cryptographic signing", marker)
+		}
+	}
+}
 

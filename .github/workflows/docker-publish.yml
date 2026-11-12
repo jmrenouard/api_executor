@@ -25,10 +25,18 @@ jobs:
   docker-hub-publish:
     name: Build & Publish Multi-Arch Docker Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3.8.0
 
       - name: Verify Docker Hub Credentials
         env:
@@ -72,6 +80,7 @@ jobs:
             type=sha,format=short,prefix=sha-
 
       - name: Build and Push Multi-Arch Docker Image
+        id: build-and-push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -85,6 +94,16 @@ jobs:
             REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Sign Published Docker Image with Cosign
+        if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          COSIGN_YES: "true"
+        run: |
+          echo "Signing published Docker image digest with Sigstore Cosign (OIDC)..."
+          echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
 
       - name: Verify Published Remote Manifest
         env:
