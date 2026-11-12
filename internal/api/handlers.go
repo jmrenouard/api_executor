@@ -24,17 +24,18 @@ import (
 
 // APIEnv holds dependencies for API handlers.
 type APIEnv struct {
-	Config         *core.Config
-	Logger         *core.Logger
-	DB             *database.DB
-	CertManager    *core.CertManager
-	AuditLogger    *audit.AuditLogger
-	AuthManager    *auth.Manager
-	PluginRegistry *plugins.Registry
-	MCPServer      *mcp.Server
-	JobEngine      *jobs.Engine
-	StartTime      time.Time
-	commandsMu     sync.RWMutex
+	Config             *core.Config
+	MultiConfigManager *core.MultiConfigManager
+	Logger             *core.Logger
+	DB                 *database.DB
+	CertManager        *core.CertManager
+	AuditLogger        *audit.AuditLogger
+	AuthManager        *auth.Manager
+	PluginRegistry     *plugins.Registry
+	MCPServer          *mcp.Server
+	JobEngine          *jobs.Engine
+	StartTime          time.Time
+	commandsMu         sync.RWMutex
 }
 
 // CommandsRLock acquires a read lock on the executor commands.
@@ -328,7 +329,12 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !env.Config.Executor.Enabled {
+	activeConfig := env.Config
+	if env.MultiConfigManager != nil {
+		activeConfig = env.MultiConfigManager.ResolveConfig(r)
+	}
+
+	if activeConfig == nil || !activeConfig.Executor.Enabled {
 		recordActionCall(req.Name, "error", false, 0)
 		writeJSONError(w, "Command executor is disabled", http.StatusNotFound)
 		return
@@ -364,8 +370,8 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if env.Config.Executor.MaxTimeoutSeconds > 0 && timeoutOverride > 0 {
-		maxAllowed := time.Duration(env.Config.Executor.MaxTimeoutSeconds) * time.Second
+	if activeConfig.Executor.MaxTimeoutSeconds > 0 && timeoutOverride > 0 {
+		maxAllowed := time.Duration(activeConfig.Executor.MaxTimeoutSeconds) * time.Second
 		if timeoutOverride > maxAllowed {
 			recordActionCall(req.Name, "error", false, 0)
 			writeJSONError(w, fmt.Sprintf("Requested timeout %s exceeds maximum allowed timeout %s", timeoutOverride, maxAllowed), http.StatusBadRequest)
@@ -373,7 +379,20 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	cmdCopy, found := env.FindCommand(req.Name)
+	var cmdCopy core.CommandDefinition
+	var found bool
+	if activeConfig != env.Config && activeConfig != nil {
+		for _, cmd := range activeConfig.Executor.Commands {
+			if cmd.Name == req.Name {
+				cmdCopy = cmd
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		cmdCopy, found = env.FindCommand(req.Name)
+	}
 	if !found {
 		recordActionCall(req.Name, "error", false, 0)
 		writeJSONError(w, "Command not found", http.StatusNotFound)
@@ -381,7 +400,7 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 	}
 	cmdDef := &cmdCopy
 
-	effectiveTimeout := env.Config.Executor.ResolveTimeout(*cmdDef, timeoutOverride)
+	effectiveTimeout := activeConfig.Executor.ResolveTimeout(*cmdDef, timeoutOverride)
 
 	execStart := time.Now()
 	output, err := core.ExecuteCommandWithTimeout(*cmdDef, effectiveTimeout)
@@ -582,12 +601,19 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !env.Config.Executor.Enabled {
+	activeConfig := env.Config
+	profileName := "default"
+	if env.MultiConfigManager != nil {
+		profileName = env.MultiConfigManager.ResolveProfileName(r)
+		activeConfig = env.MultiConfigManager.ResolveConfig(r)
+	}
+
+	if activeConfig == nil || !activeConfig.Executor.Enabled {
 		http.Error(w, "Command executor is disabled", http.StatusNotFound)
 		return
 	}
 
-	defaultTimeout := env.Config.Executor.EffectiveDefaultTimeout()
+	defaultTimeout := activeConfig.Executor.EffectiveDefaultTimeout()
 
 	// To avoid exposing the raw binary/arguments, we only return the metadata and effective timeouts.
 	type commandInfo struct {
@@ -598,8 +624,16 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 		Timeout     string `json:"timeout"`
 		Preset      bool   `json:"preset,omitempty"`
 	}
+
+	var rawCommands []core.CommandDefinition
+	if env.MultiConfigManager != nil && profileName != env.MultiConfigManager.DefaultProfile() {
+		rawCommands = activeConfig.Executor.Commands
+	} else {
+		rawCommands = env.GetCommands()
+	}
+
 	var commands []commandInfo
-	for _, c := range env.GetCommands() {
+	for _, c := range rawCommands {
 		commands = append(commands, commandInfo{
 			Name:        c.Name,
 			Description: c.Description,
@@ -611,9 +645,11 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := struct {
+		Profile        string        `json:"profile,omitempty"`
 		Commands       []commandInfo `json:"commands"`
 		DefaultTimeout string        `json:"default_timeout"`
 	}{
+		Profile:        profileName,
 		Commands:       commands,
 		DefaultTimeout: defaultTimeout.String(),
 	}

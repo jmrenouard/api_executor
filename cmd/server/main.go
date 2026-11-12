@@ -202,17 +202,25 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		return nil, nil, nil, fmt.Errorf("failed to start async job engine: %w", err)
 	}
 
+	multiConfigMgr, err := core.NewMultiConfigManager(configPath, config)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Failed to initialize multi-config manager: %v", err))
+	} else {
+		logger.Info(fmt.Sprintf("Multi-config manager initialized with %d profiles", len(multiConfigMgr.ListProfiles())))
+	}
+
 	apiEnv = &api.APIEnv{
-		Config:         config,
-		Logger:         logger,
-		DB:             db,
-		CertManager:    certManager,
-		AuditLogger:    auditLogger,
-		AuthManager:    authManager,
-		PluginRegistry: pluginRegistry,
-		MCPServer:      mcpServer,
-		JobEngine:      jobEngine,
-		StartTime:      time.Now(),
+		Config:             config,
+		MultiConfigManager: multiConfigMgr,
+		Logger:             logger,
+		DB:                 db,
+		CertManager:        certManager,
+		AuditLogger:        auditLogger,
+		AuthManager:        authManager,
+		PluginRegistry:     pluginRegistry,
+		MCPServer:          mcpServer,
+		JobEngine:          jobEngine,
+		StartTime:          time.Now(),
 	}
 
 	router := api.NewRouter(apiEnv)
