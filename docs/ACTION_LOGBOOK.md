@@ -38,6 +38,7 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
   - Code coverage: `internal/api` at 84.3%, all codebase modules exceed 80% coverage requirement.
   - Static analysis: `go vet ./...` clean with 0 warnings or errors.
   - Release verification: `docs/branding_test.go` passed 100%.
+  - GitHub Issue [#128](https://github.com/jmrenouard/api_executor/issues/128), Pull Request [#129](https://github.com/jmrenouard/api_executor/pull/129), merge commit `ffe9986`.
 
 ---
 
