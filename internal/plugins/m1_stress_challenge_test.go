@@ -164,10 +164,24 @@ actions:
 		}
 	}
 
-	// Try symlink test if supported by host OS
-	symlinkTarget := filepath.Join(tmpDir, "sysadmin", "a", "b", "c", "d", "deep.yaml")
+	// Try symlink test if supported by host OS (target placed in outsideDir to avoid duplicate plugin ID)
+	outsideDir := t.TempDir()
+	symlinkTarget := filepath.Join(outsideDir, "external.yaml")
+	externalPluginContent := `
+id: external-symlink
+name: External Symlink
+actions:
+  - name: ping
+    command: echo
+`
+	if err := os.WriteFile(symlinkTarget, []byte(strings.TrimSpace(externalPluginContent)), 0o644); err != nil {
+		t.Fatalf("failed to write external symlink target: %v", err)
+	}
 	symlinkPath := filepath.Join(tmpDir, "netops", "symlinked.yaml")
-	_ = os.Symlink(symlinkTarget, symlinkPath) // Ignore error if OS/privileges disallow symlink
+	symlinkCreated := false
+	if err := os.Symlink(symlinkTarget, symlinkPath); err == nil {
+		symlinkCreated = true
+	}
 
 	reg := NewEmptyRegistry()
 	loaded, err := reg.LoadDeclarativeDirectory(tmpDir)
@@ -190,6 +204,15 @@ actions:
 		"k8s-pods":           "Kubernetes",
 		"aiops-llm":          "AIOps",
 		"devops-custom-cat":  "CustomCategoryOverride",
+	}
+
+	if symlinkCreated {
+		p, exists := reg.Get("external-symlink")
+		if !exists {
+			t.Errorf("symlinked plugin %q was not loaded into registry", "external-symlink")
+		} else if p.Category() != "NetOps" {
+			t.Errorf("symlinked plugin %q: expected category %q, got %q", "external-symlink", "NetOps", p.Category())
+		}
 	}
 
 	for id, expectedCat := range expectedCategories {

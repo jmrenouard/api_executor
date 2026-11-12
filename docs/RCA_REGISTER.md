@@ -649,6 +649,27 @@ This living governance register records all errors encountered, technical dead-e
   - Python `fnmatch` confirms tags `v2.1.0`, `v2.1`, `v2` match both `release.yml` and `docker-publish.yml`.
   - 100% test pass on Go unit, E2E, and documentation suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
 
+### `RCA-047` — Linux CI Test Failure in `TestChallenger_RecursiveDirectoryDiscovery_DeepAndMixed` Caused by Symlink Target Inside Scanned Directory Tree
+- **Date**: `2026-11-12`
+- **Observed Symptom**:
+  On GitHub Actions Linux CI runners (`Test & Build` job) and local WSL Ubuntu-24.04, `TestChallenger_RecursiveDirectoryDiscovery_DeepAndMixed` in `internal/plugins/m1_stress_challenge_test.go` failed with:
+  `LoadDeclarativeDirectory failed unexpectedly: plugin already registered: plugin with ID "deep-sysadmin" is already registered`.
+  Meanwhile, the test passed on local Windows host without failure.
+- **Root Cause Analysis**:
+  1. *Why did the test fail on Linux but pass on Windows?* On Windows, unprivileged user accounts cannot create symbolic links without Developer Mode, so `_ = os.Symlink(...)` returned an error and was silently ignored. On Linux, unprivileged users can create symlinks, so the symlink was successfully created.
+  2. *Why was a duplicate plugin ID encountered?* The test created a symlink `tmpDir/netops/symlinked.yaml` pointing to `tmpDir/sysadmin/a/b/c/d/deep.yaml`. Both the symlink and the original target file resided within the same scanned root `tmpDir`.
+  3. *Why did `LoadDeclarativeDirectory` encounter the plugin twice?* `filepath.WalkDir` walked the entire directory tree. In lexical order, `netops/symlinked.yaml` was visited first; `os.ReadFile` dereferenced the symlink and loaded `deep.yaml` with `id: deep-sysadmin`. Next, `sysadmin/a/b/c/d/deep.yaml` was visited and read with the identical `id: deep-sysadmin`.
+  4. *Why did registration fail?* `Registry.Register` strictly enforces plugin ID uniqueness and returns `ErrDuplicatePlugin`.
+  5. *What was the design flaw in the test?* The symlink target was placed inside the discovery directory tree rather than an external directory, conflating directory traversal with duplicate file detection.
+- **Applied Change / Fix**:
+  1. Isolated the symlink target by writing `external.yaml` (`id: external-symlink`) into a separate temporary directory (`outsideDir := t.TempDir()`).
+  2. Created the symlink `tmpDir/netops/symlinked.yaml` targeting `outsideDir/external.yaml`.
+  3. Added an explicit assertion verifying that when `symlinkCreated` is true, `external-symlink` is registered with inferred category `"NetOps"`.
+  4. Preserved non-privileged fallback when symlink creation is not permitted by host OS.
+- **Result & Non-Regression Test**:
+  - `go test -v ./internal/plugins -run TestChallenger_RecursiveDirectoryDiscovery_DeepAndMixed` passes on both Windows and WSL Ubuntu-24.04 (exit code 0).
+  - 100% test pass on Go unit and E2E suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
