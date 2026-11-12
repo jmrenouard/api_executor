@@ -67,3 +67,15 @@ otlp_export:
     # Authorization: "Bearer <token>"
     # DD-API-KEY: "<datadog-api-key>"
 
+sandbox:
+  enabled: true
+  enforce_non_root: true
+  uid: 10001
+  gid: 10001
+  userns: "keep-id"
+  userns_mode: "keep-id"
+  drop_privileges: true
+  no_new_privileges: true
+  drop_caps: true
+
+

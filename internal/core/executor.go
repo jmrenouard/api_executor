@@ -20,6 +20,9 @@ var ErrCommandTimeout = errors.New("command execution timed out")
 // ErrCommandCancelled is returned when a command execution is cancelled via context cancellation.
 var ErrCommandCancelled = errors.New("command execution cancelled")
 
+// ErrRootExecutionForbidden is returned when execution with root privileges (UID 0) is forbidden by security policy.
+var ErrRootExecutionForbidden = errors.New("root execution (UID 0) is forbidden by security policy")
+
 // limitedOutputBuffer is a concurrency-safe io.Writer that captures up to maxBytes of subprocess output
 // and drains any excess bytes without blocking subprocess stdout/stderr pipes.
 type limitedOutputBuffer struct {
@@ -93,6 +96,57 @@ func ExecuteCommandWithTimeout(commandDef CommandDefinition, timeout time.Durati
 	return ExecuteCommandWithContext(context.Background(), commandDef, timeout, nil)
 }
 
+// WrapContainerSandboxCommand injects rootless container flags (--userns=keep-id, --user 10001:10001)
+// when container runtime sandboxing (podman or docker) is configured.
+func WrapContainerSandboxCommand(cmdDef CommandDefinition, sandbox SandboxConfig) (CommandDefinition, error) {
+	if sandbox.Enabled {
+		if err := sandbox.Validate(); err != nil {
+			return cmdDef, err
+		}
+	}
+	if !sandbox.Enabled || sandbox.ContainerRuntime == "" || sandbox.ContainerRuntime == "native" {
+		return cmdDef, nil
+	}
+
+	uid := sandbox.EffectiveUID()
+	gid := sandbox.EffectiveGID()
+	if uid == 0 || gid == 0 {
+		return cmdDef, ErrRootExecutionForbidden
+	}
+
+	wrapped := cmdDef
+	switch sandbox.ContainerRuntime {
+	case "podman":
+		prefixArgs := []string{
+			"run", "--rm",
+			"--userns=" + sandbox.EffectiveUserNS(),
+			fmt.Sprintf("--user=%d:%d", uid, gid),
+		}
+		if sandbox.NoNewPrivileges {
+			prefixArgs = append(prefixArgs, "--security-opt=no-new-privileges:true")
+		}
+		if sandbox.DropCaps {
+			prefixArgs = append(prefixArgs, "--cap-drop=ALL")
+		}
+		wrapped.Command = "podman"
+		wrapped.Args = append(prefixArgs, append([]string{cmdDef.Command}, cmdDef.Args...)...)
+	case "docker":
+		prefixArgs := []string{
+			"run", "--rm",
+			fmt.Sprintf("--user=%d:%d", uid, gid),
+		}
+		if sandbox.NoNewPrivileges {
+			prefixArgs = append(prefixArgs, "--security-opt=no-new-privileges:true")
+		}
+		if sandbox.DropCaps {
+			prefixArgs = append(prefixArgs, "--cap-drop=ALL")
+		}
+		wrapped.Command = "docker"
+		wrapped.Args = append(prefixArgs, append([]string{cmdDef.Command}, cmdDef.Args...)...)
+	}
+	return wrapped, nil
+}
+
 // ExecuteCommandWithContext runs a predefined command with the provided context, timeout duration,
 // and an optional liveWriter (e.g., JobLogBuffer) that receives stdout/stderr streams in real time.
 // It guarantees that if the context is cancelled or times out, the entire subprocess tree is terminated
@@ -105,11 +159,21 @@ func ExecuteCommandWithContext(ctx context.Context, commandDef CommandDefinition
 		ctx = context.Background()
 	}
 
+	sandbox := DefaultSandboxConfig()
+	if commandDef.Sandbox != nil {
+		sandbox = *commandDef.Sandbox
+	}
+	if err := sandbox.Validate(); err != nil {
+		return "", err
+	}
+
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(execCtx, commandDef.Command, commandDef.Args...)
-	configureCommandProcessGroup(cmd)
+	if err := ConfigureCommandProcessGroupAndSandbox(cmd, sandbox); err != nil {
+		return "", err
+	}
 	// Ensure child processes holding open stdout/stderr descriptors do not block Wait indefinitely after kill.
 	cmd.WaitDelay = 200 * time.Millisecond
 

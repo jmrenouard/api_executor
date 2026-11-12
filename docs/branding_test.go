@@ -77,7 +77,7 @@ func TestSVGAssetsAreValidXMLAndREADMEIncludesBranding(t *testing.T) {
 		t.Fatalf("failed to read ../Dockerfile: %v", err)
 	}
 	rootDF := string(rootDockerfile)
-	for _, marker := range []string{"/app/certs", "chown -R appuser:appgroup /app", "COPY --from=builder /app/plugins ./plugins"} {
+	for _, marker := range []string{"/app/certs", "chown -R appuser:appgroup /app", "--from=builder /app/plugins ./plugins"} {
 		if !strings.Contains(rootDF, marker) {
 			t.Errorf("expected root Dockerfile to contain %q", marker)
 		}
@@ -469,4 +469,74 @@ func TestDockerPublishWorkflowCosignSigningAndLeastPrivilege(t *testing.T) {
 		}
 	}
 }
+
+func TestRootlessContainerSandboxManifestsAndDockerfiles(t *testing.T) {
+	// 1. Verify all Dockerfiles enforce UID/GID 10001 and non-root USER
+	dockerfiles := []string{"../Dockerfile", "../docker/Dockerfile.ubuntu", "../docker/Dockerfile.redhat"}
+	for _, dfPath := range dockerfiles {
+		content, err := os.ReadFile(dfPath)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", dfPath, err)
+		}
+		s := string(content)
+
+		if !strings.Contains(s, "10001") {
+			t.Errorf("expected %s to declare UID/GID 10001", dfPath)
+		}
+		if !strings.Contains(s, "USER 10001:10001") {
+			t.Errorf("expected %s to specify 'USER 10001:10001'", dfPath)
+		}
+		if !strings.Contains(s, "--chown=10001:10001") {
+			t.Errorf("expected %s to contain '--chown=10001:10001'", dfPath)
+		}
+		if strings.Contains(s, "USER root") || strings.Contains(s, "USER 0") {
+			t.Errorf("%s must not switch to root in final stage", dfPath)
+		}
+	}
+
+	// 2. Verify all compose files enforce rootless security directives
+	composeFiles := []string{"../docker-compose.yml", "../docker-compose.prod.yml", "../docker-compose.os-test.yml"}
+	requiredComposeMarkers := []string{
+		"10001:10001",
+		"userns_mode: \"keep-id\"",
+		"no-new-privileges:true",
+		"cap_drop:",
+		"ALL",
+	}
+	for _, cfPath := range composeFiles {
+		content, err := os.ReadFile(cfPath)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", cfPath, err)
+		}
+		s := string(content)
+		for _, marker := range requiredComposeMarkers {
+			if !strings.Contains(s, marker) {
+				t.Errorf("expected %s to contain security marker %q", cfPath, marker)
+			}
+		}
+	}
+
+	// 3. Verify configuration files declare sandbox isolation block with UID 10001
+	configFiles := []string{"../config.yaml", "../configs/ubuntu-tasks.yaml", "../configs/redhat-tasks.yaml"}
+	requiredConfigMarkers := []string{
+		"sandbox:",
+		"enforce_non_root: true",
+		"uid: 10001",
+		"gid: 10001",
+		"keep-id",
+	}
+	for _, cfgPath := range configFiles {
+		content, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", cfgPath, err)
+		}
+		s := string(content)
+		for _, marker := range requiredConfigMarkers {
+			if !strings.Contains(s, marker) {
+				t.Errorf("expected %s to contain sandbox marker %q", cfgPath, marker)
+			}
+		}
+	}
+}
+
 

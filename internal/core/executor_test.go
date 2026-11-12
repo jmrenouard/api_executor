@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -405,5 +406,130 @@ func TestIsCommandCancelled(t *testing.T) {
 	unrelated := errors.New("unrelated error")
 	if IsCommandCancelled(unrelated) {
 		t.Errorf("expected IsCommandCancelled(unrelated) == false")
+	}
+}
+
+func TestExecutor_RejectRootPrivilegeEscalation(t *testing.T) {
+	rootSandbox := SandboxConfig{
+		Enabled:        true,
+		EnforceNonRoot: true,
+		UID:            0,
+		GID:            0,
+		UserNS:         "keep-id",
+	}
+	cmd := helperEchoCommand("root-escalation-attempt", "evil")
+	cmd.Sandbox = &rootSandbox
+
+	_, err := ExecuteCommand(cmd)
+	if err == nil {
+		t.Fatalf("expected error when command specifies UID 0 with sandbox enabled")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "root") && !strings.Contains(strings.ToLower(err.Error()), "sandbox") {
+		t.Errorf("expected error indicating root/sandbox rejection, got %v", err)
+	}
+	if !errors.Is(err, ErrRootExecutionForbidden) {
+		t.Errorf("expected errors.Is(err, ErrRootExecutionForbidden) to be true, got %v", err)
+	}
+}
+
+func TestExecutor_ConfigureCommandProcessGroupAndSandbox(t *testing.T) {
+	sandbox := DefaultSandboxConfig()
+	cmd := exec.Command("echo", "test")
+	err := ConfigureCommandProcessGroupAndSandbox(cmd, sandbox)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cmd.Cancel == nil {
+		t.Errorf("expected cmd.Cancel cleanup handler to be initialized")
+	}
+}
+
+func TestWrapContainerSandboxCommand_Podman(t *testing.T) {
+	sandbox := DefaultSandboxConfig()
+	sandbox.ContainerRuntime = "podman"
+
+	cmdDef := CommandDefinition{
+		Name:    "echo-test",
+		Command: "echo",
+		Args:    []string{"hello"},
+	}
+
+	wrapped, err := WrapContainerSandboxCommand(cmdDef, sandbox)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wrapped.Command != "podman" {
+		t.Errorf("expected command 'podman', got %q", wrapped.Command)
+	}
+	foundUserNS := false
+	foundUser := false
+	for _, arg := range wrapped.Args {
+		if strings.Contains(arg, "--userns=keep-id") {
+			foundUserNS = true
+		}
+		if strings.Contains(arg, "--user=10001:10001") {
+			foundUser = true
+		}
+	}
+	if !foundUserNS {
+		t.Errorf("expected wrapped args to contain '--userns=keep-id', got %v", wrapped.Args)
+	}
+	if !foundUser {
+		t.Errorf("expected wrapped args to contain '--user=10001:10001', got %v", wrapped.Args)
+	}
+}
+
+func TestWrapContainerSandboxCommand_Docker(t *testing.T) {
+	sandbox := DefaultSandboxConfig()
+	sandbox.ContainerRuntime = "docker"
+
+	cmdDef := CommandDefinition{
+		Name:    "echo-test",
+		Command: "echo",
+		Args:    []string{"hello"},
+	}
+
+	wrapped, err := WrapContainerSandboxCommand(cmdDef, sandbox)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wrapped.Command != "docker" {
+		t.Errorf("expected command 'docker', got %q", wrapped.Command)
+	}
+	foundUser := false
+	for _, arg := range wrapped.Args {
+		if strings.Contains(arg, "--user=10001:10001") {
+			foundUser = true
+		}
+	}
+	if !foundUser {
+		t.Errorf("expected wrapped args to contain '--user=10001:10001', got %v", wrapped.Args)
+	}
+}
+
+func TestWrapContainerSandboxCommand_RootRejected(t *testing.T) {
+	sandbox := SandboxConfig{
+		Enabled:          true,
+		EnforceNonRoot:   true,
+		UID:              0,
+		GID:              0,
+		ContainerRuntime: "podman",
+	}
+
+	cmdDef := CommandDefinition{
+		Name:    "echo-test",
+		Command: "echo",
+		Args:    []string{"hello"},
+	}
+
+	_, err := WrapContainerSandboxCommand(cmdDef, sandbox)
+	if err == nil {
+		t.Fatalf("expected error rejecting UID 0, got nil")
+	}
+	if !errors.Is(err, ErrRootExecutionForbidden) {
+		t.Errorf("expected ErrRootExecutionForbidden, got %v", err)
 	}
 }
