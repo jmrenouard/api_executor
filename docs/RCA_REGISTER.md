@@ -738,6 +738,28 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified via YAML parser (`python -c "import yaml; yaml.safe_load(open('.github/workflows/release.yml'))"`) and Go tests in `docs/branding_test.go`.
 
+### `RCA-052` — Unbounded HTTP Request Bodies (`CWE-400`), Missing Per-IP Rate Limiting (`CWE-770`), Fail-Open `resolvePrincipal` When `AuthManager == nil` (`CWE-287`), and Missing `mcp:access` Check on MCP Trace Read Endpoints (`CWE-862`)
+- **Date**: `2026-11-12`
+- **Observed Symptom**:
+  During the `/repo-scan` and `/ponytail-audit` security audit of `internal/api` (Issue #126):
+  1. None of the 12 JSON `POST`/`PUT`/`PATCH` handlers bounded `r.Body` with `http.MaxBytesReader`, allowing an attacker to send a multi-gigabyte JSON body or chunked stream to exhaust server heap memory (`CWE-400`).
+  2. No per-IP HTTP rate limiter was wired into `NewRouter`, allowing volumetric request floods or `/api/v1/auth/login` brute-force floods from a single IP without `429 Too Many Requests` throttling (`CWE-770`).
+  3. `resolvePrincipal` in `internal/api/auth_handlers.go` checked `env.Config.Auth.Enabled && env.Config.Auth.RequireAuth && env.AuthManager != nil`; if `RequireAuth` was `true` while `AuthManager` was `nil` or `Auth.Enabled` was `false`, `resolvePrincipal` fell through and returned an `anonymous` principal with `commands:execute`, `plugins:execute`, `mcp:access`, and `jobs:submit` scopes (`CWE-287`).
+  4. `MCPTracesHandler` (`GET /api/v1/mcp/traces`) and `MCPTraceByIDHandler` (`GET /api/v1/mcp/traces/{trace_id}`) called `resolvePrincipal` but did not verify `auth.Authorize(p, "mcp:access", "")`, allowing a `viewer` principal without `mcp:access` to read all MCP interaction traces (`CWE-862`).
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why were request bodies unbounded?* Handlers called `json.NewDecoder(r.Body).Decode(&req)` directly on the raw `net/http` stream without a centralized middleware applying `http.MaxBytesReader`.
+  2. *Why was rate limiting absent on HTTP routes?* Backpressure was previously implemented at the async job queue (`QueueCapacity = 1000`) and subprocess timeout layers, but not at the HTTP ingress layer per client IP.
+  3. *Why could `resolvePrincipal` fail open when `RequireAuth: true`?* The guard coupled `RequireAuth` to `Auth.Enabled && env.AuthManager != nil` in a single conditional instead of failing closed whenever `RequireAuth` is true and no authenticated principal can be resolved.
+  4. *Why did `GET /api/v1/mcp/traces` allow `viewer` access?* `MCPTracesHandler` only enforced `p.Role == auth.RoleAdmin` on `DELETE` and omitted `auth.Authorize(p, "mcp:access", "")` on `GET`.
+  5. *Root Cause*: Lack of a centralized HTTP security middleware (`securityMiddleware`) for body caps, per-IP rate limiting, and defensive headers, combined with incomplete fail-closed/scope checks in `resolvePrincipal` and `MCPTracesHandler`.
+- **Applied Change / Fix**:
+  1. Created `internal/api/security_middleware.go` implementing defensive HTTP headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `X-Permitted-Cross-Domain-Policies: none`, `Strict-Transport-Security`), `IPRateLimiter` (per-IP token bucket with `MaxTrackedRateLimitIPs = 10000` and stale-entry eviction returning `429 Too Many Requests`), and `MaxRequestBodyBytes = 1 MiB` request body bounding returning `413 Request Entity Too Large`.
+  2. Hardened `resolvePrincipal` in `internal/api/auth_handlers.go` to fail closed (`return nil, auth.ErrInvalidToken`) whenever `env.Config != nil && env.Config.Auth.RequireAuth` and no valid credential is provided or `AuthManager` is unavailable.
+  3. Added `auth.Authorize(p, "mcp:access", "")` enforcement to `MCPTracesHandler` (`GET`) and `MCPTraceByIDHandler` (`GET`) in `internal/api/mcp_handlers.go`.
+  4. Added `internal/api/security_audit_test.go`, `.github/workflows/security.yml`, and root `SECURITY.md`.
+- **Result & Non-Regression Test**:
+  Verified by `TestAPISecurityAudit_UnauthorizedAccessMatrix`, `TestAPISecurityAudit_PrivilegeEscalationAndForbiddenMutations`, `TestAPISecurityAudit_InjectionAndConfinementPrevention`, and `TestAPISecurityAudit_DDoSRateLimitAndResourceExhaustion` in `internal/api/security_audit_test.go` (100% pass).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -781,6 +803,9 @@ This living governance register records all errors encountered, technical dead-e
 ### `IMP-013` — Hardcoding Release-Specific Hashes and Checksum Matrices in Repository README
 - **Reason for Abandonment**: Embedding immutable cryptographic hashes and download tables for a specific release (e.g. v2.1.0) directly into root documentation (`README.md`) creates maintenance toil, causes documentation rot as soon as newer versions are published, and contradicts the principle that immutable release artifacts belong strictly in GitHub Release assets and release notes. Release deliverables must be verified using generic, templated instructions, and release checksums (`SHA256SUMS.txt`, `<archive>.sha256`) must be attached directly to the GitHub Release.
 
+### `IMP-014` — Unbounded Per-IP Rate Limiter Maps Without Eviction Under Spoofed-IP Floods
+- **Reason for Abandonment**: A naive `map[string]*tokenBucket` per-IP rate limiter that never evicts entries can itself become a memory exhaustion DDoS vector if an attacker sends requests with millions of spoofed `RemoteAddr` or `X-Forwarded-For` addresses. Replaced in `internal/api/security_middleware.go` with `IPRateLimiter` capped at `MaxTrackedRateLimitIPs = 10000` with stale-bucket eviction (`RateLimitStaleTTL = 10m`) and oldest-entry eviction when capacity is reached.
+
 ---
 
 ## 3. Current Approximations & Simplifying Assumptions (`APP-XXX`)
@@ -799,6 +824,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-010` | `internal/api` | In-memory chunked log streaming via `JobLogBuffer` returns `eof=true` and empty chunk after buffer eviction, relying on output summary in `JobStore`. | Historical logs after buffer eviction cannot be re-streamed byte-for-byte via the chunked log endpoint. | Add persistent chunked log archive to disk or object storage (`IDEA-007`). |
 | `APP-011` | `.github/workflows`, CI/CD | GitHub Actions automated Docker Hub publishing relies on repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. Verified during Milestone M4 execution (`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` configured in GitHub Secrets; automated workflow `.github/workflows/docker-publish.yml` executed and verified on Docker Hub). For third-party forks or unauthenticated runners, secrets remain absent or restricted, requiring maintainer secrets setup or local authenticated Buildx push. | CI/CD cannot push Docker images from unauthenticated forks without repository secrets; out-of-band releases require maintainer token configuration or local maintainer CLI invocation. | Maintainer sets secrets: `gh secret set DOCKERHUB_USERNAME -b "jmrenouard"` and `gh secret set DOCKERHUB_TOKEN -b "<token>"`, then dispatches `gh workflow run docker-publish.yml -f tag=v2.1.0`, or pushes locally via `docker buildx build --platform linux/amd64,linux/arm64 -t jmrenouard/api_executor:v2.1.0 -t jmrenouard/api_executor:latest --push .`. Alternatively, migrate to `ghcr.io` (`IDEA-013`). |
 | `APP-012` | `Dockerfile`, Deployment | Non-root container UID/GID 10001 host volume permissions: Bind-mounted host directories (`./certs`, `./data`, `./secure_files`) must grant write permissions to UID 10001 if the server auto-generates certificates or writes `history.db`. | Auto-generation or database writes fail with permission denied if host directories are owned strictly by root without 10001 write access. | Document named Docker volumes and explicit `chown -R 10001:10001` commands for bind-mounted host volumes. |
+| `APP-013` | `internal/api` | Per-IP token-bucket rate limiter (`IPRateLimiter`) maintains state in local process memory (`MaxTrackedRateLimitIPs = 10000`). | Rate limits are enforced per API Executor instance rather than globally across a multi-node horizontal cluster. | Use a shared Redis token-bucket store (`IDEA-015`) or upstream ingress rate limiting (Envoy / NGINX / Cloudflare) in multi-replica deployments. |
 
 ---
 
@@ -820,3 +846,4 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-012` | `P3` | `packaging/helm` | Production Helm Chart & Kubernetes Operator Manifests: Package an official Helm chart (`charts/api-executor`) with configurable values for ingress TLS, persistent volume claims (PVC) for SQLite `history.db`, horizontal pod autoscaler (HPA), and Prometheus Operator ServiceMonitor. |
 | `IDEA-013` | `P2` | `ci/cd`, `packaging/docker` | Multi-Registry Dual Publication (`ghcr.io` + `docker.io`) & Cosign Container Image Signing: Configure automated publishing to GitHub Container Registry (`ghcr.io/jmrenouard/api_executor`) leveraging native `GITHUB_TOKEN` alongside Docker Hub, and sign container image digests with Sigstore Cosign (`cosign sign`) providing cryptographic supply chain attestation (SLSA Level 3). |
 | `IDEA-014` | `P3` | `ci/cd`, `packaging` | Automated SLSA Provenance Generation & GitHub Artifact Attestations for Binary Deliverables: Integrate GitHub Actions artifact attestations (`actions/attest-build-provenance@v2`) into `.github/workflows/release.yml` to generate cryptographic build provenance conforming to SLSA Level 3 for all cross-compiled standalone binaries and archives, verifiable via GitHub CLI (`gh attestation verify`). |
+| `IDEA-015` | `P3` | `internal/api` | Distributed Redis-Backed Rate Limiting & Adaptive CIDR Reputation Blocking: Extend `IPRateLimiter` with an optional Redis sliding-window backend and automatic temporary ban escalation for IPs that repeatedly trigger `401 Unauthorized` or `429 Too Many Requests`. |

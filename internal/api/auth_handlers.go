@@ -17,7 +17,7 @@ import (
 func (env *APIEnv) resolvePrincipal(r *http.Request) (*auth.Principal, error) {
 	rawToken, hasToken := auth.ExtractTokenFromRequest(r)
 	if !hasToken {
-		if env.Config != nil && env.Config.Auth.Enabled && env.Config.Auth.RequireAuth && env.AuthManager != nil {
+		if env.Config != nil && env.Config.Auth.RequireAuth {
 			return nil, auth.ErrInvalidToken
 		}
 		return &auth.Principal{
@@ -32,6 +32,9 @@ func (env *APIEnv) resolvePrincipal(r *http.Request) (*auth.Principal, error) {
 		}, nil
 	}
 	if env.AuthManager == nil {
+		if env.Config != nil && env.Config.Auth.RequireAuth {
+			return nil, auth.ErrInvalidToken
+		}
 		return &auth.Principal{
 			Type: "anonymous",
 			ID:   "anonymous",

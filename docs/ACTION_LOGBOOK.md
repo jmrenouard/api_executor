@@ -13,6 +13,33 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-063` — Comprehensive API Security Audit, DDoS/Rate-Limit/RBAC Hardening, Automated CI Security Suite & `SECURITY.md`
+- **Timestamp (UTC)**: `2026-11-12T17:40:00Z`
+- **GitHub Issue**: [#126](https://github.com/jmrenouard/api_executor/issues/126)
+- **Branch**: `feat/issue-126-api-security-audit-and-hardening`
+- **Request**:
+  - Perform a `/repo-scan` and `/ponytail-audit` security audit across all REST and JSON-RPC 2.0 API endpoints, harden any identified gaps across DDoS, rate limiting, unauthorized access, and privilege escalation, add automated security tests + GitHub Actions workflow, and create a root `SECURITY.md` page documenting all passing security tests:
+    1. Audit and enforce authentication (`401 Unauthorized`) across all protected endpoints when `auth.require_auth: true`, including fail-closed resolution if `AuthManager == nil` or `auth.enabled == false`.
+    2. Audit and enforce anti-privilege escalation (`403 Forbidden`) preventing `anonymous`, `viewer`, `operator`, and `service_account` principals from adding/modifying/deleting users, minting elevated PATs, creating/rotating/deleting service accounts, activating OS presets, registering declarative plugins, renewing TLS certificates, clearing MCP traces (`DELETE /api/v1/mcp/traces`), reading MCP traces without `mcp:access` (`GET /api/v1/mcp/traces*`), or bypassing action allowlists via REST, Async Jobs, or MCP `tools/call`.
+    3. Audit and enforce command allowlisting (`404`), declarative plugin shell metacharacter/traversal blocking (`400`), file download path confinement (`400`/`403`), and read-only SQL validation (`403`).
+    4. Implement per-IP token-bucket rate limiting (`429 Too Many Requests` + `Retry-After` + `X-RateLimit-Limit` + bounded `MaxTrackedRateLimitIPs = 10000` eviction), HTTP request body size bounding (`MaxRequestBodyBytes = 1 MiB` -> `413 Request Entity Too Large` for fixed and chunked bodies), and defensive HTTP response headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `X-Permitted-Cross-Domain-Policies: none`, `Strict-Transport-Security`).
+    5. Create automated security tests (`internal/api/security_audit_test.go`), GitHub Actions workflow (`.github/workflows/security.yml`), and root `SECURITY.md` page linked from `README.md` and verified in `docs/branding_test.go`.
+- **Changes**:
+  - Created [`internal/api/security_middleware.go`](../internal/api/security_middleware.go) (`IPRateLimiter`, `MaxRequestBodyBytes = 1 MiB` enforcement with `413 Request Entity Too Large`, and defensive HTTP security headers).
+  - Modified [`internal/core/config.go`](../internal/core/config.go) (added `RateLimitConfig`, `DefaultRateLimitConfig()`, and `MaxRequestBodyBytes` to `ServerConfig`).
+  - Modified [`internal/api/router.go`](../internal/api/router.go) (wrapped router with `securityMiddleware`).
+  - Modified [`internal/api/auth_handlers.go`](../internal/api/auth_handlers.go) (hardened `resolvePrincipal` to fail closed when `RequireAuth: true` even if `AuthManager == nil` or `Auth.Enabled == false`).
+  - Modified [`internal/api/mcp_handlers.go`](../internal/api/mcp_handlers.go) (enforced `auth.Authorize(p, "mcp:access", "")` on `GET /api/v1/mcp/traces` and `GET /api/v1/mcp/traces/{trace_id}`).
+  - Created [`internal/api/security_audit_test.go`](../internal/api/security_audit_test.go) (comprehensive automated security audit suite covering unauthorized access matrix, privilege escalation & forbidden mutations, injection & confinement prevention, and DDoS/rate-limiting/body-cap/cardinality protection).
+  - Created [`.github/workflows/security.yml`](../.github/workflows/security.yml) (automated GitHub Actions security suite with least-privilege `contents: read` permissions).
+  - Created [`SECURITY.md`](../SECURITY.md) and updated [`README.md`](../README.md) and [`docs/branding_test.go`](branding_test.go) (`TestSecurityDocumentationAndWorkflowCompleteness`).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-063`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (`RCA-052`, `IMP-014`, `APP-013`, `IDEA-015`).
+- **Result**:
+  - 100% test pass across all Go unit, security audit, documentation, and E2E suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+  - GitHub Issue [#126](https://github.com/jmrenouard/api_executor/issues/126).
+
+---
+
 ### `ACT-062` — Enforce Least-Privilege Permissions and Job-Level Trigger Constraints in Release Workflow
 - **Timestamp (UTC)**: `2026-11-12T14:35:00Z`
 - **GitHub Issue**: [#124](https://github.com/jmrenouard/api_executor/issues/124)

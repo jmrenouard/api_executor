@@ -1,0 +1,49 @@
+name: Automated API Security Suite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-security-audit:
+    name: API Security, RBAC, Injection & DDoS Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Verify Module Checksums (go mod verify)
+        run: go mod verify
+
+      - name: Static Analysis & Vet Checks (go vet)
+        run: go vet ./...
+
+      - name: Documentation & Security Policy Integrity Checks
+        run: go test -v ./docs -run "TestSecurityDocumentationAndWorkflowCompleteness|TestSVGAssetsAreValidXMLAndREADMEIncludesBranding"
+
+      - name: Automated API Security Audit Suite (Auth, RBAC, Escalation, Injection, DDoS & Rate Limiting)
+        run: go test -v -race ./internal/api -run "TestAPISecurityAudit|TestAuth|TestProtectedEndpoints|TestAnonymousPrivilegeEscalation"
+
+      - name: Adversarial Plugin Sandbox & Read-Only SQL Confinement Suite
+        run: go test -v ./internal/plugins -run "TestM2Adversarial|TestDBExposure|TestJWTTokenInspector"
+
+      - name: SHA-256 Tamper-Evident Audit Hash-Chain Verification Suite
+        run: go test -v -race ./internal/audit/...
+
+      - name: End-to-End Security Boundary & Cross-Feature Verification Suite
+        run: go test -v ./tests/e2e -run "TestTier2_Boundary|TestTier3_Combination"
