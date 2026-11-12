@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
@@ -949,6 +950,175 @@ func TestTier1_F9_CertifiedVersionEndpoint_MethodNotAllowed(t *testing.T) {
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed for POST /api/v1/version, got %d", resp.StatusCode)
+	}
+}
+
+// ============================================================================
+// Tier 1 - Feature 10: Native Multi-Config Endpoint & Backward Compatibility (GET /api/v1/config)
+// ============================================================================
+
+func TestTier1_F10_ConfigEndpoint_DefaultSanitized(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	resp, err := srv.client.Get(srv.baseURL + "/api/v1/config")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/config: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for /api/v1/config, got %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected application/json Content-Type, got %s", contentType)
+	}
+
+	var payload struct {
+		ActiveProfile   string                       `json:"active_profile"`
+		ConfigFile      string                       `json:"config_file"`
+		Profiles        []core.ConfigProfileSummary  `json:"profiles"`
+		Server          core.SanitizedServerConfig   `json:"server"`
+		CommandExecutor core.SanitizedExecutorConfig `json:"command_executor"`
+		Auth            core.SanitizedAuthConfig     `json:"auth"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("failed to decode JSON response from /api/v1/config: %v", err)
+	}
+
+	if payload.ActiveProfile != "default" {
+		t.Errorf("expected active_profile 'default', got %q", payload.ActiveProfile)
+	}
+	if payload.ConfigFile == "" {
+		t.Errorf("expected non-empty config_file")
+	}
+	if len(payload.Profiles) == 0 {
+		t.Errorf("expected at least 1 profile in profiles list")
+	}
+	if payload.Auth.BootstrapPassword != "[REDACTED]" {
+		t.Errorf("expected redacted bootstrap password, got %q", payload.Auth.BootstrapPassword)
+	}
+	if !payload.CommandExecutor.Enabled {
+		t.Errorf("expected command_executor.enabled to be true")
+	}
+}
+
+func TestTier1_F10_ConfigEndpoint_MethodNotAllowed(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	resp, err := srv.client.Post(srv.baseURL + "/api/v1/config", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("failed to execute POST /api/v1/config: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed for POST /api/v1/config, got %d", resp.StatusCode)
+	}
+}
+
+func TestTier1_F10_ConfigEndpoint_ProfileResolutionAndBackwardCompatibility(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// Register a dedicated Ubuntu profile dynamically for testing
+	ubuntuCfg := core.DefaultConfig()
+	ubuntuCfg.Server.Port = 8089
+	ubuntuCfg.Executor.Commands = []core.CommandDefinition{
+		{Name: "ubuntu-e2e-cmd", Command: "echo", Args: []string{"ubuntu-ok"}},
+	}
+	srv.multiConfigMgr.RegisterProfile("ubuntu", "configs/ubuntu-tasks.yaml", "Ubuntu administration tasks", ubuntuCfg)
+
+	// 1. Query param ?profile=ubuntu
+	resp, err := srv.client.Get(srv.baseURL + "/api/v1/config?profile=ubuntu")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/config?profile=ubuntu: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for ?profile=ubuntu, got %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		ActiveProfile   string                       `json:"active_profile"`
+		Server          core.SanitizedServerConfig   `json:"server"`
+		CommandExecutor core.SanitizedExecutorConfig `json:"command_executor"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+	if payload.ActiveProfile != "ubuntu" {
+		t.Errorf("expected active_profile 'ubuntu', got %q", payload.ActiveProfile)
+	}
+	if payload.Server.Port != 8089 {
+		t.Errorf("expected port 8089, got %d", payload.Server.Port)
+	}
+	if payload.CommandExecutor.CommandsCount != 1 {
+		t.Errorf("expected 1 command count, got %d", payload.CommandExecutor.CommandsCount)
+	}
+
+	// 2. Query path /api/v1/configs/ubuntu
+	respPath, err := srv.client.Get(srv.baseURL + "/api/v1/configs/ubuntu")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/configs/ubuntu: %v", err)
+	}
+	defer respPath.Body.Close()
+	if respPath.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for /api/v1/configs/ubuntu, got %d", respPath.StatusCode)
+	}
+
+	// 3. Command listing with profile header X-Config-Profile: ubuntu
+	cmdReq, _ := http.NewRequest(http.MethodGet, srv.baseURL+"/api/v1/commands", nil)
+	cmdReq.Header.Set("X-Config-Profile", "ubuntu")
+	cmdResp, err := srv.client.Do(cmdReq)
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/commands: %v", err)
+	}
+	defer cmdResp.Body.Close()
+
+	if cmdResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for commands listing with profile, got %d", cmdResp.StatusCode)
+	}
+
+	var cmdListPayload struct {
+		Profile  string `json:"profile"`
+		Commands []struct {
+			Name string `json:"name"`
+		} `json:"commands"`
+	}
+	if err := json.NewDecoder(cmdResp.Body).Decode(&cmdListPayload); err != nil {
+		t.Fatalf("failed to decode commands response: %v", err)
+	}
+	if cmdListPayload.Profile != "ubuntu" {
+		t.Errorf("expected profile 'ubuntu', got %q", cmdListPayload.Profile)
+	}
+	if len(cmdListPayload.Commands) != 1 || cmdListPayload.Commands[0].Name != "ubuntu-e2e-cmd" {
+		t.Errorf("expected ubuntu-e2e-cmd command, got %+v", cmdListPayload.Commands)
+	}
+
+	// 4. Backward compatibility: unadorned /api/v1/commands returns default commands without regression
+	defCmdResp, err := srv.client.Get(srv.baseURL + "/api/v1/commands")
+	if err != nil {
+		t.Fatalf("failed to execute unadorned GET /api/v1/commands: %v", err)
+	}
+	defer defCmdResp.Body.Close()
+
+	var defCmdList struct {
+		Profile  string `json:"profile"`
+		Commands []struct {
+			Name string `json:"name"`
+		} `json:"commands"`
+	}
+	if err := json.NewDecoder(defCmdResp.Body).Decode(&defCmdList); err != nil {
+		t.Fatalf("failed to decode default commands response: %v", err)
+	}
+	if defCmdList.Profile != "default" {
+		t.Errorf("expected profile 'default', got %q", defCmdList.Profile)
+	}
+	if len(defCmdList.Commands) < 2 {
+		t.Errorf("expected default commands list, got %d commands", len(defCmdList.Commands))
 	}
 }
 

@@ -3,9 +3,12 @@ package core
 import (
 	"fmt"
 	"math"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -19,15 +22,97 @@ const (
 )
 
 type Config struct {
-	Server     ServerConfig     `yaml:"server" json:"server"`
-	Logging    LoggingConfig    `yaml:"logging" json:"logging"`
-	Database   DatabaseConfig   `yaml:"database" json:"database"`
-	FileServer FileServerConfig `yaml:"file_server" json:"file_server"`
-	Executor   ExecutorConfig   `yaml:"command_executor" json:"command_executor"`
-	Auth       AuthConfig       `yaml:"auth,omitempty" json:"auth"`
-	Plugins    PluginsConfig    `yaml:"plugins,omitempty" json:"plugins"`
-	MCP        MCPConfig        `yaml:"mcp,omitempty" json:"mcp"`
-	Audit      AuditConfig      `yaml:"audit,omitempty" json:"audit"`
+	Server      ServerConfig     `yaml:"server" json:"server"`
+	Logging     LoggingConfig    `yaml:"logging" json:"logging"`
+	Database    DatabaseConfig   `yaml:"database" json:"database"`
+	FileServer  FileServerConfig `yaml:"file_server" json:"file_server"`
+	Executor    ExecutorConfig   `yaml:"command_executor" json:"command_executor"`
+	Auth        AuthConfig       `yaml:"auth,omitempty" json:"auth"`
+	Plugins     PluginsConfig    `yaml:"plugins,omitempty" json:"plugins"`
+	MCP         MCPConfig        `yaml:"mcp,omitempty" json:"mcp"`
+	Audit       AuditConfig      `yaml:"audit,omitempty" json:"audit"`
+	MultiConfig MultiConfig      `yaml:"multi_config,omitempty" json:"multi_config,omitempty"`
+}
+
+// MultiConfig configures the native multi-configuration and backward compatibility subsystem.
+type MultiConfig struct {
+	Enabled        bool                    `yaml:"enabled" json:"enabled"`
+	Endpoint       string                  `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	DefaultProfile string                  `yaml:"default_profile" json:"default_profile"`
+	Profiles       []ConfigProfileMetadata `yaml:"profiles" json:"profiles"`
+}
+
+// ConfigProfileMetadata declares a named configuration profile and its backing file path.
+type ConfigProfileMetadata struct {
+	Name        string `yaml:"name" json:"name"`
+	Path        string `yaml:"path" json:"path"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+// ConfigProfileSummary provides client-facing metadata for a configuration profile.
+type ConfigProfileSummary struct {
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	Description   string `json:"description,omitempty"`
+	CommandsCount int    `json:"commands_count"`
+	IsDefault     bool   `json:"is_default"`
+}
+
+// SanitizedConfigView represents the client-facing view of a configuration with sensitive credentials masked.
+type SanitizedConfigView struct {
+	ActiveProfile   string                  `json:"active_profile"`
+	ConfigFile      string                  `json:"config_file"`
+	Profiles        []ConfigProfileSummary  `json:"profiles"`
+	Server          SanitizedServerConfig   `json:"server"`
+	Logging         LoggingConfig           `json:"logging"`
+	FileServer      FileServerConfig        `json:"file_server"`
+	CommandExecutor SanitizedExecutorConfig `json:"command_executor"`
+	Auth            SanitizedAuthConfig     `json:"auth"`
+	Plugins         PluginsConfig           `json:"plugins"`
+	MCP             MCPConfig               `json:"mcp"`
+}
+
+// SanitizedServerConfig represents the sanitized server configuration.
+type SanitizedServerConfig struct {
+	Port                int             `json:"port"`
+	Host                string          `json:"host"`
+	TLSEnabled          bool            `json:"tls_enabled"`
+	TLS                 SanitizedTLS    `json:"tls,omitempty"`
+	RateLimit           RateLimitConfig `json:"rate_limit,omitempty"`
+	MaxRequestBodyBytes int64           `json:"max_request_body_bytes,omitempty"`
+}
+
+// SanitizedTLS represents the sanitized TLS parameters.
+type SanitizedTLS struct {
+	Enabled      bool     `json:"enabled"`
+	AutoGenerate bool     `json:"auto_generate"`
+	CertFile     string   `json:"cert_file"`
+	KeyFile      string   `json:"key_file"`
+	Organization string   `json:"organization"`
+	ValidityDays int      `json:"validity_days"`
+	MinVersion   string   `json:"min_version"`
+	Hosts        []string `json:"hosts"`
+}
+
+// SanitizedExecutorConfig represents the sanitized command executor configuration.
+type SanitizedExecutorConfig struct {
+	Enabled               bool     `json:"enabled"`
+	DefaultTimeout        string   `json:"default_timeout"`
+	DefaultTimeoutSeconds int      `json:"default_timeout_seconds,omitempty"`
+	MaxTimeoutSeconds     int      `json:"max_timeout_seconds,omitempty"`
+	EnableOSPresets       bool     `json:"enable_os_presets,omitempty"`
+	OSPresets             []string `json:"os_presets,omitempty"`
+	CommandsCount         int      `json:"commands_count"`
+}
+
+// SanitizedAuthConfig represents the sanitized authentication settings with credentials redacted.
+type SanitizedAuthConfig struct {
+	Enabled           bool   `json:"enabled"`
+	RequireAuth       bool   `json:"require_auth"`
+	BootstrapUsername string `json:"bootstrap_username,omitempty"`
+	BootstrapPassword string `json:"bootstrap_password,omitempty"`
+	BootstrapToken    string `json:"bootstrap_token,omitempty"`
+	StorePath         string `json:"store_path,omitempty"`
 }
 
 type ServerConfig struct {
@@ -201,6 +286,11 @@ func DefaultConfig() *Config {
 			Enabled:      true,
 			MaxMemoryLog: 1000,
 		},
+		MultiConfig: MultiConfig{
+			Enabled:        false,
+			Endpoint:       "/api/v1/config",
+			DefaultProfile: "default",
+		},
 	}
 }
 
@@ -319,4 +409,331 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+// MultiConfigManager manages a thread-safe registry of named configuration profiles,
+// providing profile resolution based on query parameters or headers with default fallback.
+type MultiConfigManager struct {
+	mu             sync.RWMutex
+	defaultProfile string
+	masterPath     string
+	configs        map[string]*Config
+	profiles       []ConfigProfileMetadata
+	pathMap        map[string]string
+}
+
+// resolveProfileFilePath attempts to locate a profile file relative to the working directory,
+// the master configuration directory, or common parent repository roots.
+func resolveProfileFilePath(masterPath, profilePath string) string {
+	if filepath.IsAbs(profilePath) {
+		return profilePath
+	}
+	candidates := []string{
+		profilePath,
+		filepath.Join(filepath.Dir(masterPath), profilePath),
+		filepath.Join("..", profilePath),
+		filepath.Join("..", "..", profilePath),
+	}
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return profilePath
+}
+
+// NewMultiConfigManager initializes a MultiConfigManager from a master configuration.
+// If masterCfg is nil, it falls back to DefaultConfig().
+func NewMultiConfigManager(masterPath string, masterCfg *Config) (*MultiConfigManager, error) {
+	if masterCfg == nil {
+		masterCfg = DefaultConfig()
+	}
+	defaultProfile := strings.TrimSpace(masterCfg.MultiConfig.DefaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = "default"
+	}
+	if masterPath == "" {
+		masterPath = "config.yaml"
+	}
+
+	mgr := &MultiConfigManager{
+		defaultProfile: defaultProfile,
+		masterPath:     masterPath,
+		configs:        make(map[string]*Config),
+		profiles:       make([]ConfigProfileMetadata, 0),
+		pathMap:        make(map[string]string),
+	}
+
+	// Register default profile with the master configuration
+	mgr.configs[defaultProfile] = masterCfg
+	mgr.pathMap[defaultProfile] = masterPath
+
+	hasDefaultInProfiles := false
+	for _, p := range masterCfg.MultiConfig.Profiles {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			continue
+		}
+		if name == defaultProfile {
+			hasDefaultInProfiles = true
+			if p.Path != "" {
+				mgr.pathMap[defaultProfile] = p.Path
+			}
+			mgr.profiles = append(mgr.profiles, ConfigProfileMetadata{
+				Name:        defaultProfile,
+				Path:        mgr.pathMap[defaultProfile],
+				Description: p.Description,
+			})
+			continue
+		}
+
+		resolvedPath := resolveProfileFilePath(masterPath, p.Path)
+		cfg, err := LoadConfig(resolvedPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load multi-config profile %q from %q: %w", name, p.Path, err)
+		}
+		mgr.configs[name] = cfg
+		mgr.pathMap[name] = p.Path
+		mgr.profiles = append(mgr.profiles, ConfigProfileMetadata{
+			Name:        name,
+			Path:        p.Path,
+			Description: p.Description,
+		})
+	}
+
+	if !hasDefaultInProfiles {
+		mgr.profiles = append([]ConfigProfileMetadata{{
+			Name:        defaultProfile,
+			Path:        masterPath,
+			Description: "Default configuration profile",
+		}}, mgr.profiles...)
+	}
+
+	return mgr, nil
+}
+
+// DefaultProfile returns the name of the active default profile.
+func (m *MultiConfigManager) DefaultProfile() string {
+	if m == nil {
+		return "default"
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.defaultProfile
+}
+
+// GetProfile retrieves a configuration profile by name.
+func (m *MultiConfigManager) GetProfile(name string) (*Config, bool) {
+	if m == nil {
+		return nil, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cfg, ok := m.configs[name]
+	return cfg, ok
+}
+
+// RegisterProfile dynamically registers or overrides a named configuration profile.
+func (m *MultiConfigManager) RegisterProfile(name, path, description string, cfg *Config) {
+	if m == nil || name == "" || cfg == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.configs[name] = cfg
+	m.pathMap[name] = path
+
+	updated := false
+	for i, p := range m.profiles {
+		if p.Name == name {
+			m.profiles[i] = ConfigProfileMetadata{Name: name, Path: path, Description: description}
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		m.profiles = append(m.profiles, ConfigProfileMetadata{Name: name, Path: path, Description: description})
+	}
+}
+
+// ResolveProfileName inspects HTTP request query parameters and headers to identify the targeted profile.
+// If the requested profile does not exist or none is specified, it returns the default profile name.
+func (m *MultiConfigManager) ResolveProfileName(r *http.Request) string {
+	if m == nil {
+		return "default"
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if r != nil {
+		if q := strings.TrimSpace(r.URL.Query().Get("profile")); q != "" {
+			if _, ok := m.configs[q]; ok {
+				return q
+			}
+		}
+		if h := strings.TrimSpace(r.Header.Get("X-Config-Profile")); h != "" {
+			if _, ok := m.configs[h]; ok {
+				return h
+			}
+		}
+		if h := strings.TrimSpace(r.Header.Get("X-API-Config")); h != "" {
+			if _, ok := m.configs[h]; ok {
+				return h
+			}
+		}
+	}
+	if m.defaultProfile != "" {
+		return m.defaultProfile
+	}
+	return "default"
+}
+
+// ResolveConfig resolves the active configuration for an HTTP request based on query parameters or headers.
+func (m *MultiConfigManager) ResolveConfig(r *http.Request) *Config {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	profileName := m.defaultProfile
+	if r != nil {
+		if q := strings.TrimSpace(r.URL.Query().Get("profile")); q != "" {
+			if cfg, ok := m.configs[q]; ok {
+				return cfg
+			}
+		}
+		if h := strings.TrimSpace(r.Header.Get("X-Config-Profile")); h != "" {
+			if cfg, ok := m.configs[h]; ok {
+				return cfg
+			}
+		}
+		if h := strings.TrimSpace(r.Header.Get("X-API-Config")); h != "" {
+			if cfg, ok := m.configs[h]; ok {
+				return cfg
+			}
+		}
+	}
+
+	if cfg, ok := m.configs[profileName]; ok {
+		return cfg
+	}
+	for _, cfg := range m.configs {
+		return cfg
+	}
+	return nil
+}
+
+// ListProfiles returns client-facing summaries for all declared configuration profiles.
+func (m *MultiConfigManager) ListProfiles() []ConfigProfileSummary {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	summaries := make([]ConfigProfileSummary, 0, len(m.profiles))
+	for _, p := range m.profiles {
+		cmdCount := 0
+		if cfg, ok := m.configs[p.Name]; ok {
+			cmdCount = len(cfg.Executor.Commands)
+		}
+		summaries = append(summaries, ConfigProfileSummary{
+			Name:          p.Name,
+			Path:          p.Path,
+			Description:   p.Description,
+			CommandsCount: cmdCount,
+			IsDefault:     p.Name == m.defaultProfile,
+		})
+	}
+	return summaries
+}
+
+// SanitizedView returns a sanitized view of the requested profile with credentials redacted.
+func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfigView, error) {
+	if m == nil {
+		return nil, fmt.Errorf("multi-config manager is uninitialized")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	targetName := strings.TrimSpace(profileName)
+	if targetName == "" {
+		targetName = m.defaultProfile
+	}
+
+	cfg, exists := m.configs[targetName]
+	if !exists {
+		return nil, fmt.Errorf("configuration profile %q not found", targetName)
+	}
+
+	configPath := m.pathMap[targetName]
+	if configPath == "" {
+		configPath = m.masterPath
+	}
+
+	summaries := make([]ConfigProfileSummary, 0, len(m.profiles))
+	for _, p := range m.profiles {
+		cmdCount := 0
+		if c, ok := m.configs[p.Name]; ok {
+			cmdCount = len(c.Executor.Commands)
+		}
+		summaries = append(summaries, ConfigProfileSummary{
+			Name:          p.Name,
+			Path:          p.Path,
+			Description:   p.Description,
+			CommandsCount: cmdCount,
+			IsDefault:     p.Name == m.defaultProfile,
+		})
+	}
+
+	view := &SanitizedConfigView{
+		ActiveProfile: targetName,
+		ConfigFile:    configPath,
+		Profiles:      summaries,
+		Server: SanitizedServerConfig{
+			Port:                cfg.Server.Port,
+			Host:                cfg.Server.Host,
+			TLSEnabled:          cfg.Server.TLS.Enabled,
+			TLS: SanitizedTLS{
+				Enabled:      cfg.Server.TLS.Enabled,
+				AutoGenerate: cfg.Server.TLS.AutoGenerate,
+				CertFile:     cfg.Server.TLS.CertFile,
+				KeyFile:      cfg.Server.TLS.KeyFile,
+				Organization: cfg.Server.TLS.Organization,
+				ValidityDays: cfg.Server.TLS.ValidityDays,
+				MinVersion:   cfg.Server.TLS.MinVersion,
+				Hosts:        cfg.Server.TLS.Hosts,
+			},
+			RateLimit:           cfg.Server.RateLimit,
+			MaxRequestBodyBytes: cfg.Server.MaxRequestBodyBytes,
+		},
+		Logging:    cfg.Logging,
+		FileServer: cfg.FileServer,
+		CommandExecutor: SanitizedExecutorConfig{
+			Enabled:               cfg.Executor.Enabled,
+			DefaultTimeout:        cfg.Executor.EffectiveDefaultTimeout().String(),
+			DefaultTimeoutSeconds: cfg.Executor.DefaultTimeoutSeconds,
+			MaxTimeoutSeconds:     cfg.Executor.MaxTimeoutSeconds,
+			EnableOSPresets:       cfg.Executor.EnableOSPresets,
+			OSPresets:             cfg.Executor.OSPresets,
+			CommandsCount:         len(cfg.Executor.Commands),
+		},
+		Auth: SanitizedAuthConfig{
+			Enabled:           cfg.Auth.Enabled,
+			RequireAuth:       cfg.Auth.RequireAuth,
+			BootstrapUsername: cfg.Auth.BootstrapUsername,
+			BootstrapPassword: "[REDACTED]",
+			BootstrapToken:    "[REDACTED]",
+			StorePath:         cfg.Auth.StorePath,
+		},
+		Plugins: cfg.Plugins,
+		MCP:     cfg.MCP,
+	}
+
+	return view, nil
 }

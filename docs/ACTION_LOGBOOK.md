@@ -13,6 +13,35 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-066` — Native Multi-Config Inspection Endpoint & Backward Compatibility Support
+- **Timestamp (UTC)**: `2026-11-12T19:15:00Z`
+- **GitHub Issue**: [#132](https://github.com/jmrenouard/api_executor/issues/132)
+- **Branch**: `feat/issue-132-native-multi-config-endpoint`
+- **Request**:
+  - Expose a native REST endpoint declared in configuration enabling support for multiple configuration files based on the API profile invoked for backward compatibility.
+  - Implement `MultiConfigManager` in `internal/core/config.go` managing named configuration profiles (`default`, `ubuntu`, `redhat`, etc.) with thread-safe resolution and fallback.
+  - Expose native endpoint `GET /api/v1/config` (and `GET /api/v1/configs/{profile}`) in `internal/api/config_handlers.go` returning active profile, config file path, list of available profiles with command counts, and sanitized configuration with credentials redacted (`"[REDACTED]"`).
+  - Support transparent backward-compatible profile resolution via `?profile=` query parameter, `X-Config-Profile` header, `X-API-Config` header, or URL path prefix in `ListCommandsHandler` and `ExecuteCommandHandler`, cleanly falling back to `default` with zero regression.
+  - Register `/api/v1/config` and `/api/v1/configs` in `knownStaticPaths` and normalize `/api/v1/config/:profile` in `internal/api/router.go` to bound Prometheus cardinality.
+  - Declare `multi_config:` block in `config.yaml` enabling the endpoint and registering `configs/ubuntu-tasks.yaml` and `configs/redhat-tasks.yaml`.
+- **Changes**:
+  - Modified [`internal/core/config.go`](../internal/core/config.go): Added `MultiConfig` schema to `Config`, defined `ConfigProfileMetadata`, `ConfigProfileSummary`, and `SanitizedConfigView` models. Implemented `MultiConfigManager` with thread-safe profile loading, filesystem path resolution, `ResolveProfileName`, `ResolveConfig`, `ListProfiles`, and `SanitizedView` with credential redaction.
+  - Created [`internal/core/config_test.go`](../internal/core/config_test.go): Comprehensive unit tests verifying default settings, multi-profile loading, query/header profile resolution with fallback, sanitized views, and dynamic profile registration.
+  - Created [`internal/api/config_handlers.go`](../internal/api/config_handlers.go): Implemented `ConfigHandler` for `GET /api/v1/config` (and `GET /api/v1/configs/{profile}`) supporting query parameters, HTTP headers, path-based profiles, and fallback view when uninitialized. Enforced 405 Method Not Allowed on non-GET methods.
+  - Created [`internal/api/config_handlers_test.go`](../internal/api/config_handlers_test.go): Unit tests verifying 200 OK responses, query/header/path profile selection, 404 for unknown profiles, 405 for POST, uninitialized fallback, and command listing by profile.
+  - Modified [`internal/api/handlers.go`](../internal/api/handlers.go): Added `MultiConfigManager *core.MultiConfigManager` to `APIEnv`. Updated `ListCommandsHandler` to return profile-specific commands and profile identifier. Updated `ExecuteCommandHandler` to resolve commands against targeted profile before fallback.
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Registered `/api/v1/config`, `/api/v1/config/`, `/api/v1/configs`, `/api/v1/configs/` handlers in `NewRouter`, added static paths to `knownStaticPaths`, and normalized `/api/v1/config/:profile` in `normalizeMetricPath`.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go): Initialized `MultiConfigManager` from `configPath` and wired into `apiEnv`.
+  - Modified [`config.yaml`](../config.yaml): Declared `multi_config:` configuration block enabling `/api/v1/config` endpoint and declaring `default`, `ubuntu`, and `redhat` profiles.
+  - Modified [`tests/e2e/setup_test.go`](../tests/e2e/setup_test.go): Added `multiConfigMgr *core.MultiConfigManager` to `e2eTestServer` and initialized in `setupCustomE2ETestServer`.
+  - Modified [`tests/e2e/tier1_feature_test.go`](../tests/e2e/tier1_feature_test.go): Added Tier 1 - Feature 10 E2E tests: `TestTier1_F10_ConfigEndpoint_DefaultSanitized`, `TestTier1_F10_ConfigEndpoint_MethodNotAllowed`, and `TestTier1_F10_ConfigEndpoint_ProfileResolutionAndBackwardCompatibility`.
+  - Modified [`PROJECT.md`](../PROJECT.md): Marked Milestone M2 as `DONE`.
+- **Result**:
+  - 100% test pass rate across all packages: 578 unit/integration tests and 94 E2E tests (672 tests total).
+  - GitHub Issue [#132](https://github.com/jmrenouard/api_executor/issues/132).
+
+---
+
 ### `ACT-065` — Expose Certified Native `GET /api/v1/version` Endpoint with Source Truth Restitution
 - **Timestamp (UTC)**: `2026-11-12T18:45:00Z`
 - **GitHub Issue**: [#130](https://github.com/jmrenouard/api_executor/issues/130)

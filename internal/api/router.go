@@ -364,6 +364,8 @@ var knownStaticPaths = map[string]struct{}{
 	"/metrics":                             {},
 	"/swagger":                             {},
 	"/api/v1/version":                      {},
+	"/api/v1/config":                       {},
+	"/api/v1/configs":                      {},
 	"/api/v1/commands":                     {},
 	"/api/v1/execute":                      {},
 	"/api/v1/presets":                      {},
@@ -404,6 +406,12 @@ var knownStaticPaths = map[string]struct{}{
 // paths are collapsed to "other".
 func normalizeMetricPath(path string) string {
 	// Normalize dynamic parameterized routes
+	if strings.HasPrefix(path, "/api/v1/config/") && path != "/api/v1/config" {
+		return "/api/v1/config/:profile"
+	}
+	if strings.HasPrefix(path, "/api/v1/configs/") && path != "/api/v1/configs" {
+		return "/api/v1/config/:profile"
+	}
 	if strings.HasPrefix(path, "/api/v1/files/") && path != "/api/v1/files" {
 		return "/api/v1/files/:filename"
 	}
@@ -487,6 +495,10 @@ func NewRouter(env *APIEnv) http.Handler {
 
 	// API routes
 	mux.Handle("/api/v1/version", http.HandlerFunc(env.VersionHandler))
+	mux.Handle("/api/v1/config", http.HandlerFunc(env.ConfigHandler))
+	mux.Handle("/api/v1/config/", http.HandlerFunc(env.ConfigHandler))
+	mux.Handle("/api/v1/configs", http.HandlerFunc(env.ConfigHandler))
+	mux.Handle("/api/v1/configs/", http.HandlerFunc(env.ConfigHandler))
 	mux.Handle("/api/v1/commands", http.HandlerFunc(env.ListCommandsHandler))
 	mux.Handle("/api/v1/execute", http.HandlerFunc(env.ExecuteCommandHandler))
 	mux.Handle("/api/v1/presets", http.HandlerFunc(env.ListPresetsHandler))

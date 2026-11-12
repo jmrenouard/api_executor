@@ -38,3 +38,19 @@ command_executor:
       command: "df"
       args: ["-h"]
       timeout: "15s"
+
+multi_config:
+  enabled: true
+  endpoint: "/api/v1/config"
+  default_profile: "default"
+  profiles:
+    - name: "default"
+      path: "config.yaml"
+      description: "Default server administration commands"
+    - name: "ubuntu"
+      path: "configs/ubuntu-tasks.yaml"
+      description: "Ubuntu 22.04/24.04 administration tasks"
+    - name: "redhat"
+      path: "configs/redhat-tasks.yaml"
+      description: "RedHat Enterprise Linux / UBI9 administration tasks"
+

@@ -28,18 +28,19 @@ import (
 
 // e2eTestServer encapsulates a live HTTP test server and authenticated principals.
 type e2eTestServer struct {
-	ts           *httptest.Server
-	baseURL      string
-	client       *http.Client
-	db           *database.DB
-	auditLogger  *audit.AuditLogger
-	authMgr      *auth.Manager
-	pluginReg    *plugins.Registry
-	jobEngine    *jobs.Engine
-	adminPAT     string
-	operatorPAT  string
-	viewerPAT    string
-	scopedSvcPAT string
+	ts             *httptest.Server
+	baseURL        string
+	client         *http.Client
+	db             *database.DB
+	auditLogger    *audit.AuditLogger
+	authMgr        *auth.Manager
+	pluginReg      *plugins.Registry
+	jobEngine      *jobs.Engine
+	multiConfigMgr *core.MultiConfigManager
+	adminPAT       string
+	operatorPAT    string
+	viewerPAT      string
+	scopedSvcPAT   string
 }
 
 func (s *e2eTestServer) Close() {
@@ -268,15 +269,18 @@ func setupCustomE2ETestServer(t *testing.T, engineCfg jobs.EngineConfig) *e2eTes
 		t.Fatalf("setupE2ETestServer: failed to start async job engine: %v", err)
 	}
 
+	multiConfigMgr, _ := core.NewMultiConfigManager("config.yaml", appCfg)
+
 	env = &api.APIEnv{
-		Config:         appCfg,
-		Logger:         logger,
-		DB:             db,
-		AuditLogger:    auditLogger,
-		AuthManager:    authMgr,
-		PluginRegistry: pluginReg,
-		MCPServer:      mcpServer,
-		JobEngine:      jobEngine,
+		Config:             appCfg,
+		MultiConfigManager: multiConfigMgr,
+		Logger:             logger,
+		DB:                 db,
+		AuditLogger:        auditLogger,
+		AuthManager:        authMgr,
+		PluginRegistry:     pluginReg,
+		MCPServer:          mcpServer,
+		JobEngine:          jobEngine,
 	}
 
 	router := api.NewRouter(env)
@@ -287,18 +291,19 @@ func setupCustomE2ETestServer(t *testing.T, engineCfg jobs.EngineConfig) *e2eTes
 	}
 
 	srv := &e2eTestServer{
-		ts:           ts,
-		baseURL:      ts.URL,
-		client:       client,
-		db:           db,
-		auditLogger:  auditLogger,
-		authMgr:      authMgr,
-		pluginReg:    pluginReg,
-		jobEngine:    jobEngine,
-		adminPAT:     adminPAT,
-		operatorPAT:  operatorPAT,
-		viewerPAT:    viewerPAT,
-		scopedSvcPAT: scopedSvcPAT,
+		ts:             ts,
+		baseURL:        ts.URL,
+		client:         client,
+		db:             db,
+		auditLogger:    auditLogger,
+		authMgr:        authMgr,
+		pluginReg:      pluginReg,
+		jobEngine:      jobEngine,
+		multiConfigMgr: multiConfigMgr,
+		adminPAT:       adminPAT,
+		operatorPAT:    operatorPAT,
+		viewerPAT:      viewerPAT,
+		scopedSvcPAT:   scopedSvcPAT,
 	}
 
 	t.Cleanup(func() {
