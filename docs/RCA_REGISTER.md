@@ -615,6 +615,18 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified by `docker build -t api-executor:test .` building cleanly with zero errors, and `go test -v ./docs -run "TestSVGAssetsAreValidXMLAndREADMEIncludesBranding|TestDockerHygieneAndIgnoreRules"` passing 100%.
 
+### `RCA-045` — Omission of Cross-Compiled Binary Deliverables and Automated Workflow Execution on GitHub Release v2.1.0 Publication
+- **Date**: `2026-11-12`
+- **Observed Symptom**: GitHub Release `v2.1.0` (`tag/v2.1.0`) was published with `"assets": []`, requiring end users to compile the project from source code archives. Additionally, `.github/workflows/release.yml` was configured only with `on: release: types: [published]`, which does not trigger retroactively for previously published tags, was missing standard `push: tags: ['v*']` triggers, and cross-compiled only 4 architectures (omitting `darwin/amd64` and `windows/arm64`).
+- **Root Cause Analysis**:
+  1. *Why were no precompiled binaries present in release v2.1.0?* The release was published on Nov 9 before automated release workflows were created.
+  2. *Why was the release workflow not executed?* `.github/workflows/release.yml` was only authored on Nov 10 in `ACT-052` (PR #105), subsequent to the tag publication.
+  3. *Why did subsequent tag pushes not trigger release builds?* The workflow lacked a `push: tags: ['v*.*.*', 'v*']` event trigger.
+  4. *Why did manual `workflow_dispatch` skip asset uploads?* The upload job was guarded with `if: github.event_name == 'release'`, skipping asset publishing on manual dispatch or push events.
+  5. *Why were target platforms incomplete?* Initial cross-compilation matrix omitted Intel macOS (`darwin/amd64`) and Windows ARM64 (`windows/arm64`).
+- **Applied Change / Fix**: Upgraded `.github/workflows/release.yml` to trigger on `push: tags: ['v*.*.*', 'v*']`, `workflow_dispatch`, and `release: types: [published]`; expanded the matrix to all 6 platforms (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`); updated upload gates to support tag pushes and dispatch; added `.github/workflows/docker-publish.yml` for automated multi-arch Docker image publication; and prepared standalone archive packaging for `v2.1.0` assets via `gh release upload`.
+- **Result & Non-Regression Test**: Validated YAML syntax for `.github/workflows/release.yml` and `.github/workflows/docker-publish.yml`; full matrix build definitions verified; 100% test suite pass across unit, E2E, and documentation suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -643,6 +655,9 @@ This living governance register records all errors encountered, technical dead-e
 ### `IMP-008` — Raw String Interpolation or Unbounded In-Memory Buffering for Live Process Log Streaming
 - **Reason for Abandonment**: Streaming process stdout/stderr via raw string concatenation (`str += chunk`) creates quadratic GC heap churn ($O(N^2)$ allocations), and unbounded buffering risks out-of-memory crashes (OOM) if a subprocess outputs hundreds of megabytes. Replaced with `JobLogBuffer` enforcing a strict memory ceiling (`DefaultMaxLogBytes = 2 MiB`), overflow ring draining, deterministic `[output truncated]` marker, and offset-based chunked read semantics (`GET /api/v1/jobs/{id}/logs?offset=X`) returning `next_offset` and `eof`.
 
+### `IMP-009` — Uploading Unbundled Raw Executables Directly to GitHub Releases Without Manifests or Runtime Assets
+- **Reason for Abandonment**: Uploading standalone raw executables (`go-admin-tool`, `go-admin-tool.exe`) directly as release assets without bundling companion runtime dependencies (`config.yaml`, the 305+ plugins in `plugins/`, the Web Console in `web/`, `LICENSE`, `README.md`) causes runtime failures (HTTP 404 on Web Console, missing plugin commands, uninitialized configs) when users execute the binary. Furthermore, releasing without a cryptographic checksums manifest (`SHA256SUMS.txt`) prevents automated integrity verification. Release deliverables must strictly be packaged into self-contained directory archives (`.tar.gz` for Linux/macOS, `.zip` for Windows) containing the executable and all runtime assets, verified by `SHA256SUMS.txt`.
+
 ---
 
 ## 3. Current Approximations & Simplifying Assumptions (`APP-XXX`)
@@ -659,6 +674,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-008` | `tests/e2e` | Synthetic domain catalog fixtures pre-populated in test harness to guarantee 300+ plugins across 10 domains. | Allows full catalog scale and multi-domain operations testing before domain pack manifests are integrated into `plugins/`. | Fully fulfilled and replaced in Milestones 2, 3, and 5 by 281 live filesystem declarative plugin YAML manifests and 24 native pure-Go plugins (total 305/306 plugins). |
 | `APP-009` | `internal/jobs` | In-memory log buffer retained per active job bounded to 2 MiB (`DefaultMaxLogBytes = 2 MiB`), with completed log eviction upon engine pruning. | Bounded memory consumption; historical logs after memory eviction rely on output summaries stored in `JobStore`. | Add persistent chunked log archive to disk or object storage if unbounded historical log retrieval is needed (`IDEA-007`). |
 | `APP-010` | `internal/api` | In-memory chunked log streaming via `JobLogBuffer` returns `eof=true` and empty chunk after buffer eviction, relying on output summary in `JobStore`. | Historical logs after buffer eviction cannot be re-streamed byte-for-byte via the chunked log endpoint. | Add persistent chunked log archive to disk or object storage (`IDEA-007`). |
+| `APP-011` | `.github/workflows`, CI/CD | GitHub Actions automated Docker Hub publishing relies on repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. If secrets are absent or restricted on forks/local branches, automated push fails or is skipped, requiring local Docker Buildx delivery by an authenticated maintainer. | CI/CD cannot push Docker images from unauthenticated forks or without configured organization secrets; out-of-band releases require maintainer CLI invocation. | Configure protected GitHub Actions repository secrets (`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`) with least-privilege Personal Access Tokens on Docker Hub, or migrate to GitHub Container Registry (`ghcr.io`) using native `GITHUB_TOKEN`. |
 
 ---
 
@@ -676,3 +692,4 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-008` | `P2` | `internal/api` | WebSocket / Server-Sent Events (SSE) live push streaming endpoint (`/api/v1/jobs/{id}/stream`) for real-time output and status updates without client HTTP offset polling. |
 | `IDEA-009` | `P3` | `internal/jobs` | Job Dependency DAG & Workflow Chaining: Allow defining multi-step workflow pipelines where downstream jobs execute only upon successful completion of prerequisite jobs (e.g., diagnostic run followed by automated remediation). |
 | `IDEA-010` | `P3` | `web/static` | Web Console Live Output Terminal via xterm.js: Upgrade Tab 9 log modal with ANSI color escape code rendering and interactive terminal controls. |
+| `IDEA-011` | `P3` | `packaging` | Native OS package manager distribution: Homebrew formula for macOS, Winget / Chocolatey manifests for Windows, and automated Debian (.deb) / RPM (.rpm) package generation via GoReleaser or nfpm. |
