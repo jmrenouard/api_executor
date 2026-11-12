@@ -13,6 +13,40 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-067` — Native OpenTelemetry (OTLP) Metrics Export
+- **Timestamp (UTC)**: `2026-11-12T20:50:00Z`
+- **GitHub Issue**: [#134](https://github.com/jmrenouard/api_executor/issues/134)
+- **Branch**: `feat/issue-134-native-otlp-metrics-export`
+- **Request**:
+  - Implement Proposal #7: Native OpenTelemetry (OTLP) metrics export endpoint (`GET /api/v1/metrics/otlp`) and configuration schema.
+  - Implement native pure-Go translation from `prometheus.DefaultGatherer.Gather()` (`[]*dto.MetricFamily`) to standard OpenTelemetry v1 `ExportMetricsServiceRequest` JSON payload (`TranslatePrometheusToOTLP` in `internal/api/metrics_otlp.go`) without heavy third-party SDK dependencies.
+    - Translate Prometheus Counter to OTLP Sum (cumulative, monotonic, asDouble, attributes).
+    - Translate Prometheus Gauge to OTLP Gauge (asDouble, attributes).
+    - Translate Prometheus Histogram to OTLP Histogram (cumulative, sample count & sum as decimal strings, explicitBounds excluding +Inf, delta bucketCounts, attributes without 'le').
+    - Translate Prometheus Untyped metrics to OTLP Gauge fallback.
+    - Apply standard 64-bit string formatting for `timeUnixNano`, `startTimeUnixNano`, `count`, and `bucketCounts`.
+  - Expose native endpoint `GET /api/v1/metrics/otlp` in `internal/api/metrics_otlp.go` with HTTP 200 OK, `Content-Type: application/json`, and `Cache-Control: no-cache, no-store, must-revalidate`. Enforce 405 Method Not Allowed on non-GET methods (`Allow: GET`).
+  - Wire route `/api/v1/metrics/otlp` and `/api/v1/metrics/otlp/` in `internal/api/router.go` and add `"/api/v1/metrics/otlp": {}` to `knownStaticPaths` to prevent Prometheus label cardinality collapse into `"other"`.
+  - Add `OTLPExportConfig` to `internal/core/config.go` with duration helpers (`EffectivePushInterval`, `EffectiveTimeout`), and implement header credential redaction in `SanitizedConfigView` and `buildFallbackSanitizedView` in `internal/api/config_handlers.go`.
+  - Add `otlp_export:` block to `config.yaml`.
+  - Add comprehensive unit tests in `internal/core/config_test.go` and `internal/api/metrics_otlp_test.go`, and Tier 1 Feature 11 E2E tests in `tests/e2e/tier1_feature_test.go`.
+- **Changes**:
+  - Created [`internal/api/metrics_otlp.go`](../internal/api/metrics_otlp.go): Implemented pure-Go OTLP v1 models, `TranslatePrometheusToOTLP`, `BuildOTLPMetrics`, and `(env *APIEnv) OTLPMetricsHandler`.
+  - Created [`internal/api/metrics_otlp_test.go`](../internal/api/metrics_otlp_test.go): Comprehensive unit tests covering Counter, Gauge, Histogram, Untyped conversion, HTTP GET 200 OK, 405 Method Not Allowed, and custom gatherers.
+  - Modified [`internal/core/config.go`](../internal/core/config.go): Added `OTLPExportConfig` to `Config`, duration helpers (`EffectivePushInterval`, `EffectiveTimeout`), `SanitizedOTLPExportConfig` to `SanitizedConfigView`, and header credential masking (`"[REDACTED]"`).
+  - Modified [`internal/core/config_test.go`](../internal/core/config_test.go): Tested default OTLP settings, duration helpers, and sanitized view header masking.
+  - Modified [`internal/api/config_handlers.go`](../internal/api/config_handlers.go): Updated `buildFallbackSanitizedView` with OTLP header redaction.
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Added `"/api/v1/metrics/otlp": {}` to `knownStaticPaths` and mounted `env.OTLPMetricsHandler` to `/api/v1/metrics/otlp` and `/api/v1/metrics/otlp/`.
+  - Modified [`internal/api/router_test.go`](../internal/api/router_test.go): Added test cases in `TestNormalizeMetricPath` for exact and trailing-slash OTLP routes.
+  - Modified [`config.yaml`](../config.yaml): Declared `otlp_export:` configuration block.
+  - Modified [`tests/e2e/tier1_feature_test.go`](../tests/e2e/tier1_feature_test.go): Added Tier 1 - Feature 11 E2E tests: `TestTier1_F11_OTLPMetricsEndpoint_SuccessAndJSONSchema` and `TestTier1_F11_OTLPMetricsEndpoint_MethodNotAllowed`.
+  - Modified [`PROJECT.md`](../PROJECT.md): Marked Milestone M4 (Proposal #7) as `DONE`.
+- **Result**:
+  - 100% test pass rate across all packages: 705 unit/integration tests and 96 E2E tests (801 tests total).
+  - GitHub Issue [#134](https://github.com/jmrenouard/api_executor/issues/134).
+
+---
+
 ### `ACT-066` — Native Multi-Config Inspection Endpoint & Backward Compatibility Support
 - **Timestamp (UTC)**: `2026-11-12T19:15:00Z`
 - **GitHub Issue**: [#132](https://github.com/jmrenouard/api_executor/issues/132)

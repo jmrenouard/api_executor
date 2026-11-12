@@ -54,3 +54,16 @@ multi_config:
       path: "configs/redhat-tasks.yaml"
       description: "RedHat Enterprise Linux / UBI9 administration tasks"
 
+otlp_export:
+  enabled: true
+  endpoint: "" # Optional remote OTLP collector endpoint (e.g. "http://localhost:4318/v1/metrics")
+  push_interval: "30s"
+  timeout: "10s"
+  resource_attributes:
+    service.name: "api-executor"
+    service.version: "2.2.0"
+    deployment.environment: "production"
+  headers: {}
+    # Authorization: "Bearer <token>"
+    # DD-API-KEY: "<datadog-api-key>"
+

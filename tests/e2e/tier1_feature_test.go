@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"go-admin-tool/internal/api"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
@@ -942,7 +943,7 @@ func TestTier1_F9_CertifiedVersionEndpoint_PublicUnauthenticated(t *testing.T) {
 func TestTier1_F9_CertifiedVersionEndpoint_MethodNotAllowed(t *testing.T) {
 	srv := setupE2ETestServer(t)
 
-	resp, err := srv.client.Post(srv.baseURL + "/api/v1/version", "application/json", strings.NewReader("{}"))
+	resp, err := srv.client.Post(srv.baseURL+"/api/v1/version", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatalf("failed to execute POST /api/v1/version: %v", err)
 	}
@@ -1008,7 +1009,7 @@ func TestTier1_F10_ConfigEndpoint_DefaultSanitized(t *testing.T) {
 func TestTier1_F10_ConfigEndpoint_MethodNotAllowed(t *testing.T) {
 	srv := setupE2ETestServer(t)
 
-	resp, err := srv.client.Post(srv.baseURL + "/api/v1/config", "application/json", strings.NewReader("{}"))
+	resp, err := srv.client.Post(srv.baseURL+"/api/v1/config", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatalf("failed to execute POST /api/v1/config: %v", err)
 	}
@@ -1122,3 +1123,132 @@ func TestTier1_F10_ConfigEndpoint_ProfileResolutionAndBackwardCompatibility(t *t
 	}
 }
 
+// ============================================================================
+// Tier 1 - Feature 11: Native OpenTelemetry (OTLP) Metrics Export (GET /api/v1/metrics/otlp)
+// ============================================================================
+
+func TestTier1_F11_OTLPMetricsEndpoint_SuccessAndJSONSchema(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// Record an action call to ensure action telemetry exists in Prometheus DefaultGatherer
+	api.RecordActionCall("e2e-otlp-probe", "ok", false, 20*time.Millisecond)
+
+	resp, err := srv.client.Get(srv.baseURL + "/api/v1/metrics/otlp")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/metrics/otlp: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for /api/v1/metrics/otlp, got %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected application/json Content-Type, got %s", contentType)
+	}
+
+	var payload struct {
+		ResourceMetrics []struct {
+			Resource struct {
+				Attributes []struct {
+					Key   string `json:"key"`
+					Value struct {
+						StringValue *string `json:"stringValue"`
+					} `json:"value"`
+				} `json:"attributes"`
+			} `json:"resource"`
+			ScopeMetrics []struct {
+				Scope struct {
+					Name string `json:"name"`
+				} `json:"scope"`
+				Metrics []struct {
+					Name string `json:"name"`
+					Unit string `json:"unit"`
+					Sum  *struct {
+						AggregationTemporality int  `json:"aggregationTemporality"`
+						IsMonotonic            bool `json:"isMonotonic"`
+					} `json:"sum,omitempty"`
+					Gauge *struct {
+						DataPoints []struct {
+							TimeUnixNano string   `json:"timeUnixNano"`
+							AsDouble     *float64 `json:"asDouble"`
+						} `json:"dataPoints"`
+					} `json:"gauge,omitempty"`
+					Histogram *struct {
+						AggregationTemporality int `json:"aggregationTemporality"`
+						DataPoints             []struct {
+							Count          string    `json:"count"`
+							ExplicitBounds []float64 `json:"explicitBounds"`
+							BucketCounts   []string  `json:"bucketCounts"`
+						} `json:"dataPoints"`
+					} `json:"histogram,omitempty"`
+				} `json:"metrics"`
+			} `json:"scopeMetrics"`
+		} `json:"resourceMetrics"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("failed to decode OTLP JSON payload: %v", err)
+	}
+
+	if len(payload.ResourceMetrics) == 0 {
+		t.Fatalf("expected non-empty resourceMetrics in OTLP payload")
+	}
+
+	rm := payload.ResourceMetrics[0]
+	foundService := false
+	for _, attr := range rm.Resource.Attributes {
+		if attr.Key == "service.name" && attr.Value.StringValue != nil && *attr.Value.StringValue != "" {
+			foundService = true
+			break
+		}
+	}
+	if !foundService {
+		t.Errorf("expected service.name attribute in OTLP resource")
+	}
+
+	if len(rm.ScopeMetrics) == 0 {
+		t.Fatalf("expected non-empty scopeMetrics in OTLP payload")
+	}
+
+	metrics := rm.ScopeMetrics[0].Metrics
+	if len(metrics) == 0 {
+		t.Errorf("expected at least one metric in scopeMetrics")
+	}
+
+	foundKnownMetric := false
+	for _, m := range metrics {
+		if strings.Contains(m.Name, "action") || strings.Contains(m.Name, "http") || strings.Contains(m.Name, "job") {
+			foundKnownMetric = true
+			break
+		}
+	}
+	if !foundKnownMetric {
+		t.Errorf("expected to find known action/http/job metric in exported OTLP metrics")
+	}
+}
+
+func TestTier1_F11_OTLPMetricsEndpoint_MethodNotAllowed(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	methods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch}
+	for _, m := range methods {
+		req, err := http.NewRequest(m, srv.baseURL+"/api/v1/metrics/otlp", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatalf("failed to construct %s request: %v", m, err)
+		}
+		resp, err := srv.client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to execute %s /api/v1/metrics/otlp: %v", m, err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("expected 405 Method Not Allowed for %s, got %d", m, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != "GET" {
+			t.Errorf("expected Allow: GET header, got %q", allow)
+		}
+	}
+}
