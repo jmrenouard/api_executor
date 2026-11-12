@@ -670,6 +670,36 @@ This living governance register records all errors encountered, technical dead-e
   - `go test -v ./internal/plugins -run TestChallenger_RecursiveDirectoryDiscovery_DeepAndMixed` passes on both Windows and WSL Ubuntu-24.04 (exit code 0).
   - 100% test pass on Go unit and E2E suites (`go test -v -cover ./...` and `go test -v ./tests/e2e/...`).
 
+### `RCA-048` — CommonMark Indented Code Block Collapse from Workflow Heredoc Leading Indentation
+- **Date**: `2026-11-12`
+- **Observed Symptom**:
+  When `.github/workflows/release.yml` generated `dist/RELEASE_NOTES_VERIFICATION.md` using an inline bash heredoc `cat << 'EOF'`, every line was indented with 10 spaces to match YAML scalar block formatting. Under CommonMark specification (GitHub Flavored Markdown), any block indented by 4 or more spaces is parsed as an indented code block (`<pre><code>`). Consequently, the headings (`### Cryptographic Checksum Verification`), bullet lists, and fenced code blocks failed to render as HTML and appeared as a raw monospace code block on GitHub Releases.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did release notes render as a raw code block?* Because every line in `RELEASE_NOTES_VERIFICATION.md` started with 10 spaces.
+  2. *Why were there 10 spaces?* The heredoc body was indented inside the GitHub Actions YAML `run: |` block without an un-indentation filter.
+  3. *Why was heredoc indentation used?* The author styled the workflow YAML for visual alignment with parent YAML step indentation.
+  4. *Why did standard tests not catch it?* Unit tests only asserted that `body_path: dist/RELEASE_NOTES_VERIFICATION.md` was referenced; they did not inspect the rendered output or verify column-0 markdown structure.
+  5. *Root Cause*: Generating markdown release notes via an inline indented heredoc without stripping leading whitespace, violating CommonMark column-0 requirements.
+- **Applied Change / Fix**:
+  Created a dedicated, tracked template `.github/RELEASE_NOTES_VERIFICATION.md` with column-0 unindented markdown, leading newline separation, and macOS `shasum -a 256` documentation. Updated the release workflow step to copy `.github/RELEASE_NOTES_VERIFICATION.md` directly into `dist/`. Added test assertions in `docs/branding_test.go` ensuring zero leading indentation before markdown headings and code fences.
+- **Result & Non-Regression Test**:
+  Verified by `TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene` in `docs/branding_test.go` confirming all markdown headers and code blocks begin at column 0.
+
+### `RCA-049` — Unmatched Shell Glob Failure on Partial Matrix in Checksum Generation (`set -e`)
+- **Date**: `2026-11-12`
+- **Observed Symptom**:
+  Executing `sha256sum api_executor-*.tar.gz api_executor-*.zip > SHA256SUMS.txt` aborted with exit code 1 (`sha256sum: api_executor-*.zip: No such file or directory`) whenever a build run produced only tar.gz archives (e.g., partial matrix, single-platform test dispatch, or filtered build).
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did sha256sum fail?* Bash passed the literal string `api_executor-*.zip` as an argument because no matching files existed in `dist/`.
+  2. *Why did bash pass the literal string?* In bash, default glob behavior leaves unmatched globs unexpanded as literal strings rather than resolving to empty strings.
+  3. *Why did the step abort?* GitHub Actions runs bash scripts with `set -e`, treating any non-zero exit code as a fatal workflow failure.
+  4. *Why did the loop not fail?* The previous loop used `[ -f "$file" ] || continue`, but the manifest command `sha256sum api_executor-*.tar.gz api_executor-*.zip` lacked glob protection.
+  5. *Root Cause*: Executing `sha256sum` with multiple fixed extension globs without enabling `shopt -s nullglob`.
+- **Applied Change / Fix**:
+  Added `shopt -s nullglob` immediately before archive iteration and manifest generation in `.github/workflows/release.yml`, ensuring unmatched glob patterns expand to nothing instead of literal non-existent file paths.
+- **Result & Non-Regression Test**:
+  Verified via WSL bash simulation with single-archive inputs (exit code 0) and asserted `shopt -s nullglob` in `docs/branding_test.go`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

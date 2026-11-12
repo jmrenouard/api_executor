@@ -13,6 +13,34 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-060` — Fix Release Notes Markdown Indentation, Add Nullglob Resilience, and Document macOS Shasum
+- **Timestamp (UTC)**: `2026-11-12T14:08:00Z`
+- **GitHub Issue**: [#120](https://github.com/jmrenouard/api_executor/issues/120)
+- **Branch**: `fix/issue-120-release-notes-markdown-and-resilience`
+- **Request**:
+  - Address findings from adversarial review of commit 7cf57cf (#118 / PR #119):
+    1. Fix Markdown formatting collapse: remove 10-space leading indentation from `RELEASE_NOTES_VERIFICATION.md` so that CommonMark does not convert release notes headers and code fences into an unformatted `<pre><code>` block on GitHub Releases.
+    2. Add `shopt -s nullglob` in `.github/workflows/release.yml` to prevent `sha256sum` step failure (`exit code 1`) if an archive glob pattern matches no files during partial matrix runs.
+    3. Document macOS `shasum -a 256` fallback command directly in the release notes verification guidance.
+    4. Provide a dedicated tracked template `.github/RELEASE_NOTES_VERIFICATION.md` and stage it to `dist/` in workflow.
+    5. Enhance regression tests in `docs/branding_test.go` (`TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene`) asserting `nullglob`, zero indentation on markdown tokens, and presence of all required verification markers.
+    6. Update living governance registers `docs/ACTION_LOGBOOK.md` (`ACT-060`) and `docs/RCA_REGISTER.md` (`RCA-048`, `RCA-049`).
+    7. Complete atomic GitHub lifecycle (#120) under English-only policy.
+- **Changes**:
+  - Created [`.github/RELEASE_NOTES_VERIFICATION.md`](../.github/RELEASE_NOTES_VERIFICATION.md) (tracked column-0 Markdown verification template with macOS `shasum` instructions).
+  - Modified [`.github/workflows/release.yml`](../.github/workflows/release.yml) (added `shopt -s nullglob` and updated release notes staging).
+  - Modified [`docs/branding_test.go`](branding_test.go) (expanded `TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene` with column-0 whitespace and nullglob checks).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recorded `ACT-060`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (recorded `RCA-048` and `RCA-049`).
+- **Result**:
+  - Validated YAML syntax of `.github/workflows/release.yml`.
+  - Verified Markdown rendering without indented code block collapse.
+  - 100% test pass across Go unit, integration, and E2E suites (455 unit/integration tests + 88 E2E tests = 543 tests passing).
+  - GitHub Issue [#120](https://github.com/jmrenouard/api_executor/issues/120).
+  - Pull Request opened and merged into `main`.
+
+---
+
 ### `ACT-059` — Standardize Release Checksum Deliverables and Remove Version Hashes from README
 - **Timestamp (UTC)**: `2026-11-12T13:46:00Z`
 - **GitHub Issue**: [#118](https://github.com/jmrenouard/api_executor/issues/118)

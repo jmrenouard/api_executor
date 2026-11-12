@@ -207,12 +207,14 @@ func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
 	workflow := string(workflowBytes)
 
 	requiredWorkflowMarkers := []string{
+		"shopt -s nullglob",
 		`sha256sum "$file" > "${file}.sha256"`,
 		"sha256sum api_executor-*.tar.gz api_executor-*.zip > SHA256SUMS.txt",
 		"sha256sum -c SHA256SUMS.txt",
 		`sha256sum -c "$ckfile"`,
 		"dist/api_executor-*.sha256",
 		"dist/SHA256SUMS.txt",
+		"cp .github/RELEASE_NOTES_VERIFICATION.md dist/RELEASE_NOTES_VERIFICATION.md",
 		"body_path: dist/RELEASE_NOTES_VERIFICATION.md",
 		"append_body: true",
 	}
@@ -220,6 +222,36 @@ func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
 	for _, marker := range requiredWorkflowMarkers {
 		if !strings.Contains(workflow, marker) {
 			t.Errorf("expected .github/workflows/release.yml to contain %q", marker)
+		}
+	}
+
+	// 1b. Verify .github/RELEASE_NOTES_VERIFICATION.md formatting and contents
+	notesBytes, err := os.ReadFile("../.github/RELEASE_NOTES_VERIFICATION.md")
+	if err != nil {
+		t.Fatalf("failed to read ../.github/RELEASE_NOTES_VERIFICATION.md: %v", err)
+	}
+	notes := string(notesBytes)
+
+	requiredNotesMarkers := []string{
+		"### Cryptographic Checksum Verification & Asset Integrity",
+		"sha256sum -c SHA256SUMS.txt --ignore-missing",
+		"sha256sum -c <archive-filename>.sha256",
+		"shasum -a 256",
+		"Get-FileHash $archive -Algorithm SHA256",
+	}
+	for _, marker := range requiredNotesMarkers {
+		if !strings.Contains(notes, marker) {
+			t.Errorf("expected RELEASE_NOTES_VERIFICATION.md to contain %q", marker)
+		}
+	}
+
+	// Ensure headings and code fences start at column 0 (no CommonMark indented code block collapse)
+	for lineNum, line := range strings.Split(notes, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "```") {
+			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+				t.Errorf("line %d has leading whitespace before markdown token %q: %q", lineNum+1, trimmed, line)
+			}
 		}
 	}
 

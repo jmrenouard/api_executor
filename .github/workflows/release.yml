@@ -157,6 +157,9 @@ jobs:
           cp download/* dist/ 2>/dev/null || true
           cd dist
 
+          # Enable nullglob so unmatched archive patterns expand to empty string
+          shopt -s nullglob
+
           # Generate individual .sha256 checksum files alongside each release archive
           for file in api_executor-*.tar.gz api_executor-*.zip; do
             [ -f "$file" ] || continue
@@ -178,33 +181,10 @@ jobs:
             sha256sum -c "$ckfile"
           done
 
-      - name: Generate Release Notes Cryptographic Verification Section
+      - name: Stage Release Notes Cryptographic Verification Section
         run: |
-          cat << 'EOF' > dist/RELEASE_NOTES_VERIFICATION.md
-          ### Cryptographic Checksum Verification & Asset Integrity
-
-          All release archives are cryptographically signed with SHA-256. Verification files are attached as release assets:
-          - **Unified Manifest**: [`SHA256SUMS.txt`](SHA256SUMS.txt) contains SHA-256 hashes for all platform archives.
-          - **Individual Checksum Files**: An individual `<archive>.sha256` file is provided alongside each archive.
-
-          #### Verify via Unified Manifest (Linux / macOS)
-          ```bash
-          sha256sum -c SHA256SUMS.txt --ignore-missing
-          ```
-
-          #### Verify via Individual Checksum File (Linux / macOS)
-          ```bash
-          sha256sum -c <archive-filename>.sha256
-          ```
-
-          #### Verify via PowerShell (Windows)
-          ```powershell
-          $archive = "<archive-filename>"
-          $expectedHash = (Get-Content "$archive.sha256").Split(" ")[0]
-          $actualHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-          if ($actualHash -eq $expectedHash) { Write-Host "Checksum verification PASSED" -ForegroundColor Green } else { Write-Error "Checksum verification FAILED" }
-          ```
-          EOF
+          mkdir -p dist
+          cp .github/RELEASE_NOTES_VERIFICATION.md dist/RELEASE_NOTES_VERIFICATION.md
 
       - name: Attach Assets to GitHub Release
         uses: softprops/action-gh-release@v2
