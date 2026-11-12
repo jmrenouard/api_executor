@@ -4,6 +4,8 @@ name: Docker Container Publish
   push:
     tags:
       - 'v*.*.*'
+      - 'v*.*'
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -29,8 +31,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify Docker Hub Credentials
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASS: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+          if [ -z "$DOCKERHUB_USER" ] || [ -z "$DOCKERHUB_PASS" ]; then
             echo "::error::Missing DOCKERHUB_USERNAME or DOCKERHUB_TOKEN in GitHub repository secrets. Publication aborted."
             exit 1
           fi
@@ -78,13 +83,14 @@ jobs:
           build-args: |
             VERSION=${{ steps.meta.outputs.version || inputs.tag || 'dev' }}
             REVISION=${{ github.sha }}
-            CREATED=${{ steps.meta.outputs.created }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Verify Published Remote Manifest
+        env:
+          DOCKER_TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           echo "Verifying multi-architecture manifest on Docker Hub..."
-          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          FIRST_TAG=$(echo "$DOCKER_TAGS" | head -n 1)
           echo "Inspecting manifest for: ${FIRST_TAG}"
           docker buildx imagetools inspect "${FIRST_TAG}"

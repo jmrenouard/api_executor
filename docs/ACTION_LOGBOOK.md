@@ -13,6 +13,28 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-055` — Docker Publication Workflow Schema, Tag Trigger, and Secret Hardening
+- **Timestamp (UTC)**: `2026-11-12T11:20:00Z`
+- **GitHub Issue**: [#110](https://github.com/jmrenouard/api_executor/issues/110)
+- **Branch**: `ci/issue-110-harden-docker-publish-workflow`
+- **Request**:
+  - Remediate and harden `.github/workflows/docker-publish.yml` following adversarial challenge review:
+    1. Resolve `actionlint` schema validation failure by removing invalid `${{ steps.meta.outputs.created }}` property reference from `build-args` (relying on `steps.meta.outputs.labels` for standard OCI creation timestamps).
+    2. Expand `push: tags` triggers to include `['v*.*.*', 'v*.*', 'v*']` to harmonize with `release.yml` and guarantee consistent multi-architecture container publication for two-part release tags (e.g. `v2.1`).
+    3. Eliminate inline script secret interpolation by mapping `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` via step `env:` variables (`DOCKERHUB_USER`, `DOCKERHUB_PASS`) in credential verification.
+    4. Record action `ACT-055` in `docs/ACTION_LOGBOOK.md` and document `RCA-046` and `IMP-010` in `docs/RCA_REGISTER.md`.
+- **Changes**:
+  - Modified [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml).
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (recording `ACT-055`).
+  - Updated [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (recording `RCA-046` and `IMP-010`).
+- **Result**:
+  - `actionlint .github/workflows/docker-publish.yml` clean (0 errors, exit code 0).
+  - 100% test pass on Go unit, E2E, and documentation test suites (545 tests passing).
+  - GitHub Issue [#110](https://github.com/jmrenouard/api_executor/issues/110).
+  - Pull Request merged into `main`.
+
+---
+
 ### `ACT-054` — Multi-Architecture Release Matrix & Docker Publication Workflows
 - **Timestamp (UTC)**: `2026-11-12T10:45:00Z`
 - **GitHub Issue**: [#108](https://github.com/jmrenouard/api_executor/issues/108)
