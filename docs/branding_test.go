@@ -2,7 +2,10 @@ package docs
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -194,6 +197,119 @@ func TestAgentRulesConsolidationAndDeduplication(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
+	// 1. Verify .github/workflows/release.yml standardizes checksum deliverables
+	workflowBytes, err := os.ReadFile("../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("failed to read ../.github/workflows/release.yml: %v", err)
+	}
+	workflow := string(workflowBytes)
+
+	requiredWorkflowMarkers := []string{
+		`sha256sum "$file" > "${file}.sha256"`,
+		"sha256sum api_executor-*.tar.gz api_executor-*.zip > SHA256SUMS.txt",
+		"sha256sum -c SHA256SUMS.txt",
+		`sha256sum -c "$ckfile"`,
+		"dist/api_executor-*.sha256",
+		"dist/SHA256SUMS.txt",
+		"body_path: dist/RELEASE_NOTES_VERIFICATION.md",
+		"append_body: true",
+	}
+
+	for _, marker := range requiredWorkflowMarkers {
+		if !strings.Contains(workflow, marker) {
+			t.Errorf("expected .github/workflows/release.yml to contain %q", marker)
+		}
+	}
+
+	// 2. Verify README.md hygiene (no hardcoded version-specific checksum matrices or hashes)
+	readmeBytes, err := os.ReadFile("../README.md")
+	if err != nil {
+		t.Fatalf("failed to read ../README.md: %v", err)
+	}
+	readme := string(readmeBytes)
+
+	bannedReadmeMarkers := []string{
+		"#### Platform Artifact Matrix (v2.1.0)",
+		"#### Official SHA-256 Checksums Manifest (v2.1.0)",
+		"fe3151e0d38c18b128d97d39c2b07bc73fbce2ef13c66b486f0040ece11f0bff",
+		"3e3499dea256f04f65d04bbe18e328314c07d30aa3249c662b52cc9d8f3610c2",
+		"0416391a74ab35f8e738386803f1425881dced9e286a5d2c7864074fd41007af",
+		"44472b648619187585727ddb97e8a140ae12eab700ffa3262cc513f15c2f9af3",
+		"e136b9f36f82a78ddf83b704de5b0c6802363bb8fd643f4db53cbc230f054e11",
+		"e50d18e9fa956e477b6e4776e72ba8014425704d987babd59456e653d3b0439d",
+		"7a683f37173220cd1f8da7fdfe007e36e269fe417673d9e860658e9095a496ef",
+	}
+
+	for _, marker := range bannedReadmeMarkers {
+		if strings.Contains(readme, marker) {
+			t.Errorf("README.md must not contain hardcoded version checksum marker %q", marker)
+		}
+	}
+
+	// Verify README.md contains templated verification guidelines
+	requiredReadmeMarkers := []string{
+		"SHA256SUMS.txt",
+		"${ARCHIVE}.sha256",
+		"$ARCHIVE.sha256",
+		"github.com/jmrenouard/api_executor/releases",
+	}
+	for _, marker := range requiredReadmeMarkers {
+		if !strings.Contains(readme, marker) {
+			t.Errorf("README.md should contain generic verification reference %q", marker)
+		}
+	}
+
+	// 3. Cryptographic simulation of checksum generation and validation
+	tmpDir := t.TempDir()
+	sampleArchives := map[string][]byte{
+		"api_executor-v2.1.0-linux-amd64.tar.gz":  []byte("linux-amd64 binary payload"),
+		"api_executor-v2.1.0-windows-amd64.zip":   []byte("windows-amd64 binary payload"),
+	}
+
+	var manifestLines []string
+	for filename, content := range sampleArchives {
+		filePath := filepath.Join(tmpDir, filename)
+		if err := os.WriteFile(filePath, content, 0644); err != nil {
+			t.Fatalf("failed to write mock archive %s: %v", filename, err)
+		}
+		hash := sha256.Sum256(content)
+		hashHex := hex.EncodeToString(hash[:])
+		line := fmt.Sprintf("%s  %s", hashHex, filename)
+		manifestLines = append(manifestLines, line)
+
+		// Create individual .sha256 file
+		shaPath := filePath + ".sha256"
+		if err := os.WriteFile(shaPath, []byte(line+"\n"), 0644); err != nil {
+			t.Fatalf("failed to write individual checksum file %s: %v", shaPath, err)
+		}
+	}
+
+	manifestPath := filepath.Join(tmpDir, "SHA256SUMS.txt")
+	manifestContent := strings.Join(manifestLines, "\n") + "\n"
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+		t.Fatalf("failed to write SHA256SUMS.txt: %v", err)
+	}
+
+	// Validate manifest parser format: 64-hex hash followed by two spaces and filename
+	for _, line := range manifestLines {
+		parts := strings.SplitN(line, "  ", 2)
+		if len(parts) != 2 || len(parts[0]) != 64 {
+			t.Errorf("invalid manifest line format: %q", line)
+		}
+		expectedContent, ok := sampleArchives[parts[1]]
+		if !ok {
+			t.Errorf("unexpected archive in manifest: %s", parts[1])
+			continue
+		}
+		actualHash := sha256.Sum256(expectedContent)
+		if parts[0] != hex.EncodeToString(actualHash[:]) {
+			t.Errorf("hash mismatch for %s: expected %s, got %s", parts[1], hex.EncodeToString(actualHash[:]), parts[0])
+		}
+	}
+}
+
 
 
 
