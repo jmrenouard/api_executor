@@ -309,8 +309,8 @@ func TestReleaseWorkflowChecksumDeliverablesAndREADMEHygiene(t *testing.T) {
 	// 3. Cryptographic simulation of checksum generation and validation
 	tmpDir := t.TempDir()
 	sampleArchives := map[string][]byte{
-		"api_executor-v2.1.0-linux-amd64.tar.gz":  []byte("linux-amd64 binary payload"),
-		"api_executor-v2.1.0-windows-amd64.zip":   []byte("windows-amd64 binary payload"),
+		"api_executor-v2.1.0-linux-amd64.tar.gz": []byte("linux-amd64 binary payload"),
+		"api_executor-v2.1.0-windows-amd64.zip":  []byte("windows-amd64 binary payload"),
 	}
 
 	var manifestLines []string
@@ -539,4 +539,48 @@ func TestRootlessContainerSandboxManifestsAndDockerfiles(t *testing.T) {
 	}
 }
 
+func TestConfigVersionDeclarationsAndAPIDocumentation(t *testing.T) {
+	// 1. Verify config.yaml, configs/ubuntu-tasks.yaml, and configs/redhat-tasks.yaml declare version: "2.2.0"
+	configFiles := []string{"../config.yaml", "../configs/ubuntu-tasks.yaml", "../configs/redhat-tasks.yaml"}
+	for _, cfgPath := range configFiles {
+		content, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", cfgPath, err)
+		}
+		if !strings.Contains(string(content), `version: "2.2.0"`) {
+			t.Errorf("expected %s to declare version: \"2.2.0\"", cfgPath)
+		}
+	}
 
+	// 2. Verify config.yaml declares multi_config version_path: "/api/v1/config/version"
+	rootCfgBytes, err := os.ReadFile("../config.yaml")
+	if err != nil {
+		t.Fatalf("failed to read ../config.yaml: %v", err)
+	}
+	if !strings.Contains(string(rootCfgBytes), `version_path: "/api/v1/config/version"`) {
+		t.Errorf(`expected ../config.yaml to declare version_path: "/api/v1/config/version"`)
+	}
+
+	// 3. Verify README.md and PROJECT.md document the version and config version endpoints
+	readmeBytes, err := os.ReadFile("../README.md")
+	if err != nil {
+		t.Fatalf("failed to read ../README.md: %v", err)
+	}
+	readme := string(readmeBytes)
+	for _, marker := range []string{"/api/v1/version", "/api/v1/config", "/api/v1/config/version"} {
+		if !strings.Contains(readme, marker) {
+			t.Errorf("expected ../README.md to document %q", marker)
+		}
+	}
+
+	projectBytes, err := os.ReadFile("../PROJECT.md")
+	if err != nil {
+		t.Fatalf("failed to read ../PROJECT.md: %v", err)
+	}
+	project := string(projectBytes)
+	for _, marker := range []string{"config_version", "config_version_path", "config_file", "/api/v1/config/version", "/api/v1/configs/{profile}/version"} {
+		if !strings.Contains(project, marker) {
+			t.Errorf("expected ../PROJECT.md to document %q", marker)
+		}
+	}
+}

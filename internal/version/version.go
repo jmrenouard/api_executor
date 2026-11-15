@@ -3,6 +3,7 @@ package version
 import (
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -40,18 +41,21 @@ type Info struct {
 
 // VersionResponse represents the payload returned by GET /api/v1/version.
 type VersionResponse struct {
-	Version         string  `json:"version"`
-	GitCommit       string  `json:"git_commit"`
-	BuildDate       string  `json:"build_date"`
-	IntegrityStatus string  `json:"integrity_status"`
-	Integrity       string  `json:"integrity"`
-	Uptime          string  `json:"uptime"`
-	UptimeSeconds   float64 `json:"uptime_seconds"`
-	GoVersion       string  `json:"go_version"`
-	StartTime       string  `json:"start_time"`
-	OS              string  `json:"os,omitempty"`
-	Arch            string  `json:"arch,omitempty"`
-	Compiler        string  `json:"compiler,omitempty"`
+	Version           string  `json:"version"`
+	GitCommit         string  `json:"git_commit"`
+	BuildDate         string  `json:"build_date"`
+	IntegrityStatus   string  `json:"integrity_status"`
+	Integrity         string  `json:"integrity"`
+	Uptime            string  `json:"uptime"`
+	UptimeSeconds     float64 `json:"uptime_seconds"`
+	GoVersion         string  `json:"go_version"`
+	StartTime         string  `json:"start_time"`
+	OS                string  `json:"os,omitempty"`
+	Arch              string  `json:"arch,omitempty"`
+	Compiler          string  `json:"compiler,omitempty"`
+	ConfigVersion     string  `json:"config_version,omitempty"`
+	ConfigVersionPath string  `json:"config_version_path,omitempty"`
+	ConfigFile        string  `json:"config_file,omitempty"`
 }
 
 // Get returns the cached Info resolved from build metadata and source truth.
@@ -68,7 +72,139 @@ func ResolveInfo() Info {
 }
 
 func resolveInfo() Info {
-	return resolveInfoFrom(Version, GitCommit, BuildDate, IntegrityStatus, readBuildInfo)
+	info := resolveInfoFrom(Version, GitCommit, BuildDate, IntegrityStatus, readBuildInfo)
+	if info.GitCommit == "" || info.GitCommit == "unknown" {
+		if commit := resolveGitCommitFromDotGit(); commit != "" {
+			info.GitCommit = commit
+		}
+	}
+	return info
+}
+
+func resolveGitCommitFromDotGit() string {
+	for _, candidate := range []string{".git", "../.git", "../../.git", "../../../.git"} {
+		if commit := resolveGitCommitFromDir(candidate); commit != "" {
+			return commit
+		}
+	}
+	return ""
+}
+
+func resolveGitCommitFromDir(gitPath string) string {
+	stat, err := os.Stat(gitPath)
+	if err != nil {
+		return ""
+	}
+
+	gitDir := gitPath
+	commonDir := ""
+	if !stat.IsDir() {
+		raw, err := os.ReadFile(gitPath)
+		if err != nil {
+			return ""
+		}
+		var parsedDir string
+		for _, line := range strings.Split(string(raw), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if len(trimmed) >= len("gitdir:") && strings.EqualFold(trimmed[:len("gitdir:")], "gitdir:") {
+				parsedDir = strings.TrimSpace(trimmed[len("gitdir:"):])
+				break
+			}
+		}
+		if parsedDir == "" {
+			return ""
+		}
+		parsedDir = filepath.FromSlash(parsedDir)
+		if filepath.IsAbs(parsedDir) {
+			gitDir = filepath.Clean(parsedDir)
+		} else {
+			gitDir = filepath.Clean(filepath.Join(filepath.Dir(gitPath), parsedDir))
+		}
+
+		if commonRaw, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+			c := strings.TrimSpace(string(commonRaw))
+			if c != "" {
+				c = filepath.FromSlash(c)
+				if filepath.IsAbs(c) {
+					commonDir = filepath.Clean(c)
+				} else {
+					commonDir = filepath.Clean(filepath.Join(gitDir, c))
+				}
+			}
+		}
+	}
+
+	headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return ""
+	}
+	head := strings.TrimSpace(string(headBytes))
+	if head == "" {
+		return ""
+	}
+	if isHexSHA(head) {
+		return head
+	}
+	if !strings.HasPrefix(head, "ref:") {
+		return ""
+	}
+
+	ref := strings.TrimSpace(strings.TrimPrefix(head, "ref:"))
+	if ref == "" || strings.Contains(ref, "..") {
+		return ""
+	}
+
+	searchDirs := []string{gitDir}
+	if commonDir != "" && commonDir != gitDir {
+		searchDirs = append(searchDirs, commonDir)
+	}
+
+	relRef := filepath.FromSlash(ref)
+	for _, dir := range searchDirs {
+		if refBytes, err := os.ReadFile(filepath.Join(dir, relRef)); err == nil {
+			if sha := strings.TrimSpace(string(refBytes)); isHexSHA(sha) {
+				return sha
+			}
+		}
+	}
+	for _, dir := range searchDirs {
+		if sha := lookupPackedRef(filepath.Join(dir, "packed-refs"), ref); sha != "" {
+			return sha
+		}
+	}
+	return ""
+}
+
+func lookupPackedRef(packedRefsPath, targetRef string) string {
+	data, err := os.ReadFile(packedRefsPath)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "^") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 2 && fields[1] == targetRef && isHexSHA(fields[0]) {
+			return fields[0]
+		}
+	}
+	return ""
+}
+
+func isHexSHA(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveInfoFrom(v, commit, bDate, integrity string, readBI func() (*debug.BuildInfo, bool)) Info {

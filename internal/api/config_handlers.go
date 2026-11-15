@@ -25,14 +25,31 @@ func buildFallbackSanitizedView(cfg *core.Config) *core.SanitizedConfigView {
 		}
 	}
 
+	configFile := strings.TrimSpace(cfg.SourcePath)
+	if configFile == "" {
+		configFile = "config.yaml"
+	}
+
+	var viewVersion, viewConfigVersion, viewVersionPath string
+	if v := cfg.EffectiveVersion(); v != "" {
+		viewVersion = v
+		viewConfigVersion = v
+		viewVersionPath = cfg.EffectiveVersionPath()
+	}
+
 	return &core.SanitizedConfigView{
-		ActiveProfile: "default",
-		ConfigFile:    "config.yaml",
+		ActiveProfile:     "default",
+		ConfigFile:        configFile,
+		Version:           viewVersion,
+		ConfigVersion:     viewConfigVersion,
+		ConfigVersionPath: viewVersionPath,
 		Profiles: []core.ConfigProfileSummary{
 			{
 				Name:          "default",
-				Path:          "config.yaml",
+				Path:          configFile,
 				Description:   "Default configuration profile",
+				Version:       viewVersion,
+				VersionPath:   viewVersionPath,
 				CommandsCount: commandsCount,
 				IsDefault:     true,
 			},
@@ -97,6 +114,13 @@ func buildFallbackSanitizedView(cfg *core.Config) *core.SanitizedConfigView {
 // @Failure 405 {object} ErrorResponse
 // @Router /api/v1/config [get]
 func (env *APIEnv) ConfigHandler(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.URL != nil {
+		if _, isVersionRoute := parseConfigVersionPath(r.URL.Path); isVersionRoute {
+			env.ConfigVersionHandler(w, r)
+			return
+		}
+	}
+
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)

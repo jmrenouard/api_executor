@@ -7,19 +7,21 @@ This project implements the verified architectural requirements from `ORIGINAL_R
    - Implemented via a dedicated `internal/version` package and `internal/api/version_handler.go`.
    - Direct restitution of source truth without intermediary via `runtime/debug.ReadBuildInfo()` with fallback hierarchy:
      - `version`: linker `-ldflags` -> `bi.Main.Version` -> `VERSION` file (`2.2.0`).
-     - `git_commit`: linker `-ldflags` -> `vcs.revision` (40 chars) -> `"unknown"`.
+     - `git_commit`: linker `-ldflags` -> `vcs.revision` (40 chars) -> pure-Go `.git/HEAD` fallback (`resolveGitCommitFromDotGit` supporting `.git` dirs, `packed-refs`, and worktree `gitdir:`/`commondir`) -> `"unknown"`.
      - `build_date`: linker `-ldflags` -> `vcs.time` -> `"unknown"`.
      - `integrity_status` / `integrity`: linker `-ldflags` -> `vcs.modified` (`false` -> `"clean"`, `true` -> `"modified"`) -> `"untracked"`.
      - `uptime` & `uptime_seconds`: computed from `APIEnv.StartTime` set at server bootstrap.
      - `go_version`: `runtime.Version()`.
-   - Public unauthenticated endpoint (accessible even when `RequireAuth=true`), protected by IP rate limiting, defensive headers, and 1 MiB body cap.
+     - Conditional config metadata (`config_version`, `config_version_path`, `config_file`): populated via `omitempty` ONLY when the resolved config profile defines `EffectiveVersion() != ""` (supporting `?profile=`, `X-Config-Profile`, and `X-API-Config`).
+   - Public unauthenticated endpoint (accessible even when `RequireAuth=true`), enforcing `405 Method Not Allowed` with `Allow: GET` on non-GET requests, protected by IP rate limiting, defensive headers, and 1 MiB body cap.
    - Bound in `knownStaticPaths` in `internal/api/router.go` to prevent Prometheus label cardinality collapse into `"other"`.
 
-2. **Native Multi-Config Support & Backward Compatibility (`GET /api/v1/config`)**:
+2. **Native Multi-Config Support, Conditional Config Version Probe & Backward Compatibility (`GET /api/v1/config`, `GET /api/v1/config/version`)**:
    - `MultiConfigManager` in `internal/core/config.go` managing named configuration profiles (`default`, `ubuntu`, `redhat`, etc.).
-   - Support for `multi_config:` block in `config.yaml` declaring supported profiles and configuration file paths.
-   - Native endpoint `GET /api/v1/config` (and `GET /api/v1/configs/{profile}`) exposing active configuration and available profiles with masked/redacted credentials (`[REDACTED]`).
-   - Profile resolution via `X-Config-Profile` header, query parameter `?profile=<name>`, or path prefix, cleanly falling back to `default` (`config.yaml`) ensuring 100% backward compatibility.
+   - Support for `multi_config:` block in `config.yaml` declaring supported profiles, `version_path` (`/api/v1/config/version`), and top-level `version` / `config_version` / `config_version_path` fields.
+   - Native endpoint `GET /api/v1/config` (and `GET /api/v1/configs/{profile}`) exposing active configuration and available profiles with masked/redacted credentials (`[REDACTED]`) and conditional version metadata.
+   - Conditional public probe `GET /api/v1/config/version` (and `GET /api/v1/configs/{profile}/version`, `GET /api/v1/config/{profile}/version`, or custom `EffectiveVersionPath()` mounted dynamically in `NewRouter`) returning `200 OK` ONLY when the resolved profile defines a configuration version (`EffectiveVersion() != ""`), or `404 Not Found` when unversioned or unknown.
+   - Profile resolution via `X-Config-Profile` / `X-API-Config` headers, query parameter `?profile=<name>`, or path prefix, cleanly falling back to `default` (`config.yaml`) ensuring 100% backward compatibility.
    - Per-profile command listing and execution in `internal/api/handlers.go`.
 
 3. **Production Hardening Extensions (Proposals #8, #7, #9, #10)**:
@@ -54,8 +56,10 @@ This project implements the verified architectural requirements from `ORIGINAL_R
 
 ## Interface Contracts
 ### `GET /api/v1/version` Contract
-- Method: `GET` (other methods return `405 Method Not Allowed`)
+- Method: `GET` (other methods return `405 Method Not Allowed` with `Allow: GET`)
 - Authentication: None (public unauthenticated probe; 200 OK even when `RequireAuth=true`)
+- Query parameters: `?profile=<name>` (optional, resolves conditional config version fields for the target profile)
+- Request Headers: `X-Config-Profile: <name>` or `X-API-Config: <name>` (optional)
 - Response Headers: `Content-Type: application/json`, standard security headers
 - JSON Response Body:
   ```json
@@ -71,24 +75,51 @@ This project implements the verified architectural requirements from `ORIGINAL_R
     "start_time": "RFC3339 timestamp",
     "os": "os name",
     "arch": "arch name",
-    "compiler": "gc"
+    "compiler": "gc",
+    "config_version": "2.2.0",
+    "config_version_path": "/api/v1/config/version",
+    "config_file": "config.yaml"
+  }
+  ```
+  > Note: `config_version`, `config_version_path`, and `config_file` use `omitempty` and are omitted whenever the resolved configuration profile does not define `version` or `config_version`.
+
+### `GET /api/v1/config/version` & `GET /api/v1/configs/{profile}/version` Contract
+- Method: `GET` (other methods return `405 Method Not Allowed` with `Allow: GET`)
+- Authentication: None (public unauthenticated probe; `200 OK` even when `RequireAuth=true`)
+- Conditional Availability:
+  - Returns `200 OK` ONLY when the active or requested profile defines `version` or `config_version` (`EffectiveVersion() != ""`).
+  - Returns `404 Not Found` (`configuration version not defined for profile ...`) when no configuration version is defined, or `404 Not Found` (`configuration profile ... not found`) for unknown profiles.
+  - Custom paths configured via `config_version_path` or `multi_config.version_path` are dynamically mounted by `NewRouter` only when `EffectiveVersionPath()` is non-empty (remaining `404` when unversioned).
+- Profile Selection: Path parameter (`/api/v1/configs/{profile}/version` or `/api/v1/config/{profile}/version`), query `?profile=<name>`, or headers `X-Config-Profile` / `X-API-Config`.
+- JSON Response Body (`ConfigVersionResponse`):
+  ```json
+  {
+    "version": "2.2.0",
+    "config_version": "2.2.0",
+    "profile": "default",
+    "config_file": "config.yaml",
+    "path": "/api/v1/config/version",
+    "app_version": "2.2.0"
   }
   ```
 
 ### `GET /api/v1/config` Contract
-- Method: `GET`
+- Method: `GET` (other methods return `405 Method Not Allowed` with `Allow: GET`)
 - Authentication: Standard RBAC or public read-only summary (with masked credentials)
 - Query parameters: `?profile=<name>` (optional)
-- Request Headers: `X-Config-Profile: <name>` (optional)
-- JSON Response Body:
+- Request Headers: `X-Config-Profile: <name>` or `X-API-Config: <name>` (optional)
+- JSON Response Body (versioned fields omitted when unversioned):
   ```json
   {
     "active_profile": "default",
     "config_file": "config.yaml",
+    "version": "2.2.0",
+    "config_version": "2.2.0",
+    "config_version_path": "/api/v1/config/version",
     "profiles": [
-      {"name": "default", "path": "config.yaml", "commands_count": 2},
-      {"name": "ubuntu", "path": "configs/ubuntu-tasks.yaml", "commands_count": 4},
-      {"name": "redhat", "path": "configs/redhat-tasks.yaml", "commands_count": 4}
+      {"name": "default", "path": "config.yaml", "version": "2.2.0", "version_path": "/api/v1/config/version", "commands_count": 2, "is_default": true},
+      {"name": "ubuntu", "path": "configs/ubuntu-tasks.yaml", "version": "2.2.0", "version_path": "/api/v1/configs/ubuntu/version", "commands_count": 4, "is_default": false},
+      {"name": "redhat", "path": "configs/redhat-tasks.yaml", "version": "2.2.0", "version_path": "/api/v1/configs/redhat/version", "commands_count": 4, "is_default": false}
     ],
     "server": { "host": "0.0.0.0", "port": 8080, "tls_enabled": true },
     "command_executor": { "enabled": true, "default_timeout": "30s" }
@@ -96,15 +127,17 @@ This project implements the verified architectural requirements from `ORIGINAL_R
   ```
 
 ## Code Layout
-- `internal/version/version.go`: Certified version metadata models, `runtime/debug.ReadBuildInfo()` extraction, fallback hierarchy.
-- `internal/version/version_test.go`: Unit tests for version resolution, uptime, and fallback logic.
-- `internal/api/version_handler.go`: Public HTTP handler for `GET /api/v1/version`.
-- `internal/api/version_test.go`: HTTP handler tests for 200 OK, 405 Method Not Allowed, unauthenticated access.
-- `internal/core/config.go`: `MultiConfigManager`, `multi_config:` schema, profile loading.
-- `internal/api/config_handlers.go`: `ConfigHandler` for `GET /api/v1/config`.
+- `internal/version/version.go`: Certified version metadata models (`VersionResponse` with optional `config_version`, `config_version_path`, `config_file`), `runtime/debug.ReadBuildInfo()` extraction, pure-Go `.git/HEAD` fallback (`resolveGitCommitFromDotGit` / `resolveGitCommitFromDir`), fallback hierarchy.
+- `internal/version/version_test.go`: Unit tests for version resolution, pure-Go `.git/HEAD` resolution, uptime, fallback logic, and JSON marshaling.
+- `internal/api/version_handler.go`: Public HTTP handlers for `GET /api/v1/version` (with conditional config metadata) and conditional `GET /api/v1/config/version` / `GET /api/v1/configs/{profile}/version` (`ConfigVersionHandler`).
+- `internal/api/version_test.go`: HTTP handler & integration tests for `/api/v1/version` and `/api/v1/config/version` (200 OK, conditional 404, 405 `Allow: GET`, unauthenticated access when `RequireAuth=true`, Prometheus path normalization, repo YAML integration).
+- `internal/core/config.go`: `MultiConfigManager`, `multi_config:` schema (`version_path`), `Config` (`Version`, `ConfigVersion`, `ConfigVersionPath`, `SourcePath`), `EffectiveVersion()`, `EffectiveVersionPath()`, `GetProfilePath()`, conditional version views, profile loading.
+- `internal/api/config_handlers.go`: `ConfigHandler` for `GET /api/v1/config` / `GET /api/v1/configs/{profile}` with delegation to `ConfigVersionHandler` for `/version` routes and conditional version fields in `buildFallbackSanitizedView`.
+- `internal/api/router.go`: Static route registration (`knownStaticPaths`), `normalizeMetricPath` normalization (`/api/v1/config/version`, `/api/v1/config/:profile/version`), and conditional mounting of custom `EffectiveVersionPath()` routes.
 - `internal/jobs/buffer.go`: `sync.Pool` zero-allocation pooling for `JobLogBuffer`.
 - `internal/api/metrics_otlp.go`: OTLP metrics translation and export handler.
 - `.github/workflows/docker-publish.yml`: Cosign container signing step.
 - `internal/core/executor_unix.go`: Rootless container sandbox credential dropping.
+- `docs/branding_test.go`: Branding, Docker hygiene, workflow, sandbox, and config version declaration regression tests.
 - `docs/ACTION_LOGBOOK.md`: Living record of all actions (`ACT-065` onwards).
 - `docs/RCA_REGISTER.md`: Living RCA and technical decisions register.

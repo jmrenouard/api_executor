@@ -255,3 +255,170 @@ func TestListCommandsHandler_WithProfile(t *testing.T) {
 		t.Errorf("expected 3 ubuntu commands, got %d", len(respUbuntu.Commands))
 	}
 }
+
+func TestConfigHandler_ConditionalVersionFields_FallbackAndMultiConfig(t *testing.T) {
+	t.Run("fallback without version omits version fields", func(t *testing.T) {
+		cfg := core.DefaultConfig()
+		env := &APIEnv{
+			Config:             cfg,
+			MultiConfigManager: nil,
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+		rec := httptest.NewRecorder()
+		env.ConfigHandler(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d", rec.Code)
+		}
+
+		var raw map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatalf("decode raw failed: %v", err)
+		}
+		for _, key := range []string{"version", "config_version", "config_version_path"} {
+			if _, ok := raw[key]; ok {
+				t.Errorf("expected %q omitted from unversioned fallback SanitizedConfigView, got %v", key, raw[key])
+			}
+		}
+
+		var view core.SanitizedConfigView
+		if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+			t.Fatalf("decode view failed: %v", err)
+		}
+		if len(view.Profiles) != 1 || view.Profiles[0].Version != "" || view.Profiles[0].VersionPath != "" {
+			t.Errorf("expected empty profile version fields on unversioned fallback, got %+v", view.Profiles)
+		}
+	})
+
+	t.Run("fallback with version and SourcePath populates version fields", func(t *testing.T) {
+		cfg := core.DefaultConfig()
+		cfg.Version = "2.2.0"
+		cfg.SourcePath = "configs/custom-master.yaml"
+		env := &APIEnv{
+			Config:             cfg,
+			MultiConfigManager: nil,
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+		rec := httptest.NewRecorder()
+		env.ConfigHandler(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d", rec.Code)
+		}
+
+		var view core.SanitizedConfigView
+		if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+			t.Fatalf("decode view failed: %v", err)
+		}
+		if view.ConfigFile != "configs/custom-master.yaml" {
+			t.Errorf("expected ConfigFile 'configs/custom-master.yaml', got %q", view.ConfigFile)
+		}
+		if view.Version != "2.2.0" || view.ConfigVersion != "2.2.0" || view.ConfigVersionPath != "/api/v1/config/version" {
+			t.Errorf("unexpected SanitizedConfigView version fields: %+v", view)
+		}
+		if len(view.Profiles) != 1 || view.Profiles[0].Version != "2.2.0" || view.Profiles[0].VersionPath != "/api/v1/config/version" {
+			t.Errorf("unexpected fallback Profiles[0] version fields: %+v", view.Profiles)
+		}
+	})
+
+	t.Run("multi-config includes version fields only for versioned profiles", func(t *testing.T) {
+		masterCfg := core.DefaultConfig()
+		masterCfg.Version = "2.2.0"
+		mgr, err := core.NewMultiConfigManager("config.yaml", masterCfg)
+		if err != nil {
+			t.Fatalf("NewMultiConfigManager failed: %v", err)
+		}
+
+		ubuntuCfg := core.DefaultConfig()
+		ubuntuCfg.Version = "2.2.0"
+		mgr.RegisterProfile("ubuntu", "configs/ubuntu-tasks.yaml", "Ubuntu", ubuntuCfg)
+
+		legacyCfg := core.DefaultConfig()
+		mgr.RegisterProfile("legacy", "configs/legacy.yaml", "Legacy", legacyCfg)
+
+		env := &APIEnv{
+			Config:             masterCfg,
+			MultiConfigManager: mgr,
+		}
+
+		// Versioned ubuntu profile
+		reqUbuntu := httptest.NewRequest(http.MethodGet, "/api/v1/configs/ubuntu", nil)
+		recUbuntu := httptest.NewRecorder()
+		env.ConfigHandler(recUbuntu, reqUbuntu)
+		if recUbuntu.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d", recUbuntu.Code)
+		}
+		var viewUbuntu core.SanitizedConfigView
+		if err := json.Unmarshal(recUbuntu.Body.Bytes(), &viewUbuntu); err != nil {
+			t.Fatalf("decode ubuntu view failed: %v", err)
+		}
+		if viewUbuntu.Version != "2.2.0" || viewUbuntu.ConfigVersion != "2.2.0" || viewUbuntu.ConfigVersionPath != "/api/v1/configs/ubuntu/version" {
+			t.Errorf("unexpected ubuntu SanitizedConfigView version fields: %+v", viewUbuntu)
+		}
+
+		// Unversioned legacy profile
+		reqLegacy := httptest.NewRequest(http.MethodGet, "/api/v1/configs/legacy", nil)
+		recLegacy := httptest.NewRecorder()
+		env.ConfigHandler(recLegacy, reqLegacy)
+		if recLegacy.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d", recLegacy.Code)
+		}
+		var rawLegacy map[string]any
+		if err := json.Unmarshal(recLegacy.Body.Bytes(), &rawLegacy); err != nil {
+			t.Fatalf("decode raw legacy failed: %v", err)
+		}
+		for _, key := range []string{"version", "config_version", "config_version_path"} {
+			if _, ok := rawLegacy[key]; ok {
+				t.Errorf("expected %q omitted from unversioned legacy SanitizedConfigView, got %v", key, rawLegacy[key])
+			}
+		}
+	})
+}
+
+func TestConfigHandler_DelegatesVersionRoutes(t *testing.T) {
+	masterCfg := core.DefaultConfig()
+	masterCfg.Version = "2.2.0"
+	mgr, err := core.NewMultiConfigManager("config.yaml", masterCfg)
+	if err != nil {
+		t.Fatalf("NewMultiConfigManager failed: %v", err)
+	}
+	ubuntuCfg := core.DefaultConfig()
+	ubuntuCfg.Version = "2.2.0"
+	mgr.RegisterProfile("ubuntu", "configs/ubuntu-tasks.yaml", "Ubuntu", ubuntuCfg)
+
+	env := &APIEnv{
+		Config:             masterCfg,
+		MultiConfigManager: mgr,
+	}
+
+	for _, tc := range []struct {
+		path        string
+		wantProfile string
+		wantPath    string
+	}{
+		{"/api/v1/config/version", "default", "/api/v1/config/version"},
+		{"/api/v1/configs/version", "default", "/api/v1/config/version"},
+		{"/api/v1/configs/ubuntu/version", "ubuntu", "/api/v1/configs/ubuntu/version"},
+		{"/api/v1/config/ubuntu/version/", "ubuntu", "/api/v1/configs/ubuntu/version"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			rec := httptest.NewRecorder()
+			env.ConfigHandler(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200 OK for %s via ConfigHandler delegation, got %d (body: %s)", tc.path, rec.Code, rec.Body.String())
+			}
+
+			var resp ConfigVersionResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode ConfigVersionResponse: %v", err)
+			}
+			if resp.Profile != tc.wantProfile || resp.Path != tc.wantPath || resp.Version != "2.2.0" {
+				t.Errorf("unexpected delegated ConfigVersionResponse for %s: %+v", tc.path, resp)
+			}
+		})
+	}
+}

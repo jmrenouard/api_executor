@@ -673,6 +673,9 @@ Response (`200 OK`):
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/` | Pure 9-tab Web Administration Console (`web/static/index.html`) |
+| `GET` | `/api/v1/version` | Public certified version & build metadata probe (enriched with optional `config_version`, `config_version_path`, and `config_file` when configured) |
+| `GET` | `/api/v1/config` | Inspect sanitized active configuration and available backward-compatible profiles (`?profile=`, `X-Config-Profile`, or `/api/v1/configs/{profile}`) |
+| `GET` | `/api/v1/config/version` | Conditional public config version probe (`200 OK` when config version is defined, `404` when absent; also supports `/api/v1/configs/{profile}/version` and custom `version_path`) |
 | `GET` | `/api/v1/commands` | List active commands with OS family and default timeout metadata |
 | `POST` | `/api/v1/execute` | Execute a predefined command with optional per-call `timeout` override |
 | `POST` | `/api/v1/jobs` | Submit a command or plugin action for asynchronous execution (`202 Accepted`) |

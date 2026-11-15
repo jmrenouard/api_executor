@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
@@ -446,5 +447,259 @@ func TestSandboxConfig_SanitizedView(t *testing.T) {
 	}
 	if !view.Sandbox.NoNewPrivileges {
 		t.Errorf("expected Sandbox.NoNewPrivileges true in view")
+	}
+}
+
+func TestConfig_EffectiveVersionAndPath(t *testing.T) {
+	if core.DefaultConfigVersionPath != "/api/v1/config/version" {
+		t.Errorf("expected DefaultConfigVersionPath '/api/v1/config/version', got %q", core.DefaultConfigVersionPath)
+	}
+
+	var nilCfg *core.Config
+	if nilCfg.EffectiveVersion() != "" {
+		t.Errorf("expected empty EffectiveVersion for nil config, got %q", nilCfg.EffectiveVersion())
+	}
+	if nilCfg.EffectiveVersionPath() != "" {
+		t.Errorf("expected empty EffectiveVersionPath for nil config, got %q", nilCfg.EffectiveVersionPath())
+	}
+
+	defCfg := core.DefaultConfig()
+	if defCfg.EffectiveVersion() != "" {
+		t.Errorf("expected empty EffectiveVersion on DefaultConfig, got %q", defCfg.EffectiveVersion())
+	}
+	if defCfg.EffectiveVersionPath() != "" {
+		t.Errorf("expected empty EffectiveVersionPath on DefaultConfig without version, got %q", defCfg.EffectiveVersionPath())
+	}
+
+	// Custom path must remain empty if no version is configured
+	noVerCfg := core.DefaultConfig()
+	noVerCfg.ConfigVersionPath = "/api/v1/custom-version"
+	noVerCfg.MultiConfig.VersionPath = "/api/v1/multi-version"
+	if noVerCfg.EffectiveVersionPath() != "" {
+		t.Errorf("expected empty EffectiveVersionPath when version is absent, got %q", noVerCfg.EffectiveVersionPath())
+	}
+
+	// Version takes precedence over ConfigVersion and defaults to DefaultConfigVersionPath
+	verCfg := core.DefaultConfig()
+	verCfg.Version = "  2.2.0  "
+	verCfg.ConfigVersion = "1.0.0"
+	if verCfg.EffectiveVersion() != "2.2.0" {
+		t.Errorf("expected EffectiveVersion '2.2.0', got %q", verCfg.EffectiveVersion())
+	}
+	if verCfg.EffectiveVersionPath() != "/api/v1/config/version" {
+		t.Errorf("expected default EffectiveVersionPath '/api/v1/config/version', got %q", verCfg.EffectiveVersionPath())
+	}
+
+	// Fallback to ConfigVersion when Version is empty, and MultiConfig.VersionPath normalization
+	cfgVerOnly := core.DefaultConfig()
+	cfgVerOnly.ConfigVersion = "  1.9.0  "
+	cfgVerOnly.MultiConfig.VersionPath = "api/v1/multi-ver"
+	if cfgVerOnly.EffectiveVersion() != "1.9.0" {
+		t.Errorf("expected EffectiveVersion '1.9.0', got %q", cfgVerOnly.EffectiveVersion())
+	}
+	if cfgVerOnly.EffectiveVersionPath() != "/api/v1/multi-ver" {
+		t.Errorf("expected normalized MultiConfig.VersionPath '/api/v1/multi-ver', got %q", cfgVerOnly.EffectiveVersionPath())
+	}
+
+	// ConfigVersionPath overrides MultiConfig.VersionPath and normalizes leading slash
+	cfgVerOnly.ConfigVersionPath = "custom/config/version"
+	if cfgVerOnly.EffectiveVersionPath() != "/custom/config/version" {
+		t.Errorf("expected normalized ConfigVersionPath '/custom/config/version', got %q", cfgVerOnly.EffectiveVersionPath())
+	}
+}
+
+func TestLoadConfig_SourcePathAndRepoConfigs(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "app.yaml")
+	yamlBody := `
+version: "2.3.0"
+config_version_path: "custom/ver"
+server:
+  port: 8080
+  host: "127.0.0.1"
+multi_config:
+  enabled: true
+  endpoint: "/api/v1/config"
+  version_path: "/api/v1/multi/version"
+  default_profile: "default"
+`
+	if err := os.WriteFile(cfgPath, []byte(yamlBody), 0644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	cfg, err := core.LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	if cfg.SourcePath != cfgPath {
+		t.Errorf("expected SourcePath %q, got %q", cfgPath, cfg.SourcePath)
+	}
+	if cfg.EffectiveVersion() != "2.3.0" {
+		t.Errorf("expected EffectiveVersion '2.3.0', got %q", cfg.EffectiveVersion())
+	}
+	if cfg.EffectiveVersionPath() != "/custom/ver" {
+		t.Errorf("expected EffectiveVersionPath '/custom/ver', got %q", cfg.EffectiveVersionPath())
+	}
+	if cfg.MultiConfig.VersionPath != "/api/v1/multi/version" {
+		t.Errorf("expected MultiConfig.VersionPath '/api/v1/multi/version', got %q", cfg.MultiConfig.VersionPath)
+	}
+
+	// Verify repository YAML files declare version 2.2.0 and config.yaml sets version_path
+	repoCfg, err := core.LoadConfig("../../config.yaml")
+	if err != nil {
+		t.Fatalf("failed to load ../../config.yaml: %v", err)
+	}
+	if repoCfg.EffectiveVersion() != "2.2.0" {
+		t.Errorf("expected ../../config.yaml version '2.2.0', got %q", repoCfg.EffectiveVersion())
+	}
+	if repoCfg.EffectiveVersionPath() != "/api/v1/config/version" {
+		t.Errorf("expected ../../config.yaml version path '/api/v1/config/version', got %q", repoCfg.EffectiveVersionPath())
+	}
+
+	for _, profileFile := range []string{"../../configs/ubuntu-tasks.yaml", "../../configs/redhat-tasks.yaml"} {
+		pCfg, err := core.LoadConfig(profileFile)
+		if err != nil {
+			t.Fatalf("failed to load %s: %v", profileFile, err)
+		}
+		if pCfg.EffectiveVersion() != "2.2.0" {
+			t.Errorf("expected %s version '2.2.0', got %q", profileFile, pCfg.EffectiveVersion())
+		}
+	}
+}
+
+func TestMultiConfigManager_GetProfilePathAndConditionalVersion(t *testing.T) {
+	var nilMgr *core.MultiConfigManager
+	if nilMgr.GetProfilePath("default") != "" {
+		t.Errorf("expected empty GetProfilePath on nil manager, got %q", nilMgr.GetProfilePath("default"))
+	}
+
+	tempDir := t.TempDir()
+	masterPath := filepath.Join(tempDir, "master.yaml")
+	masterYAML := `
+version: "2.2.0"
+server:
+  port: 8080
+  host: "0.0.0.0"
+multi_config:
+  enabled: true
+  endpoint: "/api/v1/config"
+  version_path: "/api/v1/config/version"
+  default_profile: "master"
+  profiles:
+    - name: "master"
+      path: "master.yaml"
+      description: "Master profile"
+    - name: "ubuntu"
+      path: "ubuntu.yaml"
+      description: "Ubuntu profile"
+    - name: "legacy"
+      path: "legacy.yaml"
+      description: "Legacy unversioned profile"
+    - name: "custom"
+      path: "custom.yaml"
+      description: "Custom path profile"
+`
+	ubuntuYAML := `
+version: "2.2.0"
+server:
+  port: 8081
+`
+	legacyYAML := `
+server:
+  port: 8082
+`
+	customYAML := `
+config_version: "3.0.0"
+config_version_path: "api/v1/custom-ver"
+server:
+  port: 8083
+`
+	files := map[string]string{
+		masterPath:                        masterYAML,
+		filepath.Join(tempDir, "ubuntu.yaml"): ubuntuYAML,
+		filepath.Join(tempDir, "legacy.yaml"): legacyYAML,
+		filepath.Join(tempDir, "custom.yaml"): customYAML,
+	}
+	for path, body := range files {
+		if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", path, err)
+		}
+	}
+
+	masterCfg, err := core.LoadConfig(masterPath)
+	if err != nil {
+		t.Fatalf("failed to load master.yaml: %v", err)
+	}
+	mgr, err := core.NewMultiConfigManager(masterPath, masterCfg)
+	if err != nil {
+		t.Fatalf("failed to create MultiConfigManager: %v", err)
+	}
+
+	if got := mgr.GetProfilePath("master"); got != "master.yaml" {
+		t.Errorf("expected GetProfilePath('master') == 'master.yaml', got %q", got)
+	}
+	if got := mgr.GetProfilePath("ubuntu"); got != "ubuntu.yaml" {
+		t.Errorf("expected GetProfilePath('ubuntu') == 'ubuntu.yaml', got %q", got)
+	}
+	if got := mgr.GetProfilePath("missing"); got != masterPath {
+		t.Errorf("expected GetProfilePath('missing') to fall back to %q, got %q", masterPath, got)
+	}
+
+	profiles := mgr.ListProfiles()
+	byName := make(map[string]core.ConfigProfileSummary, len(profiles))
+	for _, p := range profiles {
+		byName[p.Name] = p
+	}
+
+	if p := byName["master"]; p.Version != "2.2.0" || p.VersionPath != "/api/v1/config/version" {
+		t.Errorf("unexpected master profile summary: %+v", p)
+	}
+	if p := byName["ubuntu"]; p.Version != "2.2.0" || p.VersionPath != "/api/v1/configs/ubuntu/version" {
+		t.Errorf("unexpected ubuntu profile summary: %+v", p)
+	}
+	if p := byName["legacy"]; p.Version != "" || p.VersionPath != "" {
+		t.Errorf("expected empty version fields on unversioned legacy profile, got %+v", p)
+	}
+	if p := byName["custom"]; p.Version != "3.0.0" || p.VersionPath != "/api/v1/custom-ver" {
+		t.Errorf("unexpected custom profile summary: %+v", p)
+	}
+
+	// Verify SanitizedView conditional version metadata
+	masterView, err := mgr.SanitizedView("master")
+	if err != nil {
+		t.Fatalf("SanitizedView('master') error: %v", err)
+	}
+	if masterView.Version != "2.2.0" || masterView.ConfigVersion != "2.2.0" || masterView.ConfigVersionPath != "/api/v1/config/version" {
+		t.Errorf("unexpected master SanitizedView version fields: %+v", masterView)
+	}
+
+	ubuntuView, err := mgr.SanitizedView("ubuntu")
+	if err != nil {
+		t.Fatalf("SanitizedView('ubuntu') error: %v", err)
+	}
+	if ubuntuView.Version != "2.2.0" || ubuntuView.ConfigVersion != "2.2.0" || ubuntuView.ConfigVersionPath != "/api/v1/configs/ubuntu/version" {
+		t.Errorf("unexpected ubuntu SanitizedView version fields: %+v", ubuntuView)
+	}
+
+	legacyView, err := mgr.SanitizedView("legacy")
+	if err != nil {
+		t.Fatalf("SanitizedView('legacy') error: %v", err)
+	}
+	if legacyView.Version != "" || legacyView.ConfigVersion != "" || legacyView.ConfigVersionPath != "" {
+		t.Errorf("expected empty version fields on unversioned legacy view, got version=%q config_version=%q path=%q",
+			legacyView.Version, legacyView.ConfigVersion, legacyView.ConfigVersionPath)
+	}
+	rawLegacy, err := json.Marshal(legacyView)
+	if err != nil {
+		t.Fatalf("failed to marshal legacyView: %v", err)
+	}
+	var legacyMap map[string]any
+	if err := json.Unmarshal(rawLegacy, &legacyMap); err != nil {
+		t.Fatalf("failed to unmarshal legacyView JSON: %v", err)
+	}
+	for _, omittedKey := range []string{"version", "config_version", "config_version_path"} {
+		if _, present := legacyMap[omittedKey]; present {
+			t.Errorf("expected %q to be omitted from unversioned SanitizedConfigView JSON", omittedKey)
+		}
 	}
 }

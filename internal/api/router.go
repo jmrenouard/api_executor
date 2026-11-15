@@ -12,6 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
 	httpSwagger "github.com/swaggo/http-swagger"
+
+	"go-admin-tool/internal/core"
 )
 
 const (
@@ -366,7 +368,9 @@ var knownStaticPaths = map[string]struct{}{
 	"/swagger":                             {},
 	"/api/v1/version":                      {},
 	"/api/v1/config":                       {},
+	"/api/v1/config/version":               {},
 	"/api/v1/configs":                      {},
+	"/api/v1/configs/version":              {},
 	"/api/v1/commands":                     {},
 	"/api/v1/execute":                      {},
 	"/api/v1/presets":                      {},
@@ -406,6 +410,14 @@ var knownStaticPaths = map[string]struct{}{
 // route pattern templates, recognized static routes are preserved, and unrecognized/random
 // paths are collapsed to "other".
 func normalizeMetricPath(path string) string {
+	// Normalize conditional config version routes before generic /api/v1/config(s)/:profile routes
+	if profile, ok := parseConfigVersionPath(path); ok {
+		if profile == "" {
+			return "/api/v1/config/version"
+		}
+		return "/api/v1/config/:profile/version"
+	}
+
 	// Normalize dynamic parameterized routes
 	if strings.HasPrefix(path, "/api/v1/config/") && path != "/api/v1/config" {
 		return "/api/v1/config/:profile"
@@ -498,8 +510,10 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/version", http.HandlerFunc(env.VersionHandler))
 	mux.Handle("/api/v1/config", http.HandlerFunc(env.ConfigHandler))
 	mux.Handle("/api/v1/config/", http.HandlerFunc(env.ConfigHandler))
+	mux.Handle("/api/v1/config/version", http.HandlerFunc(env.ConfigVersionHandler))
 	mux.Handle("/api/v1/configs", http.HandlerFunc(env.ConfigHandler))
 	mux.Handle("/api/v1/configs/", http.HandlerFunc(env.ConfigHandler))
+	mux.Handle("/api/v1/configs/version", http.HandlerFunc(env.ConfigVersionHandler))
 	mux.Handle("/api/v1/commands", http.HandlerFunc(env.ListCommandsHandler))
 	mux.Handle("/api/v1/execute", http.HandlerFunc(env.ExecuteCommandHandler))
 	mux.Handle("/api/v1/presets", http.HandlerFunc(env.ListPresetsHandler))
@@ -555,6 +569,80 @@ func NewRouter(env *APIEnv) http.Handler {
 	// Frontend
 	staticFileServer := http.FileServer(http.Dir(resolveStaticDir()))
 	mux.Handle("/", staticFileServer)
+
+	// Dynamically mount custom config version paths only when a version is explicitly configured.
+	registeredVersionPaths := map[string]struct{}{
+		"":                                     {},
+		"/":                                    {},
+		"/index.html":                          {},
+		"/health":                              {},
+		"/metrics":                             {},
+		"/api/v1/metrics/otlp":                 {},
+		"/api/v1/metrics/otlp/":                {},
+		"/swagger/":                            {},
+		"/api/v1/version":                      {},
+		"/api/v1/config":                       {},
+		"/api/v1/config/":                      {},
+		"/api/v1/config/version":               {},
+		"/api/v1/configs":                      {},
+		"/api/v1/configs/":                     {},
+		"/api/v1/configs/version":              {},
+		"/api/v1/commands":                     {},
+		"/api/v1/execute":                      {},
+		"/api/v1/presets":                      {},
+		"/api/v1/presets/activate":             {},
+		"/api/v1/files":                        {},
+		"/api/v1/files/":                       {},
+		"/api/v1/tls/info":                     {},
+		"/api/v1/tls/certificate":              {},
+		"/api/v1/tls/renew":                    {},
+		"/api/v1/audit/logs":                   {},
+		"/api/v1/audit/verify":                 {},
+		"/api/v1/logs":                         {},
+		"/api/v1/history":                      {},
+		"/api/v1/auth/login":                   {},
+		"/api/v1/auth/me":                      {},
+		"/api/v1/auth/users":                   {},
+		"/api/v1/auth/tokens":                  {},
+		"/api/v1/auth/service-accounts":        {},
+		"/api/v1/auth/service-accounts/rotate": {},
+		"/api/v1/plugins":                      {},
+		"/api/v1/plugins/execute":              {},
+		"/api/v1/plugins/declarative":          {},
+		"/api/v1/db/tables":                    {},
+		"/api/v1/db/query":                     {},
+		"/api/v1/mcp":                          {},
+		"/api/v1/mcp/tools":                    {},
+		"/api/v1/mcp/traces":                   {},
+		"/api/v1/mcp/traces/":                  {},
+		"/api/v1/jobs":                         {},
+		"/api/v1/jobs/queue":                   {},
+		"/api/v1/jobs/":                        {},
+	}
+	mountConfigVersionPath := func(cfg *core.Config) {
+		if cfg == nil {
+			return
+		}
+		p := cfg.EffectiveVersionPath()
+		if p == "" {
+			return
+		}
+		if _, exists := registeredVersionPaths[p]; exists {
+			return
+		}
+		registeredVersionPaths[p] = struct{}{}
+		mux.Handle(p, http.HandlerFunc(env.ConfigVersionHandler))
+	}
+	if env != nil {
+		mountConfigVersionPath(env.Config)
+		if env.MultiConfigManager != nil {
+			for _, summary := range env.MultiConfigManager.ListProfiles() {
+				if profileCfg, ok := env.MultiConfigManager.GetProfile(summary.Name); ok {
+					mountConfigVersionPath(profileCfg)
+				}
+			}
+		}
+	}
 
 	return prometheusMiddleware(securityMiddleware(env, mux))
 }
