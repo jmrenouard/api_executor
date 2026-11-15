@@ -25,10 +25,16 @@ const (
 	DefaultRootlessGID uint32 = 10001
 	// DefaultUserNSMode is the default user namespace mode ("keep-id").
 	DefaultUserNSMode = "keep-id"
+	// DefaultConfigVersionPath is the default conditional HTTP path exposing configuration version metadata.
+	DefaultConfigVersionPath = "/api/v1/config/version"
 )
 
 type Config struct {
-	Server      ServerConfig     `yaml:"server" json:"server"`
+	Version           string           `yaml:"version,omitempty" json:"version,omitempty"`
+	ConfigVersion     string           `yaml:"config_version,omitempty" json:"config_version,omitempty"`
+	ConfigVersionPath string           `yaml:"config_version_path,omitempty" json:"config_version_path,omitempty"`
+	SourcePath        string           `yaml:"-" json:"-"`
+	Server            ServerConfig     `yaml:"server" json:"server"`
 	Logging     LoggingConfig    `yaml:"logging" json:"logging"`
 	Database    DatabaseConfig   `yaml:"database" json:"database"`
 	FileServer  FileServerConfig `yaml:"file_server" json:"file_server"`
@@ -85,6 +91,7 @@ func (c OTLPExportConfig) EffectiveTimeout() time.Duration {
 type MultiConfig struct {
 	Enabled        bool                    `yaml:"enabled" json:"enabled"`
 	Endpoint       string                  `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	VersionPath    string                  `yaml:"version_path,omitempty" json:"version_path,omitempty"`
 	DefaultProfile string                  `yaml:"default_profile" json:"default_profile"`
 	Profiles       []ConfigProfileMetadata `yaml:"profiles" json:"profiles"`
 }
@@ -101,6 +108,8 @@ type ConfigProfileSummary struct {
 	Name          string `json:"name"`
 	Path          string `json:"path"`
 	Description   string `json:"description,omitempty"`
+	Version       string `json:"version,omitempty"`
+	VersionPath   string `json:"version_path,omitempty"`
 	CommandsCount int    `json:"commands_count"`
 	IsDefault     bool   `json:"is_default"`
 }
@@ -190,9 +199,12 @@ func (s SandboxConfig) Validate() error {
 
 // SanitizedConfigView represents the client-facing view of a configuration with sensitive credentials masked.
 type SanitizedConfigView struct {
-	ActiveProfile   string                    `json:"active_profile"`
-	ConfigFile      string                    `json:"config_file"`
-	Profiles        []ConfigProfileSummary    `json:"profiles"`
+	ActiveProfile     string                    `json:"active_profile"`
+	ConfigFile        string                    `json:"config_file"`
+	Version           string                    `json:"version,omitempty"`
+	ConfigVersion     string                    `json:"config_version,omitempty"`
+	ConfigVersionPath string                    `json:"config_version_path,omitempty"`
+	Profiles          []ConfigProfileSummary    `json:"profiles"`
 	Server          SanitizedServerConfig     `json:"server"`
 	Logging         LoggingConfig             `json:"logging"`
 	FileServer      FileServerConfig          `json:"file_server"`
@@ -540,6 +552,46 @@ func (e ExecutorConfig) ResolveTimeout(cmd CommandDefinition, callOverride time.
 	return cmd.EffectiveTimeout(e.EffectiveDefaultTimeout())
 }
 
+// EffectiveVersion returns the trimmed configuration version from Version or ConfigVersion, or "" if unset.
+func (c *Config) EffectiveVersion() string {
+	if c == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(c.Version); v != "" {
+		return v
+	}
+	return strings.TrimSpace(c.ConfigVersion)
+}
+
+// EffectiveVersionPath returns the normalized endpoint path for the configuration version,
+// or "" when no configuration version is defined.
+func (c *Config) EffectiveVersionPath() string {
+	if c == nil || c.EffectiveVersion() == "" {
+		return ""
+	}
+	p := strings.TrimSpace(c.ConfigVersionPath)
+	if p == "" {
+		p = strings.TrimSpace(c.MultiConfig.VersionPath)
+	}
+	if p == "" {
+		p = DefaultConfigVersionPath
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+func profileVersionPath(cfg *Config, profileName string, isDefault bool) string {
+	if cfg == nil || cfg.EffectiveVersion() == "" {
+		return ""
+	}
+	if isDefault || strings.TrimSpace(cfg.ConfigVersionPath) != "" || profileName == "" {
+		return cfg.EffectiveVersionPath()
+	}
+	return fmt.Sprintf("/api/v1/configs/%s/version", profileName)
+}
+
 func LoadConfig(path string) (*Config, error) {
 	config := DefaultConfig()
 
@@ -555,6 +607,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	config.SourcePath = path
 
 	effective := config.Executor.EffectiveDefaultTimeout()
 	if _, parseErr := ParseTimeoutDuration(config.Executor.DefaultTimeout); config.Executor.DefaultTimeout == "" || parseErr != nil {
@@ -700,6 +753,19 @@ func (m *MultiConfigManager) GetProfile(name string) (*Config, bool) {
 	return cfg, ok
 }
 
+// GetProfilePath returns the configured file path for the named profile, falling back to masterPath.
+func (m *MultiConfigManager) GetProfilePath(name string) string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if p := m.pathMap[name]; p != "" {
+		return p
+	}
+	return m.masterPath
+}
+
 // RegisterProfile dynamically registers or overrides a named configuration profile.
 func (m *MultiConfigManager) RegisterProfile(name, path, description string, cfg *Config) {
 	if m == nil || name == "" || cfg == nil {
@@ -792,6 +858,32 @@ func (m *MultiConfigManager) ResolveConfig(r *http.Request) *Config {
 	return nil
 }
 
+func (m *MultiConfigManager) buildProfileSummariesLocked() []ConfigProfileSummary {
+	summaries := make([]ConfigProfileSummary, 0, len(m.profiles))
+	for _, p := range m.profiles {
+		cmdCount := 0
+		var version, versionPath string
+		isDefault := p.Name == m.defaultProfile
+		if cfg, ok := m.configs[p.Name]; ok && cfg != nil {
+			cmdCount = len(cfg.Executor.Commands)
+			if v := cfg.EffectiveVersion(); v != "" {
+				version = v
+				versionPath = profileVersionPath(cfg, p.Name, isDefault)
+			}
+		}
+		summaries = append(summaries, ConfigProfileSummary{
+			Name:          p.Name,
+			Path:          p.Path,
+			Description:   p.Description,
+			Version:       version,
+			VersionPath:   versionPath,
+			CommandsCount: cmdCount,
+			IsDefault:     isDefault,
+		})
+	}
+	return summaries
+}
+
 // ListProfiles returns client-facing summaries for all declared configuration profiles.
 func (m *MultiConfigManager) ListProfiles() []ConfigProfileSummary {
 	if m == nil {
@@ -800,21 +892,7 @@ func (m *MultiConfigManager) ListProfiles() []ConfigProfileSummary {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	summaries := make([]ConfigProfileSummary, 0, len(m.profiles))
-	for _, p := range m.profiles {
-		cmdCount := 0
-		if cfg, ok := m.configs[p.Name]; ok {
-			cmdCount = len(cfg.Executor.Commands)
-		}
-		summaries = append(summaries, ConfigProfileSummary{
-			Name:          p.Name,
-			Path:          p.Path,
-			Description:   p.Description,
-			CommandsCount: cmdCount,
-			IsDefault:     p.Name == m.defaultProfile,
-		})
-	}
-	return summaries
+	return m.buildProfileSummariesLocked()
 }
 
 // SanitizedView returns a sanitized view of the requested profile with credentials redacted.
@@ -840,19 +918,13 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 		configPath = m.masterPath
 	}
 
-	summaries := make([]ConfigProfileSummary, 0, len(m.profiles))
-	for _, p := range m.profiles {
-		cmdCount := 0
-		if c, ok := m.configs[p.Name]; ok {
-			cmdCount = len(c.Executor.Commands)
-		}
-		summaries = append(summaries, ConfigProfileSummary{
-			Name:          p.Name,
-			Path:          p.Path,
-			Description:   p.Description,
-			CommandsCount: cmdCount,
-			IsDefault:     p.Name == m.defaultProfile,
-		})
+	summaries := m.buildProfileSummariesLocked()
+
+	var viewVersion, viewConfigVersion, viewVersionPath string
+	if v := cfg.EffectiveVersion(); v != "" {
+		viewVersion = v
+		viewConfigVersion = v
+		viewVersionPath = profileVersionPath(cfg, targetName, targetName == m.defaultProfile)
 	}
 
 	var sanitizedHeaders map[string]string
@@ -864,9 +936,12 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 	}
 
 	view := &SanitizedConfigView{
-		ActiveProfile: targetName,
-		ConfigFile:    configPath,
-		Profiles:      summaries,
+		ActiveProfile:     targetName,
+		ConfigFile:        configPath,
+		Version:           viewVersion,
+		ConfigVersion:     viewConfigVersion,
+		ConfigVersionPath: viewVersionPath,
+		Profiles:          summaries,
 		Server: SanitizedServerConfig{
 			Port:       cfg.Server.Port,
 			Host:       cfg.Server.Host,

@@ -13,6 +13,38 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-071` — Conditional Config Version Endpoint Path & Enriched `GET /api/v1/version`
+- **Timestamp (UTC)**: `2026-11-15T21:07:00Z`
+- **GitHub Issue**: [#142](https://github.com/jmrenouard/api_executor/issues/142)
+- **Branch**: `feat/issue-142-config-version-path-and-version-endpoint`
+- **Request**:
+  - Expose a conditional configuration version endpoint (`GET /api/v1/config/version`, `GET /api/v1/configs/{profile}/version`, and custom `config_version_path` / `multi_config.version_path`) that returns `200 OK` ONLY when a configuration version (`version` or `config_version`) is declared and returns `404 Not Found` otherwise.
+  - Enrich `GET /api/v1/version` (`internal/version` + `internal/api/version_handler.go`) with optional (`omitempty`) `config_version`, `config_version_path`, and `config_file` metadata when the resolved profile defines a version, plus a zero-subprocess pure-Go `.git/HEAD` fallback (`resolveGitCommitFromDotGit`) when `vcs.revision` is unavailable.
+  - Preserve public unauthenticated probe access on both endpoints when `auth.require_auth: true`, enforce `405 Method Not Allowed` with `Allow: GET`, normalize conditional config version paths in `normalizeMetricPath` before generic `/api/v1/config/:profile` matching, and declare `version: "2.2.0"` across repository YAML configurations (`config.yaml`, `configs/ubuntu-tasks.yaml`, `configs/redhat-tasks.yaml`).
+  - Update governance registers (`docs/ACTION_LOGBOOK.md`, `docs/RCA_REGISTER.md`), regression tests (`docs/branding_test.go`), and project documentation (`PROJECT.md`, `README.md`).
+- **Changes**:
+  - Modified [`internal/core/config.go`](../internal/core/config.go): Added `DefaultConfigVersionPath = "/api/v1/config/version"`, `Config.Version`, `Config.ConfigVersion`, `Config.ConfigVersionPath`, `Config.SourcePath` (populated in `LoadConfig`), `MultiConfig.VersionPath`, `EffectiveVersion()`, `EffectiveVersionPath()`, `profileVersionPath()`, `MultiConfigManager.GetProfilePath()`, and conditional version fields on `ConfigProfileSummary` and `SanitizedConfigView`.
+  - Modified [`internal/core/config_test.go`](../internal/core/config_test.go): Added `TestConfig_EffectiveVersionAndPath`, `TestLoadConfig_SourcePathAndRepoConfigs`, and `TestMultiConfigManager_GetProfilePathAndConditionalVersion`.
+  - Modified [`internal/version/version.go`](../internal/version/version.go): Added optional `ConfigVersion`, `ConfigVersionPath`, and `ConfigFile` (`omitempty`) fields to `VersionResponse` and implemented pure-Go `.git/HEAD` fallback (`resolveGitCommitFromDotGit`, `resolveGitCommitFromDir`, `lookupPackedRef`, `isHexSHA`) invoked only inside `resolveInfo()`.
+  - Modified [`internal/version/version_test.go`](../internal/version/version_test.go): Added `TestResolveInfo_TempVersionFile`, `TestResolveInfo_RealRepoGitCommit`, `TestResolveGitCommitFromDir`, and `TestVersionResponse_ConfigFieldsJSON`.
+  - Modified [`config.yaml`](../config.yaml), [`configs/ubuntu-tasks.yaml`](../configs/ubuntu-tasks.yaml), and [`configs/redhat-tasks.yaml`](../configs/redhat-tasks.yaml): Added `version: "2.2.0"` across all three configs and `multi_config.version_path: "/api/v1/config/version"` in `config.yaml`.
+  - Modified [`internal/api/version_handler.go`](../internal/api/version_handler.go): Added `ConfigVersionResponse`, `parseConfigVersionPath`, `effectiveConfigVersionPathForProfile`, `resolveConfigVersionTarget`, `ConfigVersionHandler`, `Allow: GET` on 405, and conditional config metadata population in `VersionHandler`.
+  - Modified [`internal/api/config_handlers.go`](../internal/api/config_handlers.go): Updated `buildFallbackSanitizedView` to preserve `cfg.SourcePath` and conditional version fields, and updated `ConfigHandler` to delegate `/version` routes via `parseConfigVersionPath` to `ConfigVersionHandler`.
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Added `/api/v1/config/version` and `/api/v1/configs/version` to `knownStaticPaths`, normalized unscoped (`/api/v1/config/version`) and profile-scoped (`/api/v1/config/:profile/version`) routes in `normalizeMetricPath`, mounted explicit static handlers, and dynamically mounted deduplicated non-empty `EffectiveVersionPath()` routes in `NewRouter`.
+  - Modified [`internal/api/version_test.go`](../internal/api/version_test.go): Added 7 comprehensive test suites (`TestVersionHandler_ConditionalConfigVersionFields`, `TestConfigVersionHandler_SuccessAndProfileResolution`, `TestConfigVersionHandler_ConditionalNotFound`, `TestVersionAndConfigVersionHandlers_MethodNotAllowed`, `TestConfigVersionHandler_PublicUnauthenticatedAccessWhenRequireAuthTrue`, `TestNormalizeMetricPath_VersionAndConfigVersionRoutes`, `TestVersionEndpoints_FullHTTPIntegrationWithRepoConfigs`).
+  - Modified [`internal/api/config_handlers_test.go`](../internal/api/config_handlers_test.go): Added `TestConfigHandler_ConditionalVersionFields_FallbackAndMultiConfig` and `TestConfigHandler_DelegatesVersionRoutes`.
+  - Modified [`tests/e2e/tier1_feature_test.go`](../tests/e2e/tier1_feature_test.go): Added `TestTier1_F9_ConfigVersionEndpoint_ConditionalAndProfileScoped`.
+  - Modified [`docs/branding_test.go`](../docs/branding_test.go): Added `TestConfigVersionDeclarationsAndAPIDocumentation` asserting YAML `version: "2.2.0"` and `version_path: "/api/v1/config/version"` declarations plus `README.md` / `PROJECT.md` coverage.
+  - Modified [`PROJECT.md`](../PROJECT.md) and [`README.md`](../README.md): Documented enriched `GET /api/v1/version`, conditional `GET /api/v1/config/version` / `GET /api/v1/configs/{profile}/version`, `GET /api/v1/config`, interface contracts, and code layout updates.
+  - Modified [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): Added `IMP-019` and `APP-021`.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-071`.
+- **Result**:
+  - 100% test pass rate across all 12 packages (`go test -v ./...` and `go test -cover ./...`): 362 top-level tests and 425 subtests (787 total test cases, 0 failures, 0 skips).
+  - Package statement coverages: `docs` (`100.0%`, 8 tests), `internal/version` (`89.8%`, 11 tests), `internal/api` (`87.3%`), `internal/core` (`83.2%`, 47 tests), `cmd/server` (`86.3%`), `internal/audit` (`94.2%`), `internal/auth` (`92.0%`), `internal/database` (`94.6%`), `internal/jobs` (`86.4%`), `internal/mcp` (`92.7%`), `internal/plugins` (`83.0%`), and `tests/e2e` passing 100%.
+  - GitHub Issue [#142](https://github.com/jmrenouard/api_executor/issues/142).
+
+---
+
 ### `ACT-070` — Rootless Container Sandbox by Default (--userns=keep-id / UID 10001)
 - **Timestamp (UTC)**: `2026-11-12T23:30:00Z`
 - **GitHub Issue**: [#140](https://github.com/jmrenouard/api_executor/issues/140)

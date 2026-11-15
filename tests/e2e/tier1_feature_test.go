@@ -954,6 +954,104 @@ func TestTier1_F9_CertifiedVersionEndpoint_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestTier1_F9_ConfigVersionEndpoint_ConditionalAndProfileScoped(t *testing.T) {
+	srv := setupE2ETestServer(t)
+
+	// 1. Default E2E config has no version -> /api/v1/config/version returns 404
+	resp404, err := srv.client.Get(srv.baseURL + "/api/v1/config/version")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/config/version: %v", err)
+	}
+	defer resp404.Body.Close()
+
+	if resp404.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected HTTP 404 Not Found for /api/v1/config/version when default config has no version, got %d", resp404.StatusCode)
+	}
+
+	// Verify /api/v1/version omits config_version and config_version_path when unversioned
+	respDefVer, err := srv.client.Get(srv.baseURL + "/api/v1/version")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/version: %v", err)
+	}
+	defer respDefVer.Body.Close()
+	if respDefVer.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for /api/v1/version, got %d", respDefVer.StatusCode)
+	}
+	var defVerMap map[string]any
+	if err := json.NewDecoder(respDefVer.Body).Decode(&defVerMap); err != nil {
+		t.Fatalf("failed to decode /api/v1/version: %v", err)
+	}
+	for _, field := range []string{"config_version", "config_version_path", "config_file"} {
+		if _, present := defVerMap[field]; present {
+			t.Errorf("expected %q to be omitted on unversioned default config, got %v", field, defVerMap[field])
+		}
+	}
+
+	// 2. Register a versioned profile and verify /api/v1/configs/<profile>/version and /api/v1/version?profile=<profile>
+	versionedCfg := core.DefaultConfig()
+	versionedCfg.Version = "2.5.0"
+	srv.multiConfigMgr.RegisterProfile("versioned-e2e", "configs/versioned-e2e.yaml", "Versioned E2E profile", versionedCfg)
+
+	respCfgVer, err := srv.client.Get(srv.baseURL + "/api/v1/configs/versioned-e2e/version")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/configs/versioned-e2e/version: %v", err)
+	}
+	defer respCfgVer.Body.Close()
+
+	if respCfgVer.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for /api/v1/configs/versioned-e2e/version, got %d", respCfgVer.StatusCode)
+	}
+
+	var cfgVerPayload api.ConfigVersionResponse
+	if err := json.NewDecoder(respCfgVer.Body).Decode(&cfgVerPayload); err != nil {
+		t.Fatalf("failed to decode ConfigVersionResponse: %v", err)
+	}
+	if cfgVerPayload.Version != "2.5.0" || cfgVerPayload.ConfigVersion != "2.5.0" ||
+		cfgVerPayload.Profile != "versioned-e2e" || cfgVerPayload.ConfigFile != "configs/versioned-e2e.yaml" ||
+		cfgVerPayload.Path != "/api/v1/configs/versioned-e2e/version" || cfgVerPayload.AppVersion != "2.2.0" {
+		t.Errorf("unexpected ConfigVersionResponse payload: %+v", cfgVerPayload)
+	}
+
+	// Verify /api/v1/version?profile=versioned-e2e includes config version metadata
+	respProfileVer, err := srv.client.Get(srv.baseURL + "/api/v1/version?profile=versioned-e2e")
+	if err != nil {
+		t.Fatalf("failed to execute GET /api/v1/version?profile=versioned-e2e: %v", err)
+	}
+	defer respProfileVer.Body.Close()
+
+	if respProfileVer.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK for /api/v1/version?profile=versioned-e2e, got %d", respProfileVer.StatusCode)
+	}
+
+	var verPayload struct {
+		Version           string `json:"version"`
+		ConfigVersion     string `json:"config_version"`
+		ConfigVersionPath string `json:"config_version_path"`
+		ConfigFile        string `json:"config_file"`
+	}
+	if err := json.NewDecoder(respProfileVer.Body).Decode(&verPayload); err != nil {
+		t.Fatalf("failed to decode /api/v1/version?profile=versioned-e2e: %v", err)
+	}
+	if verPayload.ConfigVersion != "2.5.0" ||
+		verPayload.ConfigVersionPath != "/api/v1/configs/versioned-e2e/version" ||
+		verPayload.ConfigFile != "configs/versioned-e2e.yaml" {
+		t.Errorf("unexpected profile-scoped /api/v1/version payload: %+v", verPayload)
+	}
+
+	// Verify non-GET returns 405 Method Not Allowed with Allow: GET
+	respPost, err := srv.client.Post(srv.baseURL+"/api/v1/configs/versioned-e2e/version", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("failed to execute POST /api/v1/configs/versioned-e2e/version: %v", err)
+	}
+	defer respPost.Body.Close()
+	if respPost.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed for POST /api/v1/configs/versioned-e2e/version, got %d", respPost.StatusCode)
+	}
+	if allow := respPost.Header.Get("Allow"); allow != "GET" {
+		t.Errorf("expected Allow: GET header, got %q", allow)
+	}
+}
+
 // ============================================================================
 // Tier 1 - Feature 10: Native Multi-Config Endpoint & Backward Compatibility (GET /api/v1/config)
 // ============================================================================

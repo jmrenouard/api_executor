@@ -2,8 +2,11 @@ package version
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"testing"
 	"time"
 )
@@ -191,5 +194,176 @@ func TestResponse_UptimeCalculationAndClamping(t *testing.T) {
 	}
 	if decoded.Version != "2.2.0" || decoded.IntegrityStatus != "clean" || decoded.Integrity != "clean" {
 		t.Errorf("unexpected decoded values: %+v", decoded)
+	}
+}
+
+func TestResolveInfo_TempVersionFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "VERSION"), []byte("2.1.0\n"), 0644); err != nil {
+		t.Fatalf("failed to write temp VERSION file: %v", err)
+	}
+	t.Chdir(tmpDir)
+
+	info := ResolveInfo()
+	if info.Version != "2.1.0" {
+		t.Errorf("expected Version '2.1.0' from temp VERSION file, got %q", info.Version)
+	}
+}
+
+func TestResolveInfo_RealRepoGitCommit(t *testing.T) {
+	info := ResolveInfo()
+	if len(info.GitCommit) != 40 {
+		t.Fatalf("expected 40-char git commit in repo, got %q (len=%d)", info.GitCommit, len(info.GitCommit))
+	}
+	for i := 0; i < len(info.GitCommit); i++ {
+		c := info.GitCommit[i]
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			t.Fatalf("expected hex git commit, got %q", info.GitCommit)
+		}
+	}
+}
+
+func TestResolveGitCommitFromDir(t *testing.T) {
+	const shaDirect = "0123456789abcdef0123456789abcdef01234567"
+	const shaLoose = "fedcba9876543210fedcba9876543210fedcba98"
+	const shaPacked = "abcdef0123456789abcdef0123456789abcdef01"
+
+	t.Run("direct SHA in HEAD", func(t *testing.T) {
+		gitDir := filepath.Join(t.TempDir(), ".git")
+		if err := os.MkdirAll(gitDir, 0755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte(shaDirect+"\n"), 0644); err != nil {
+			t.Fatalf("write HEAD failed: %v", err)
+		}
+		if got := resolveGitCommitFromDir(gitDir); got != shaDirect {
+			t.Errorf("expected %q, got %q", shaDirect, got)
+		}
+	})
+
+	t.Run("symbolic ref loose file", func(t *testing.T) {
+		gitDir := filepath.Join(t.TempDir(), ".git")
+		refDir := filepath.Join(gitDir, "refs", "heads")
+		if err := os.MkdirAll(refDir, 0755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+			t.Fatalf("write HEAD failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(refDir, "main"), []byte(shaLoose+"\n"), 0644); err != nil {
+			t.Fatalf("write ref failed: %v", err)
+		}
+		if got := resolveGitCommitFromDir(gitDir); got != shaLoose {
+			t.Errorf("expected %q, got %q", shaLoose, got)
+		}
+	})
+
+	t.Run("packed-refs fallback", func(t *testing.T) {
+		gitDir := filepath.Join(t.TempDir(), ".git")
+		if err := os.MkdirAll(gitDir, 0755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/release/v2\n"), 0644); err != nil {
+			t.Fatalf("write HEAD failed: %v", err)
+		}
+		packed := strings.Join([]string{
+			"# pack-refs with: peeled fully-peeled sorted",
+			shaDirect + " refs/tags/v2.2.0",
+			"^" + shaLoose,
+			shaPacked + " refs/heads/release/v2",
+		}, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(gitDir, "packed-refs"), []byte(packed), 0644); err != nil {
+			t.Fatalf("write packed-refs failed: %v", err)
+		}
+		if got := resolveGitCommitFromDir(gitDir); got != shaPacked {
+			t.Errorf("expected %q, got %q", shaPacked, got)
+		}
+	})
+
+	t.Run("worktree gitdir file with commondir", func(t *testing.T) {
+		root := t.TempDir()
+		mainGit := filepath.Join(root, "main", ".git")
+		wtDir := filepath.Join(mainGit, "worktrees", "feature-wt")
+		wtRoot := filepath.Join(root, "wt")
+		if err := os.MkdirAll(filepath.Join(mainGit, "refs", "heads"), 0755); err != nil {
+			t.Fatalf("mkdir mainGit failed: %v", err)
+		}
+		if err := os.MkdirAll(wtDir, 0755); err != nil {
+			t.Fatalf("mkdir wtDir failed: %v", err)
+		}
+		if err := os.MkdirAll(wtRoot, 0755); err != nil {
+			t.Fatalf("mkdir wtRoot failed: %v", err)
+		}
+		// Worktree .git file pointing to wtDir using relative forward-slash path
+		dotGitFile := filepath.Join(wtRoot, ".git")
+		if err := os.WriteFile(dotGitFile, []byte("gitdir: ../main/.git/worktrees/feature-wt\n"), 0644); err != nil {
+			t.Fatalf("write .git file failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(wtDir, "HEAD"), []byte("ref: refs/heads/feat/wt\n"), 0644); err != nil {
+			t.Fatalf("write wt HEAD failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(wtDir, "commondir"), []byte("../..\n"), 0644); err != nil {
+			t.Fatalf("write commondir failed: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(mainGit, "refs", "heads", "feat"), 0755); err != nil {
+			t.Fatalf("mkdir feat ref dir failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(mainGit, "refs", "heads", "feat", "wt"), []byte(shaLoose+"\n"), 0644); err != nil {
+			t.Fatalf("write branch ref failed: %v", err)
+		}
+		if got := resolveGitCommitFromDir(dotGitFile); got != shaLoose {
+			t.Errorf("expected %q, got %q", shaLoose, got)
+		}
+	})
+
+	t.Run("missing or invalid path returns empty", func(t *testing.T) {
+		if got := resolveGitCommitFromDir(filepath.Join(t.TempDir(), "missing.git")); got != "" {
+			t.Errorf("expected empty string, got %q", got)
+		}
+	})
+}
+
+func TestVersionResponse_ConfigFieldsJSON(t *testing.T) {
+	base := Info{
+		Version:         "2.2.0",
+		GitCommit:       "0123456789abcdef0123456789abcdef01234567",
+		BuildDate:       "2026-11-15T20:00:00Z",
+		IntegrityStatus: "clean",
+		Integrity:       "clean",
+		GoVersion:       runtime.Version(),
+		OS:              runtime.GOOS,
+		Arch:            runtime.GOARCH,
+		Compiler:        runtime.Compiler,
+	}.Response(time.Now().Add(-5 * time.Second))
+
+	rawOmitted, err := json.Marshal(base)
+	if err != nil {
+		t.Fatalf("marshal without config fields failed: %v", err)
+	}
+	var mOmitted map[string]any
+	if err := json.Unmarshal(rawOmitted, &mOmitted); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	for _, key := range []string{"config_version", "config_version_path", "config_file"} {
+		if _, ok := mOmitted[key]; ok {
+			t.Errorf("expected %q to be omitted when empty", key)
+		}
+	}
+
+	base.ConfigVersion = "2.2.0"
+	base.ConfigVersionPath = "/api/v1/config/version"
+	base.ConfigFile = "config.yaml"
+
+	rawWithCfg, err := json.Marshal(base)
+	if err != nil {
+		t.Fatalf("marshal with config fields failed: %v", err)
+	}
+	var decoded VersionResponse
+	if err := json.Unmarshal(rawWithCfg, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded.ConfigVersion != "2.2.0" || decoded.ConfigVersionPath != "/api/v1/config/version" || decoded.ConfigFile != "config.yaml" {
+		t.Errorf("unexpected config fields in decoded response: %+v", decoded)
 	}
 }
