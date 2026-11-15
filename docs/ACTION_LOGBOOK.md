@@ -13,6 +13,28 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-072` — Zero-Allocation `RecordActionCallWithMode`, Label Normalization Deduplication, and Ponytail Audit of `internal/api/job_metrics.go`
+- **Timestamp (UTC)**: `2026-11-15T21:40:00Z`
+- **GitHub Issue**: [#144](https://github.com/jmrenouard/api_executor/issues/144)
+- **Branch**: `perf/issue-144-zero-alloc-job-action-metrics`
+- **Request**:
+  - Perform a Ponytail audit of `internal/api/job_metrics.go` and its direct telemetry peers in `internal/api/router.go`.
+  - Minimize heap allocations on `RecordActionCallWithMode` (`0 B/op, 0 allocs/op` in steady state) and eliminate all redundant label normalizations across `RecordJobExecution`, `recordActionCall`, and `RecordActionCallWithMode`.
+  - Bound `job_executions_total` `status` label cardinality, make metric getters strictly read-only without mutating `dynamicActions` or materializing phantom zero-valued series, initialize `job_workers_total` at router startup, and eliminate heap escape in `NewJobMetricsReporter()`.
+- **Changes**:
+  - Modified [`internal/api/job_metrics.go`](../internal/api/job_metrics.go): Added zero-allocation bounded `normalizeJobStatus`, eliminated duplicate `normalizeActionLabel` and intermediate status mapping in `RecordJobExecution` by forwarding directly to `recordActionModeNormalized`, switched `apiJobMetricsReporter` to value receivers with package-level singleton `defaultJobMetricsReporter`, and guarded `GetJobExecutionCount` with `isKnownActionLabel` so reads never mutate `dynamicActions` or materialize phantom series.
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Switched `actionLabelsMu` to `sync.RWMutex` with read-fast-path and `strings.Clone` in `normalizeActionLabel` plus ASCII byte control-char check, added `isKnownActionLabel`, zero-allocation `normalizeModeLabel`, `normalizeModeOutcome`, and `recordActionModeNormalized`, updated `recordActionCall` to normalize `action` once before calling `recordActionModeNormalized`, made `GetActionMetricsSnapshot` and `GetActionModeCallCount` side-effect-free, and initialized `job_workers_total` / queue gauges in `NewRouter`.
+  - Modified [`internal/api/metrics_timeout_test.go`](../internal/api/metrics_timeout_test.go): Added `TestJobAndActionModeMetrics_ZeroAllocAndNormalization` (`testing.AllocsPerRun`, status bounding, read-path side-effect isolation, startup `job_workers_total`) and `BenchmarkRecordActionCallWithMode` / `BenchmarkRecordJobExecution`.
+  - Modified [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): Added `RCA-053` and `IMP-020`.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-072`.
+- **Result**:
+  - 100% pass rate across all 12 Go packages (`rtk bypass go test -cover ./...`), including `tests/e2e` and `docs` (`100.0%`), with `internal/api` statement coverage increased from `87.3%` to `87.5%` (`cmd/server` `86.3%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `83.2%`, `internal/database` `94.6%`, `internal/jobs` `85.5%`, `internal/mcp` `92.7%`, `internal/plugins` `83.0%`, `internal/version` `89.8%`).
+  - Benchmarks (`go test -bench="BenchmarkRecordActionCallWithMode|BenchmarkRecordJobExecution" -benchmem ./internal/api`): `CanonicalSync` `118.0 ns/op`, `MixedCaseAsync` `133.6 ns/op` (down from `169.1 ns/op, 24 B/op, 2 allocs/op`), `ParallelSyncAndAsync` `111.3 ns/op` (down from `160.6 ns/op`), and `JobCompleted` `287.4 ns/op` — all `0 B/op, 0 allocs/op`.
+  - Independent `code-reviewer` subagent approved the diff with 0 findings.
+  - GitHub Issue [#144](https://github.com/jmrenouard/api_executor/issues/144).
+
+---
+
 ### `ACT-071` — Conditional Config Version Endpoint Path & Enriched `GET /api/v1/version`
 - **Timestamp (UTC)**: `2026-11-15T21:07:00Z`
 - **GitHub Issue**: [#142](https://github.com/jmrenouard/api_executor/issues/142)
