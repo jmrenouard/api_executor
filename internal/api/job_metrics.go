@@ -69,40 +69,56 @@ func UpdateJobWorkersTotal(total int) {
 	jobWorkersTotal.Set(float64(total))
 }
 
-// RecordJobExecution increments the executions counter and records duration in the histogram,
-// and forwards unified asynchronous mode telemetry to RecordActionCallWithMode.
-func RecordJobExecution(action, status string, dur time.Duration) {
-	normAction := normalizeActionLabel(action)
-	normStatus := strings.ToLower(strings.TrimSpace(status))
-	if normStatus == "" {
-		normStatus = "unknown"
+// normalizeJobStatus maps arbitrary status inputs to strictly bounded job_executions_total
+// and action_mode_calls_total status literals without heap allocations.
+func normalizeJobStatus(status string) (jobStatus, modeStatus string) {
+	switch status {
+	case string(jobs.StatusCompleted):
+		return string(jobs.StatusCompleted), "ok"
+	case string(jobs.StatusFailed):
+		return string(jobs.StatusFailed), "failure"
+	case string(jobs.StatusTimedOut), "timeout":
+		return string(jobs.StatusTimedOut), "timeout"
+	case string(jobs.StatusCancelled), "canceled":
+		return string(jobs.StatusCancelled), "cancelled"
+	case string(jobs.StatusQueued):
+		return string(jobs.StatusQueued), "error"
+	case string(jobs.StatusRunning):
+		return string(jobs.StatusRunning), "error"
+	case "", "unknown":
+		return "unknown", "error"
 	}
 
-	jobExecutionsTotal.WithLabelValues(normStatus, normAction).Inc()
+	trimmed := strings.TrimSpace(status)
+	switch {
+	case strings.EqualFold(trimmed, string(jobs.StatusCompleted)):
+		return string(jobs.StatusCompleted), "ok"
+	case strings.EqualFold(trimmed, string(jobs.StatusFailed)):
+		return string(jobs.StatusFailed), "failure"
+	case strings.EqualFold(trimmed, string(jobs.StatusTimedOut)), strings.EqualFold(trimmed, "timeout"):
+		return string(jobs.StatusTimedOut), "timeout"
+	case strings.EqualFold(trimmed, string(jobs.StatusCancelled)), strings.EqualFold(trimmed, "canceled"):
+		return string(jobs.StatusCancelled), "cancelled"
+	case strings.EqualFold(trimmed, string(jobs.StatusQueued)):
+		return string(jobs.StatusQueued), "error"
+	case strings.EqualFold(trimmed, string(jobs.StatusRunning)):
+		return string(jobs.StatusRunning), "error"
+	default:
+		return "unknown", "error"
+	}
+}
+
+// RecordJobExecution increments the executions counter and records duration in the histogram,
+// and forwards unified asynchronous mode telemetry using single-pass normalized labels.
+func RecordJobExecution(action, status string, dur time.Duration) {
+	normAction := normalizeActionLabel(action)
+	jobStatus, modeStatus := normalizeJobStatus(status)
+
+	jobExecutionsTotal.WithLabelValues(jobStatus, normAction).Inc()
 	if dur > 0 {
 		jobExecutionDuration.WithLabelValues(normAction).Observe(dur.Seconds())
 	}
-
-	var outcome string
-	var timedOut bool
-	switch normStatus {
-	case string(jobs.StatusCompleted):
-		outcome = "ok"
-		timedOut = false
-	case string(jobs.StatusFailed):
-		outcome = "failure"
-		timedOut = false
-	case string(jobs.StatusTimedOut):
-		outcome = "failure"
-		timedOut = true
-	case string(jobs.StatusCancelled):
-		outcome = "cancelled"
-		timedOut = false
-	default:
-		outcome = "error"
-		timedOut = false
-	}
-	RecordActionCallWithMode(action, "async", outcome, timedOut, dur)
+	recordActionModeNormalized(normAction, "async", modeStatus, dur)
 }
 
 // ResetJobMetrics resets all async job Prometheus metric vectors (useful for isolated tests).
@@ -117,17 +133,19 @@ func ResetJobMetrics() {
 // apiJobMetricsReporter bridges the Engine's MetricsReporter interface to Prometheus.
 type apiJobMetricsReporter struct{}
 
-func (r *apiJobMetricsReporter) RecordJobExecution(action string, status jobs.JobStatus, duration time.Duration) {
+var defaultJobMetricsReporter jobs.MetricsReporter = apiJobMetricsReporter{}
+
+func (apiJobMetricsReporter) RecordJobExecution(action string, status jobs.JobStatus, duration time.Duration) {
 	RecordJobExecution(action, string(status), duration)
 }
 
-func (r *apiJobMetricsReporter) RecordQueueStats(queuedJobs, activeWorkers int) {
+func (apiJobMetricsReporter) RecordQueueStats(queuedJobs, activeWorkers int) {
 	UpdateJobQueueMetrics(queuedJobs, activeWorkers)
 }
 
-// NewJobMetricsReporter returns a new MetricsReporter implementation for jobs.Engine.
+// NewJobMetricsReporter returns a zero-escape MetricsReporter implementation for jobs.Engine.
 func NewJobMetricsReporter() jobs.MetricsReporter {
-	return &apiJobMetricsReporter{}
+	return defaultJobMetricsReporter
 }
 
 // Testing helper to read a Gauge value
@@ -156,9 +174,15 @@ func GetJobWorkersTotal() float64 {
 
 // GetJobExecutionCount returns current counter value for status and action.
 func GetJobExecutionCount(status, action string) float64 {
-	normAction := normalizeActionLabel(action)
-	normStatus := strings.ToLower(strings.TrimSpace(status))
-	counter, err := jobExecutionsTotal.GetMetricWithLabelValues(normStatus, normAction)
+	act := strings.TrimSpace(action)
+	if act == "" {
+		act = "unknown"
+	}
+	if !isKnownActionLabel(act) {
+		return 0
+	}
+	jobStatus, _ := normalizeJobStatus(status)
+	counter, err := jobExecutionsTotal.GetMetricWithLabelValues(jobStatus, act)
 	if err != nil {
 		return 0
 	}

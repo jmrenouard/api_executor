@@ -760,6 +760,27 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified by `TestAPISecurityAudit_UnauthorizedAccessMatrix`, `TestAPISecurityAudit_PrivilegeEscalationAndForbiddenMutations`, `TestAPISecurityAudit_InjectionAndConfinementPrevention`, and `TestAPISecurityAudit_DDoSRateLimitAndResourceExhaustion` in `internal/api/security_audit_test.go` (100% pass).
 
+### `RCA-053` — Redundant Action/Status Label Normalization, Heap Allocations, Unbounded `job_executions_total` Status Cardinality, and Read-Path Metric Side Effects
+- **Date**: `2026-11-15`
+- **Observed Symptom**:
+  During a Ponytail audit of `internal/api/job_metrics.go` and its callers/callees in `internal/api/router.go` (Issue #144):
+  1. `RecordJobExecution` normalized `status` via `strings.ToLower(strings.TrimSpace(status))` without bounding non-empty values, allowing arbitrary strings to create unbounded `job_executions_total{status=...}` time series and allocating on uppercase inputs.
+  2. `RecordJobExecution` and `recordActionCall` both normalized `action` via `normalizeActionLabel(action)` and then passed the raw `action` string into `RecordActionCallWithMode`, causing a second `normalizeActionLabel(action)` pass plus a second `strings.ToLower(strings.TrimSpace(...))` normalization (`24 B/op, 2 allocs/op` on mixed-case `RecordActionCallWithMode`).
+  3. `GetJobExecutionCount` invoked `normalizeActionLabel(action)` on read, mutating `dynamicActions` (consuming dynamic cardinality slots on read) and aliasing clamped overflow labels to `"unknown"`, while `GetJobExecutionCount`, `GetActionModeCallCount`, and `GetActionMetricsSnapshot` materialized phantom `0`-valued Prometheus time series for unseen actions.
+  4. `actionLabelsMu` used an exclusive `sync.Mutex` without `strings.Clone` on dynamic insertions, `job_workers_total` remained `0` on `/metrics` until `GET /api/v1/jobs/queue` was manually polled, and `NewJobMetricsReporter()` allocated `&apiJobMetricsReporter{}` on the heap.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did `RecordJobExecution` and `recordActionCall` normalize `action` and `status` twice?* Both callers passed raw `action` and mapped intermediate `outcome`/`timedOut` strings into the public `RecordActionCallWithMode` entrypoint instead of sharing an internal pre-normalized helper.
+  2. *Why did `RecordActionCallWithMode` and `RecordJobExecution` allocate heap strings?* Both called `strings.ToLower(...)` unconditionally on `mode`, `outcome`, and `status`, even though every target Prometheus label value is a small fixed set of compile-time constants.
+  3. *Why could `GetJobExecutionCount` mutate state and create phantom series?* Read helpers reused write-path `normalizeActionLabel` and `WithLabelValues`/`GetMetricWithLabelValues` without first checking membership via a read-only predicate.
+  4. *Why was `job_workers_total` initially `0`?* `UpdateJobWorkersTotal` was only invoked inside `JobQueueStatsHandler` and omitted from `NewRouter` initialization.
+  5. *Root Cause*: Lack of a single-pass, zero-allocation normalization boundary (`recordActionModeNormalized`), missing bounded status normalization (`normalizeJobStatus`), and missing read-only membership check (`isKnownActionLabel`).
+- **Applied Change / Fix**:
+  1. Added zero-allocation `normalizeJobStatus` in `internal/api/job_metrics.go` bounding `job_executions_total` `status` labels to 7 canonical values (`completed`, `failed`, `timed_out`, `cancelled`, `queued`, `running`, `unknown`) and refactored `RecordJobExecution` to normalize once and call `recordActionModeNormalized`.
+  2. Converted `apiJobMetricsReporter` to value receivers backed by singleton `defaultJobMetricsReporter` in `internal/api/job_metrics.go`.
+  3. Updated `internal/api/router.go`: switched `actionLabelsMu` to `sync.RWMutex` with read-fast-path and `strings.Clone` on dynamic registration, replaced rune iteration with an ASCII byte loop, added zero-allocation `normalizeModeLabel`, `normalizeModeOutcome`, `recordActionModeNormalized`, and read-only `isKnownActionLabel`, updated `recordActionCall` to bypass redundant re-normalization, guarded `GetActionMetricsSnapshot`, `GetActionModeCallCount`, and `GetJobExecutionCount` against mutating `dynamicActions` or materializing phantom series, and initialized `job_workers_total` / queue gauges in `NewRouter`.
+- **Result & Non-Regression Test**:
+  Verified by `TestJobAndActionModeMetrics_ZeroAllocAndNormalization` (`testing.AllocsPerRun == 0`) and `BenchmarkRecordActionCallWithMode` / `BenchmarkRecordJobExecution` (`0 B/op, 0 allocs/op` across all steady-state benchmarks) in `internal/api/metrics_timeout_test.go`, plus 100% pass across all 12 Go packages (`internal/api` coverage `87.5%`) and `tests/e2e`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -825,6 +846,9 @@ This living governance register records all errors encountered, technical dead-e
 - **Reason for Abandonment**:
   1. *Subprocess `git rev-parse` on Version Probes*: Shelling out via `exec.Command("git", "rev-parse", "HEAD")` on HTTP version probes introduces a hard runtime dependency on the external `git` CLI (unavailable in minimal Alpine/distroless containers), adds subprocess fork/exec overhead and `PATH` sensitivity, and fails in stripped environments. Replaced with a pure-Go `.git/HEAD` resolver (`resolveGitCommitFromDotGit` / `resolveGitCommitFromDir` in `internal/version/version.go`) that parses `.git` directories (`HEAD`, loose `refs/...`, `packed-refs`) as well as worktree/submodule `.git` files (`gitdir:` + `commondir`) with zero subprocess execution.
   2. *Letting `/api/v1/config/version` Fall Through into `/api/v1/config/:profile`*: Allowing `/api/v1/config/version` to fall through into generic profile name extraction in `ConfigHandler` or prefix collapsing in `normalizeMetricPath` causes `"version"` to be interpreted as a missing profile name (`configuration profile "version" not found`) and pollutes Prometheus route telemetry under `/api/v1/config/:profile`. Replaced with explicit static route mounting in `NewRouter`, `knownStaticPaths` registration (`/api/v1/config/version`, `/api/v1/configs/version`), early `parseConfigVersionPath` delegation in `ConfigHandler`, and ordered normalization in `normalizeMetricPath` (`/api/v1/config/version` and `/api/v1/config/:profile/version`) prior to generic `/api/v1/config/:profile` matching.
+
+### `IMP-020` — Secondary `sync.Map` / `map` Cache of `prometheus.Counter` and `prometheus.Observer` Handles in Hot Metric Paths
+- **Reason for Abandonment**: Caching resolved `prometheus.Counter` / `prometheus.Observer` references in a secondary `sync.Map` or `map` inside `internal/api` adds synchronization state that becomes detached and stale whenever `ResetActionMetrics()` or `ResetJobMetrics()` resets the underlying `prometheus.MetricVec` maps, causing subsequent increments to update orphaned metric instances not scraped on `/metrics`. Furthermore, compiler escape analysis (`go build -gcflags="-m" ./internal/api`) and `testing.AllocsPerRun` prove that `prometheus/client_golang`'s `WithLabelValues(...)` variadic slice already stays stack-allocated (`0 B/op, 0 allocs/op`) once label strings are normalized without heap allocations. Abandoned in favor of zero-allocation label normalization and direct single-pass `WithLabelValues` calls.
 
 ---
 

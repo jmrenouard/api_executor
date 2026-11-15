@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	actionLabelsMu    sync.Mutex
+	actionLabelsMu    sync.RWMutex
 	configuredActions = make(map[string]struct{})
 	dynamicActions    = make(map[string]struct{})
 )
@@ -48,15 +48,39 @@ func readCounterValue(c prometheus.Counter) float64 {
 	return m.Counter.GetValue()
 }
 
+// isKnownActionLabel checks without side effects whether a trimmed action label is registered or "unknown".
+func isKnownActionLabel(label string) bool {
+	if label == "unknown" {
+		return true
+	}
+	if label == "" || len(label) > MaxActionLabelLength {
+		return false
+	}
+	actionLabelsMu.RLock()
+	_, ok := configuredActions[label]
+	if !ok {
+		_, ok = dynamicActions[label]
+	}
+	actionLabelsMu.RUnlock()
+	return ok
+}
+
 // GetActionMetricsSnapshot returns the current Prometheus counter values for a given action.
 func GetActionMetricsSnapshot(action string) ActionMetricsSnapshot {
+	act := strings.TrimSpace(action)
+	if act == "" {
+		act = "unknown"
+	}
+	if !isKnownActionLabel(act) {
+		return ActionMetricsSnapshot{Action: action}
+	}
 	return ActionMetricsSnapshot{
 		Action:       action,
-		CallsTotal:   readCounterValue(actionCallsTotal.WithLabelValues(action)),
-		CallsOK:      readCounterValue(actionCallsOKTotal.WithLabelValues(action)),
-		CallsError:   readCounterValue(actionCallsErrorTotal.WithLabelValues(action)),
-		CallsFailure: readCounterValue(actionCallsFailureTotal.WithLabelValues(action)),
-		CallsTimeout: readCounterValue(actionCallsTimeoutTotal.WithLabelValues(action)),
+		CallsTotal:   readCounterValue(actionCallsTotal.WithLabelValues(act)),
+		CallsOK:      readCounterValue(actionCallsOKTotal.WithLabelValues(act)),
+		CallsError:   readCounterValue(actionCallsErrorTotal.WithLabelValues(act)),
+		CallsFailure: readCounterValue(actionCallsFailureTotal.WithLabelValues(act)),
+		CallsTimeout: readCounterValue(actionCallsTimeoutTotal.WithLabelValues(act)),
 	}
 }
 
@@ -192,26 +216,90 @@ func normalizeActionLabel(action string) string {
 	if label == "" || label == "unknown" || len(label) > MaxActionLabelLength {
 		return "unknown"
 	}
-	for _, r := range label {
-		if r < 0x20 || r == 0x7f {
+	for i := 0; i < len(label); i++ {
+		if b := label[i]; b < 0x20 || b == 0x7f {
 			return "unknown"
 		}
 	}
 
-	actionLabelsMu.Lock()
-	defer actionLabelsMu.Unlock()
-
+	actionLabelsMu.RLock()
 	if _, ok := configuredActions[label]; ok {
+		actionLabelsMu.RUnlock()
 		return label
 	}
 	if _, ok := dynamicActions[label]; ok {
+		actionLabelsMu.RUnlock()
 		return label
 	}
 	if len(dynamicActions) >= MaxDynamicActionLabels {
+		actionLabelsMu.RUnlock()
 		return "unknown"
 	}
-	dynamicActions[label] = struct{}{}
-	return label
+	actionLabelsMu.RUnlock()
+
+	actionLabelsMu.Lock()
+	if _, ok := configuredActions[label]; ok {
+		actionLabelsMu.Unlock()
+		return label
+	}
+	if _, ok := dynamicActions[label]; ok {
+		actionLabelsMu.Unlock()
+		return label
+	}
+	if len(dynamicActions) >= MaxDynamicActionLabels {
+		actionLabelsMu.Unlock()
+		return "unknown"
+	}
+	cloned := strings.Clone(label)
+	dynamicActions[cloned] = struct{}{}
+	actionLabelsMu.Unlock()
+	return cloned
+}
+
+// normalizeModeLabel normalizes execution mode to "sync" or "async" without heap allocations.
+func normalizeModeLabel(mode string) string {
+	if mode == "async" {
+		return "async"
+	}
+	if mode == "sync" || mode == "" {
+		return "sync"
+	}
+	if strings.EqualFold(strings.TrimSpace(mode), "async") {
+		return "async"
+	}
+	return "sync"
+}
+
+// normalizeModeOutcome maps outcome and timedOut flag to canonical status literals without heap allocations.
+func normalizeModeOutcome(outcome string, timedOut bool) string {
+	if timedOut {
+		return "timeout"
+	}
+	switch outcome {
+	case "ok", "completed":
+		return "ok"
+	case "failure", "failed":
+		return "failure"
+	case "error":
+		return "error"
+	case "timeout", "timed_out":
+		return "timeout"
+	case "cancelled", "canceled":
+		return "cancelled"
+	}
+	trimmed := strings.TrimSpace(outcome)
+	switch {
+	case strings.EqualFold(trimmed, "ok"), strings.EqualFold(trimmed, "completed"):
+		return "ok"
+	case strings.EqualFold(trimmed, "failure"), strings.EqualFold(trimmed, "failed"):
+		return "failure"
+	case strings.EqualFold(trimmed, "timeout"), strings.EqualFold(trimmed, "timed_out"):
+		return "timeout"
+	case strings.EqualFold(trimmed, "cancelled"), strings.EqualFold(trimmed, "canceled"):
+		return "cancelled"
+	default:
+		return "error"
+	}
 }
 
 // RecordActionCall updates Prometheus counters and latency histograms for an action call.
@@ -246,54 +334,42 @@ func recordActionCall(action, outcome string, timedOut bool, duration time.Durat
 		actionCallDuration.WithLabelValues(label).Observe(duration.Seconds())
 	}
 
-	RecordActionCallWithMode(action, "sync", outcome, timedOut, duration)
+	recordActionModeNormalized(label, "sync", normalizeModeOutcome(outcome, timedOut), duration)
 }
 
-// RecordActionCallWithMode updates Prometheus counters and latency histograms for an action call
-// partitioned by execution mode ("sync" vs "async") and terminal status.
-func RecordActionCallWithMode(action, mode, outcome string, timedOut bool, duration time.Duration) {
-	normAction := normalizeActionLabel(action)
-	normMode := strings.ToLower(strings.TrimSpace(mode))
-	if normMode != "async" {
-		normMode = "sync"
-	}
-
-	var status string
-	if timedOut {
-		status = "timeout"
-	} else {
-		normOutcome := strings.ToLower(strings.TrimSpace(outcome))
-		switch normOutcome {
-		case "ok", "completed":
-			status = "ok"
-		case "failure", "failed":
-			status = "failure"
-		case "error":
-			status = "error"
-		case "timeout", "timed_out":
-			status = "timeout"
-		case "cancelled", "canceled":
-			status = "cancelled"
-		default:
-			status = "error"
-		}
-	}
-
+// recordActionModeNormalized emits mode-partitioned Prometheus telemetry using already-normalized labels.
+func recordActionModeNormalized(normAction, normMode, status string, duration time.Duration) {
 	actionModeCallsTotal.WithLabelValues(normAction, normMode, status).Inc()
 	if duration > 0 {
 		actionModeCallDuration.WithLabelValues(normAction, normMode).Observe(duration.Seconds())
 	}
 }
 
+// RecordActionCallWithMode updates Prometheus counters and latency histograms for an action call
+// partitioned by execution mode ("sync" vs "async") and terminal status.
+func RecordActionCallWithMode(action, mode, outcome string, timedOut bool, duration time.Duration) {
+	recordActionModeNormalized(
+		normalizeActionLabel(action),
+		normalizeModeLabel(mode),
+		normalizeModeOutcome(outcome, timedOut),
+		duration,
+	)
+}
+
 // GetActionModeCallCount returns current counter value for action, mode, and status.
 func GetActionModeCallCount(action, mode, status string) float64 {
 	act := strings.TrimSpace(action)
-	normMode := strings.ToLower(strings.TrimSpace(mode))
-	if normMode != "async" {
-		normMode = "sync"
+	if act == "" {
+		act = "unknown"
 	}
-	normStatus := strings.ToLower(strings.TrimSpace(status))
-	counter, err := actionModeCallsTotal.GetMetricWithLabelValues(act, normMode, normStatus)
+	if !isKnownActionLabel(act) {
+		return 0
+	}
+	counter, err := actionModeCallsTotal.GetMetricWithLabelValues(
+		act,
+		normalizeModeLabel(mode),
+		normalizeModeOutcome(status, false),
+	)
 	if err != nil {
 		return 0
 	}
@@ -503,6 +579,11 @@ func prometheusMiddleware(next http.Handler) http.Handler {
 
 func NewRouter(env *APIEnv) http.Handler {
 	initConfiguredActionMetrics(env)
+	if env != nil && env.JobEngine != nil {
+		stats := env.JobEngine.QueueStats()
+		UpdateJobQueueMetrics(stats.QueuedJobs, stats.WorkersActive)
+		UpdateJobWorkersTotal(stats.WorkersTotal)
+	}
 
 	mux := http.NewServeMux()
 

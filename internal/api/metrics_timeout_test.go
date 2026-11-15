@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"go-admin-tool/docs"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
@@ -604,5 +606,216 @@ func TestActionModeMetrics_LabelCardinalityBounding(t *testing.T) {
 		t.Errorf("expected 10 overflow calls bucketed under 'unknown', got %v", got)
 	}
 }
+
+func scrapePrometheusMetrics(t *testing.T) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	promhttp.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from promhttp.Handler(), got %d", rec.Code)
+	}
+	return rec.Body.String()
+}
+
+func TestJobAndActionModeMetrics_ZeroAllocAndNormalization(t *testing.T) {
+	// Subcheck A: Case-insensitive / whitespace normalization & status cardinality bounding
+	ResetActionMetrics()
+	ResetJobMetrics()
+
+	RecordJobExecution("  echo-job  ", "  COMPLETED\n", 40*time.Millisecond)
+	RecordJobExecution("echo-job", "FAILED", 0)
+	RecordJobExecution("echo-job", "TIMED_OUT", 10*time.Millisecond)
+	RecordJobExecution("echo-job", "CANCELED", 0)
+	RecordJobExecution("echo-job", "queued", 0)
+	RecordJobExecution("echo-job", "QUEUED", 0)
+	RecordJobExecution("echo-job", "running", 0)
+	RecordJobExecution("echo-job", "RUNNING", 0)
+	RecordJobExecution("echo-job", "", 0)
+	RecordJobExecution("echo-job", "unbounded-custom-status-xyz", 0)
+
+	if got := GetJobExecutionCount("completed", "echo-job"); got != 1 {
+		t.Errorf("expected 1 completed job execution for echo-job, got %v", got)
+	}
+	if got := GetJobExecutionCount("failed", "echo-job"); got != 1 {
+		t.Errorf("expected 1 failed job execution for echo-job, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-job", "async", "ok"); got != 1 {
+		t.Errorf("expected 1 async ok call for echo-job, got %v", got)
+	}
+	if got := GetJobExecutionCount("timed_out", "echo-job"); got != 1 {
+		t.Errorf("expected 1 timed_out job execution for echo-job, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-job", "async", "timeout"); got != 1 {
+		t.Errorf("expected 1 async timeout call for echo-job, got %v", got)
+	}
+	if got := GetJobExecutionCount("cancelled", "echo-job"); got != 1 {
+		t.Errorf("expected 1 cancelled job execution for echo-job, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-job", "async", "cancelled"); got != 1 {
+		t.Errorf("expected 1 async cancelled call for echo-job, got %v", got)
+	}
+	if got := GetJobExecutionCount("queued", "echo-job"); got != 2 {
+		t.Errorf("expected 2 queued job executions for echo-job, got %v", got)
+	}
+	if got := GetJobExecutionCount("running", "echo-job"); got != 2 {
+		t.Errorf("expected 2 running job executions for echo-job, got %v", got)
+	}
+	if got := GetJobExecutionCount("unknown", "echo-job"); got != 2 {
+		t.Errorf("expected 2 unknown status job executions for echo-job, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-job", "async", "error"); got != 6 {
+		t.Errorf("expected 6 async error calls for echo-job, got %v", got)
+	}
+	RecordActionCallWithMode("echo-job", "SYNC", "FAILURE", false, 0)
+	RecordActionCallWithMode("echo-job", "UNKNOWN_MODE", "TIMED_OUT", false, 0)
+	RecordActionCallWithMode("echo-job", "async", "CANCELED", false, 0)
+	RecordActionCallWithMode("echo-job", "sync", "unrecognized-outcome", false, 0)
+	if got := GetActionModeCallCount("echo-job", "sync", "failure"); got != 1 {
+		t.Errorf("expected 1 sync failure call for echo-job, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-job", "sync", "timeout"); got != 1 {
+		t.Errorf("expected 1 sync timeout call for echo-job, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-job", "async", "cancelled"); got != 2 {
+		t.Errorf("expected 2 async cancelled calls for echo-job, got %v", got)
+	}
+	if got := GetActionModeCallCount("echo-job", "sync", "error"); got != 1 {
+		t.Errorf("expected 1 sync error call for echo-job, got %v", got)
+	}
+	metricsBody := scrapePrometheusMetrics(t)
+	if strings.Contains(metricsBody, "unbounded-custom-status-xyz") {
+		t.Errorf("expected unbounded custom status to be clamped and absent from /metrics")
+	}
+
+	// Subcheck B: Read helpers do not mutate dynamicActions, alias overflow to "unknown", or materialize phantom series
+	ResetActionMetrics()
+	ResetJobMetrics()
+
+	for i := 0; i < MaxDynamicActionLabels+5; i++ {
+		RecordJobExecution(fmt.Sprintf("dyn-job-%d", i), "completed", 0)
+	}
+	overflowJob := fmt.Sprintf("dyn-job-%d", MaxDynamicActionLabels+2)
+	if got := GetJobExecutionCount("completed", overflowJob); got != 0 {
+		t.Errorf("expected 0 for clamped dynamic action %q, got %v", overflowJob, got)
+	}
+	if got := GetJobExecutionCount("completed", "unknown"); got != 5 {
+		t.Errorf("expected 5 overflow executions under 'unknown', got %v", got)
+	}
+	if got := GetJobExecutionCount("completed", ""); got != 5 {
+		t.Errorf("expected empty action read to inspect 'unknown' (5), got %v", got)
+	}
+	if got := GetActionModeCallCount("", "async", "ok"); got != 5 {
+		t.Errorf("expected empty action mode read to inspect 'unknown' (5), got %v", got)
+	}
+	if snap := GetActionMetricsSnapshot(""); snap.Action != "" || snap.CallsTotal != 0 {
+		t.Errorf("expected empty action legacy snapshot to inspect 'unknown' cleanly, got %+v", snap)
+	}
+	if snap := GetActionMetricsSnapshot(strings.Repeat("a", MaxActionLabelLength+1)); snap.CallsTotal != 0 {
+		t.Errorf("expected oversized action snapshot to return 0 without side effects, got %+v", snap)
+	}
+
+	_ = GetJobExecutionCount("completed", "never-seen-phantom-action")
+	_ = GetActionModeCallCount("never-seen-phantom-action", "sync", "ok")
+	_ = GetActionMetricsSnapshot("never-seen-phantom-action")
+
+	metricsAfterReads := scrapePrometheusMetrics(t)
+	if strings.Contains(metricsAfterReads, "never-seen-phantom-action") {
+		t.Errorf("expected read helpers not to materialize phantom series for unseen actions")
+	}
+
+	// Subcheck C: NewRouter initializes job_workers_total at startup before any /api/v1/jobs/queue request
+	ResetJobMetrics()
+	_, _, _ = setupTestJobAPIEnv(t)
+	if got := GetJobWorkersTotal(); got != 2 {
+		t.Errorf("expected job_workers_total=2 initialized at router startup, got %v", got)
+	}
+
+	// Subcheck D: Zero steady-state heap allocations via testing.AllocsPerRun
+	ResetActionMetrics()
+	ResetJobMetrics()
+
+	RecordActionCall("alloc-probe", "ok", false, 10*time.Millisecond)
+	RecordJobExecution("alloc-probe", "completed", 10*time.Millisecond)
+	RecordActionCallWithMode("alloc-probe", "async", "ok", false, 10*time.Millisecond)
+
+	if allocs := testing.AllocsPerRun(200, func() {
+		RecordActionCallWithMode("alloc-probe", "sync", "ok", false, 10*time.Millisecond)
+	}); allocs != 0 {
+		t.Errorf("expected 0 allocs/run for canonical RecordActionCallWithMode, got %v", allocs)
+	}
+
+	if allocs := testing.AllocsPerRun(200, func() {
+		RecordActionCallWithMode("alloc-probe", "  ASYNC ", "  COMPLETED ", false, 10*time.Millisecond)
+	}); allocs != 0 {
+		t.Errorf("expected 0 allocs/run for mixed-case RecordActionCallWithMode, got %v", allocs)
+	}
+
+	if allocs := testing.AllocsPerRun(200, func() {
+		RecordJobExecution("alloc-probe", "  COMPLETED ", 10*time.Millisecond)
+	}); allocs != 0 {
+		t.Errorf("expected 0 allocs/run for mixed-case RecordJobExecution, got %v", allocs)
+	}
+
+	if allocs := testing.AllocsPerRun(200, func() {
+		RecordActionCall("alloc-probe", "ok", false, 10*time.Millisecond)
+	}); allocs != 0 {
+		t.Errorf("expected 0 allocs/run for canonical RecordActionCall, got %v", allocs)
+	}
+}
+
+func BenchmarkRecordActionCallWithMode(b *testing.B) {
+	ResetActionMetrics()
+	ResetJobMetrics()
+	RecordActionCallWithMode("bench-action", "sync", "ok", false, 10*time.Millisecond)
+	RecordActionCallWithMode("bench-action", "async", "ok", false, 10*time.Millisecond)
+
+	b.Run("CanonicalSync", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			RecordActionCallWithMode("bench-action", "sync", "ok", false, 10*time.Millisecond)
+		}
+	})
+
+	b.Run("MixedCaseAsync", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			RecordActionCallWithMode("bench-action", "  ASYNC ", "  COMPLETED ", false, 10*time.Millisecond)
+		}
+	})
+
+	b.Run("ParallelSyncAndAsync", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			i := 0
+			for pb.Next() {
+				if i&1 == 0 {
+					RecordActionCallWithMode("bench-action", "sync", "ok", false, 10*time.Millisecond)
+				} else {
+					RecordActionCallWithMode("bench-action", "async", "completed", false, 10*time.Millisecond)
+				}
+				i++
+			}
+		})
+	})
+}
+
+func BenchmarkRecordJobExecution(b *testing.B) {
+	ResetActionMetrics()
+	ResetJobMetrics()
+	RecordJobExecution("bench-job", "completed", 10*time.Millisecond)
+
+	b.Run("JobCompleted", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			RecordJobExecution("bench-job", "completed", 10*time.Millisecond)
+		}
+	})
+}
+
 
 
