@@ -659,5 +659,66 @@ func TestMCPServer_ResourcePluginsCatalog_300PlusPlugins(t *testing.T) {
 	}
 }
 
+func TestMCPServer_ApprovalGateHook(t *testing.T) {
+	cfg := core.DefaultConfig()
+	reg := plugins.NewEmptyRegistry()
+	_ = reg.Register(plugins.NewSystemDiagnosticsPlugin())
+	srv, err := NewServer(cfg.MCP, cfg, nil, nil, reg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer srv.Close()
+
+	var seenReq ApprovalGateRequest
+	exp := time.Now().UTC().Add(5 * time.Minute)
+	srv.SetApprovalGate(func(_ context.Context, req ApprovalGateRequest) (ApprovalGateDecision, error) {
+		seenReq = req
+		if req.ApprovalID == "" {
+			return ApprovalGateDecision{
+				Pending:       true,
+				ApprovalID:    "apr_test_1",
+				ExpiresAt:     exp,
+				PayloadSHA256: "abc",
+				Reason:        "approval required",
+			}, nil
+		}
+		if req.ApprovalID == "apr_bad" {
+			return ApprovalGateDecision{Allowed: false}, errors.New("payload digest mismatch")
+		}
+		return ApprovalGateDecision{Allowed: true, ApprovalID: req.ApprovalID}, nil
+	})
+	if !srv.HasApprovalGate() {
+		t.Fatalf("expected HasApprovalGate() == true")
+	}
+
+	call := func(args map[string]any) MCPCallToolResult {
+		raw, _ := json.Marshal(map[string]any{"name": "execute_plugin", "arguments": args})
+		resp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: raw}, "s1", "alice")
+		return resp.Result.(MCPCallToolResult)
+	}
+
+	// 1. Pending challenge
+	resPending := call(map[string]any{"plugin_id": "sys-diagnostics", "action": "runtime_stats"})
+	sc, _ := resPending.StructuredContent.(map[string]any)
+	if resPending.IsError || sc["status"] != "pending_approval" || sc["approval_id"] != "apr_test_1" {
+		t.Fatalf("unexpected pending result: %+v", resPending)
+	}
+
+	// 2. Denied error
+	resDenied := call(map[string]any{"plugin_id": "sys-diagnostics", "action": "runtime_stats", "_approval_id": "apr_bad"})
+	if !resDenied.IsError {
+		t.Fatalf("expected IsError=true on denied approval_id")
+	}
+
+	// 3. Allowed execution with _approval_id stripped from parameters
+	resAllowed := call(map[string]any{"plugin_id": "sys-diagnostics", "action": "runtime_stats", "_approval_id": "apr_ok"})
+	if resAllowed.IsError {
+		t.Fatalf("expected allowed execution to succeed, got %+v", resAllowed)
+	}
+	if seenReq.ApprovalID != "apr_ok" {
+		t.Fatalf("expected ApprovalID='apr_ok', got %q", seenReq.ApprovalID)
+	}
+}
+
 
 

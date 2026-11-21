@@ -600,6 +600,9 @@ func prometheusMiddleware(next http.Handler) http.Handler {
 
 func NewRouter(env *APIEnv) http.Handler {
 	initConfiguredActionMetrics(env)
+	if env != nil && env.MCPServer != nil && env.ApprovalStore != nil && !env.MCPServer.HasApprovalGate() {
+		env.MCPServer.SetApprovalGate(env.NewMCPApprovalGate())
+	}
 	if env != nil && env.JobEngine != nil {
 		stats := env.JobEngine.QueueStats()
 		UpdateJobQueueMetrics(stats.QueuedJobs, stats.WorkersActive)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
@@ -64,10 +65,11 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		PluginID string         `json:"plugin_id"`
-		Action   string         `json:"action"`
-		Params   map[string]any `json:"params,omitempty"`
-		Timeout  string         `json:"timeout,omitempty"`
+		PluginID   string         `json:"plugin_id"`
+		Action     string         `json:"action"`
+		Params     map[string]any `json:"params,omitempty"`
+		Timeout    string         `json:"timeout,omitempty"`
+		ApprovalID string         `json:"approval_id,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
@@ -111,6 +113,7 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 	if env.Config != nil {
 		timeout = env.Config.Executor.EffectiveDefaultTimeout()
 	}
+	var timeoutOverride time.Duration
 	if strings.TrimSpace(req.Timeout) != "" {
 		parsed, err := core.ParseTimeoutDuration(req.Timeout)
 		if err != nil {
@@ -119,6 +122,23 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		timeout = parsed
+		timeoutOverride = parsed
+	}
+
+	if _, exists := env.PluginRegistry.Get(req.PluginID); !exists {
+		recordActionCall(actionKey, "error", false, 0)
+		writeJSONError(w, fmt.Sprintf("Plugin %q not found", req.PluginID), http.StatusNotFound)
+		return
+	}
+
+	approvalParams := cloneApprovalParamsWithTimeout(req.Params, timeoutOverride)
+	if !env.enforceApprovalGate(w, r, p, approval.Target{
+		Channel:    approval.ChannelPlugin,
+		PluginID:   req.PluginID,
+		Action:     req.Action,
+		Parameters: approvalParams,
+	}, false, req.ApprovalID) {
+		return
 	}
 
 	start := time.Now()
