@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go-admin-tool/internal/api"
+	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
@@ -111,6 +112,12 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("failed to initialize authentication manager: %w", err)
+	}
+
+	approvalStore, err := approval.NewStore(config.Approval, db, auditLogger)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize approval store: %w", err)
 	}
 
 	pluginRegistry := plugins.NewEmptyRegistry()
@@ -217,6 +224,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		CertManager:        certManager,
 		AuditLogger:        auditLogger,
 		AuthManager:        authManager,
+		ApprovalStore:      approvalStore,
 		PluginRegistry:     pluginRegistry,
 		MCPServer:          mcpServer,
 		JobEngine:          jobEngine,

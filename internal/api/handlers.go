@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
@@ -31,6 +32,7 @@ type APIEnv struct {
 	CertManager        *core.CertManager
 	AuditLogger        *audit.AuditLogger
 	AuthManager        *auth.Manager
+	ApprovalStore      *approval.Store
 	PluginRegistry     *plugins.Registry
 	MCPServer          *mcp.Server
 	JobEngine          *jobs.Engine

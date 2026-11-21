@@ -479,6 +479,7 @@ var knownStaticPaths = map[string]struct{}{
 	"/api/v1/mcp/traces":                   {},
 	"/api/v1/jobs":                         {},
 	"/api/v1/jobs/queue":                   {},
+	"/api/v1/approvals":                    {},
 }
 
 // normalizeMetricPath normalizes HTTP request paths for Prometheus metrics to prevent
@@ -528,6 +529,26 @@ func normalizeMetricPath(path string) string {
 				return "/api/v1/jobs/:id/cancel"
 			}
 			return "other"
+		}
+		return "other"
+	}
+	if strings.HasPrefix(path, "/api/v1/approvals/") {
+		trimmed := strings.TrimSuffix(path, "/")
+		if trimmed == "/api/v1/approvals" {
+			return "/api/v1/approvals"
+		}
+		sub := strings.TrimPrefix(trimmed, "/api/v1/approvals/")
+		parts := strings.Split(sub, "/")
+		if len(parts) == 1 && parts[0] != "" {
+			return "/api/v1/approvals/:id"
+		}
+		if len(parts) == 2 && parts[0] != "" {
+			if parts[1] == "approve" {
+				return "/api/v1/approvals/:id/approve"
+			}
+			if parts[1] == "reject" {
+				return "/api/v1/approvals/:id/reject"
+			}
 		}
 		return "other"
 	}
@@ -639,6 +660,10 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/jobs/queue", http.HandlerFunc(env.JobQueueStatsHandler))
 	mux.Handle("/api/v1/jobs/", http.HandlerFunc(env.JobSubroutesHandler))
 
+	// Human-in-the-Loop (HITL) Approval routes
+	mux.Handle("/api/v1/approvals", http.HandlerFunc(env.ApprovalsHandler))
+	mux.Handle("/api/v1/approvals/", http.HandlerFunc(env.ApprovalSubroutesHandler))
+
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/api/v1/metrics/otlp", http.HandlerFunc(env.OTLPMetricsHandler))
@@ -699,6 +724,8 @@ func NewRouter(env *APIEnv) http.Handler {
 		"/api/v1/jobs":                         {},
 		"/api/v1/jobs/queue":                   {},
 		"/api/v1/jobs/":                        {},
+		"/api/v1/approvals":                    {},
+		"/api/v1/approvals/":                   {},
 	}
 	mountConfigVersionPath := func(cfg *core.Config) {
 		if cfg == nil {

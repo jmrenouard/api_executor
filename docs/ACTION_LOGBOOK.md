@@ -13,6 +13,27 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-073` — HITL Approval Domain Store, Policy Engine, and REST Management API (Pillar 1A)
+- **Timestamp (UTC)**: `2026-11-22T00:48:00Z`
+- **GitHub Issue**: [#146](https://github.com/jmrenouard/api_executor/issues/146)
+- **Branch**: `feat/issue-146-hitl-approval-core-api`
+- **Request**:
+  - Implement Pillar 1A of the Zero-Trust MCP Bastion roadmap: core HITL approval domain package (`internal/approval/`), `ApprovalConfig` and `SanitizedApprovalConfig` in `internal/core/config.go`, RBAC scopes `approvals:read` and `approvals:decide` in `internal/auth/manager.go`, and administrative REST endpoints (`/api/v1/approvals`, `/api/v1/approvals/{id}`, `/api/v1/approvals/{id}/approve`, `/api/v1/approvals/{id}/reject`) with bounded memory, separation of duties, constant-time SHA-256 payload digest validation, SHA-256 audit logging, and Prometheus route normalization.
+- **Changes**:
+  - Created [`internal/approval/policy.go`](../internal/approval/policy.go): Added `Status`, `Channel`, `Target`, canonical `ComputePayloadSHA256`, `ConstantTimeDigestEqual`, and `Policy.RequiresApproval` across command, plugin, job, and MCP channels.
+  - Created [`internal/approval/store.go`](../internal/approval/store.go): Implemented concurrency-safe `Store` with bounded pending queue (`max_pending`, default `500`), bounded terminal history pruning, automatic TTL expiration, separation-of-duties self-approval denial, atomic single-use `Consume`, SQLite `approval_requests` persistence with pure-Go in-memory fallback (`CGO_ENABLED=0`), and SHA-256 audit recording.
+  - Created [`internal/approval/approval_test.go`](../internal/approval/approval_test.go): Added unit tests covering policy matching, canonical digests, lifecycle on in-memory/database backends, self-approval rejection, payload mismatch rejection, TTL expiration, queue cap, and concurrent single-use `Consume` race safety.
+  - Modified [`internal/core/config.go`](../internal/core/config.go) and [`internal/core/config_test.go`](../internal/core/config_test.go): Added `ApprovalConfig`, `DefaultApprovalConfig`, `SanitizedApprovalConfig`, `CommandDefinition.RequireApproval`, and YAML/default tests.
+  - Modified [`internal/auth/manager.go`](../internal/auth/manager.go): Added `ScopeApprovalsRead` and `ScopeApprovalsDecide`.
+  - Created [`internal/api/approval_handlers.go`](../internal/api/approval_handlers.go) and [`internal/api/approval_test.go`](../internal/api/approval_test.go): Implemented `ApprovalsHandler` and `ApprovalSubroutesHandler` enforcing RBAC and admin-only decisions, plus HTTP/metric tests.
+  - Modified [`internal/api/config_handlers.go`](../internal/api/config_handlers.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/router.go`](../internal/api/router.go), and [`cmd/server/main.go`](../cmd/server/main.go): Wired `ApprovalStore` into `APIEnv`, exposed `Approval` in sanitized config responses, mounted `/api/v1/approvals*` routes, and normalized `/api/v1/approvals/:id/{approve,reject}` in `normalizeMetricPath`.
+  - Modified [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) and [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `APP-022` and `ACT-073`.
+- **Result**:
+  - Verified 100% pass across all 13 Go packages (`go test -cover ./...`, `internal/approval`, `internal/api`, `internal/core`, `cmd/server`, `tests/e2e`, `docs`).
+  - GitHub Issue [#146](https://github.com/jmrenouard/api_executor/issues/146).
+
+---
+
 ### `ACT-072` — Zero-Allocation `RecordActionCallWithMode`, Label Normalization Deduplication, and Ponytail Audit of `internal/api/job_metrics.go`
 - **Timestamp (UTC)**: `2026-11-15T21:40:00Z`
 - **GitHub Issue**: [#144](https://github.com/jmrenouard/api_executor/issues/144)
