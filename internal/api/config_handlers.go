@@ -90,8 +90,9 @@ func buildFallbackSanitizedView(cfg *core.Config) *core.SanitizedConfigView {
 			BootstrapToken:    "[REDACTED]",
 			StorePath:         cfg.Auth.StorePath,
 		},
-		Plugins: cfg.Plugins,
-		MCP:     cfg.MCP,
+		Plugins:  cfg.Plugins,
+		MCP:      cfg.MCP,
+		Approval: cfg.Approval.Sanitized(),
 		OTLPExport: core.SanitizedOTLPExportConfig{
 			Enabled:            cfg.OTLPExport.Enabled,
 			Endpoint:           cfg.OTLPExport.Endpoint,

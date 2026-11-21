@@ -703,3 +703,58 @@ server:
 		}
 	}
 }
+
+func TestApprovalConfig_DefaultsAndYAMLLoad(t *testing.T) {
+	def := core.DefaultConfig()
+	if def.Approval.Enabled {
+		t.Fatalf("expected Approval.Enabled false by default")
+	}
+	if def.Approval.EffectiveTTL() != core.DefaultApprovalTTL {
+		t.Fatalf("expected default TTL %s, got %s", core.DefaultApprovalTTL, def.Approval.EffectiveTTL())
+	}
+	if def.Approval.EffectiveMaxPending() != core.DefaultMaxPendingApprovals {
+		t.Fatalf("expected default max_pending %d, got %d", core.DefaultMaxPendingApprovals, def.Approval.EffectiveMaxPending())
+	}
+	if !def.Approval.RequireDistinctApprover {
+		t.Fatalf("expected RequireDistinctApprover true by default")
+	}
+
+	cfgPath := filepath.Join(t.TempDir(), "approval.yaml")
+	yamlBody := `
+server:
+  port: 8080
+  host: "127.0.0.1"
+command_executor:
+  enabled: true
+  commands:
+    - name: "restart-db"
+      command: "echo"
+      args: ["ok"]
+      require_approval: true
+approval:
+  enabled: true
+  default_ttl: "5m"
+  max_pending: 120
+  require_distinct_approver: true
+  critical_commands: ["restart-*"]
+  critical_plugins: ["plugin:db-admin:*"]
+  critical_mcp_tools: ["execute_command"]
+`
+	if err := os.WriteFile(cfgPath, []byte(yamlBody), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := core.LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.Approval.Enabled || cfg.Approval.EffectiveTTL().String() != "5m0s" || cfg.Approval.EffectiveMaxPending() != 120 {
+		t.Fatalf("unexpected loaded approval config: %+v", cfg.Approval)
+	}
+	if len(cfg.Executor.Commands) != 1 || !cfg.Executor.Commands[0].RequireApproval {
+		t.Fatalf("expected RequireApproval=true on loaded command")
+	}
+	sanitized := cfg.Approval.Sanitized()
+	if !sanitized.Enabled || sanitized.MaxPending != 120 || len(sanitized.CriticalCommands) != 1 {
+		t.Fatalf("unexpected sanitized approval config: %+v", sanitized)
+	}
+}

@@ -24,9 +24,11 @@ const (
 	RoleViewer   = "viewer"
 	RoleService  = "service"
 
-	ScopeJobsSubmit = "jobs:submit"
-	ScopeJobsRead   = "jobs:read"
-	ScopeJobsCancel = "jobs:cancel"
+	ScopeJobsSubmit      = "jobs:submit"
+	ScopeJobsRead        = "jobs:read"
+	ScopeJobsCancel      = "jobs:cancel"
+	ScopeApprovalsRead   = "approvals:read"
+	ScopeApprovalsDecide = "approvals:decide"
 )
 
 var (

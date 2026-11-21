@@ -27,6 +27,10 @@ const (
 	DefaultUserNSMode = "keep-id"
 	// DefaultConfigVersionPath is the default conditional HTTP path exposing configuration version metadata.
 	DefaultConfigVersionPath = "/api/v1/config/version"
+	// DefaultApprovalTTL is the default time-to-live for pending HITL approval requests.
+	DefaultApprovalTTL = 10 * time.Minute
+	// DefaultMaxPendingApprovals caps concurrent pending HITL approval requests to prevent OOM floods.
+	DefaultMaxPendingApprovals = 500
 )
 
 type Config struct {
@@ -43,9 +47,63 @@ type Config struct {
 	Plugins     PluginsConfig    `yaml:"plugins,omitempty" json:"plugins"`
 	MCP         MCPConfig        `yaml:"mcp,omitempty" json:"mcp"`
 	Audit       AuditConfig      `yaml:"audit,omitempty" json:"audit"`
+	Approval    ApprovalConfig   `yaml:"approval,omitempty" json:"approval,omitempty"`
 	MultiConfig MultiConfig      `yaml:"multi_config,omitempty" json:"multi_config,omitempty"`
 	OTLPExport  OTLPExportConfig `yaml:"otlp_export,omitempty" json:"otlp_export,omitempty"`
 	Sandbox     SandboxConfig    `yaml:"sandbox" json:"sandbox"`
+}
+
+// ApprovalConfig configures Human-in-the-Loop (HITL) pre-execution approvals.
+type ApprovalConfig struct {
+	Enabled                 bool     `yaml:"enabled" json:"enabled"`
+	DefaultTTL              string   `yaml:"default_ttl,omitempty" json:"default_ttl,omitempty"`
+	MaxPending              int      `yaml:"max_pending,omitempty" json:"max_pending,omitempty"`
+	RequireDistinctApprover bool     `yaml:"require_distinct_approver" json:"require_distinct_approver"`
+	CriticalCommands        []string `yaml:"critical_commands,omitempty" json:"critical_commands,omitempty"`
+	CriticalPlugins         []string `yaml:"critical_plugins,omitempty" json:"critical_plugins,omitempty"`
+	CriticalMCPTools        []string `yaml:"critical_mcp_tools,omitempty" json:"critical_mcp_tools,omitempty"`
+}
+
+// DefaultApprovalConfig returns secure default HITL approval settings.
+// Enabled defaults to false for backward compatibility with existing deployments.
+func DefaultApprovalConfig() ApprovalConfig {
+	return ApprovalConfig{
+		Enabled:                 false,
+		DefaultTTL:              DefaultApprovalTTL.String(),
+		MaxPending:              DefaultMaxPendingApprovals,
+		RequireDistinctApprover: true,
+	}
+}
+
+// EffectiveTTL returns the configured approval TTL, falling back to DefaultApprovalTTL (10m).
+func (a ApprovalConfig) EffectiveTTL() time.Duration {
+	if strings.TrimSpace(a.DefaultTTL) != "" {
+		if d, err := ParseTimeoutDuration(a.DefaultTTL); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultApprovalTTL
+}
+
+// EffectiveMaxPending returns the maximum pending approval queue cap, falling back to DefaultMaxPendingApprovals (500).
+func (a ApprovalConfig) EffectiveMaxPending() int {
+	if a.MaxPending > 0 {
+		return a.MaxPending
+	}
+	return DefaultMaxPendingApprovals
+}
+
+// Sanitized returns the client-facing view of ApprovalConfig.
+func (a ApprovalConfig) Sanitized() SanitizedApprovalConfig {
+	return SanitizedApprovalConfig{
+		Enabled:                 a.Enabled,
+		DefaultTTL:              a.EffectiveTTL().String(),
+		MaxPending:              a.EffectiveMaxPending(),
+		RequireDistinctApprover: a.RequireDistinctApprover,
+		CriticalCommands:        append([]string(nil), a.CriticalCommands...),
+		CriticalPlugins:         append([]string(nil), a.CriticalPlugins...),
+		CriticalMCPTools:        append([]string(nil), a.CriticalMCPTools...),
+	}
 }
 
 // OTLPExportConfig configures the native OpenTelemetry (OTLP) metrics export subsystem.
@@ -212,8 +270,20 @@ type SanitizedConfigView struct {
 	Auth            SanitizedAuthConfig       `json:"auth"`
 	Plugins         PluginsConfig             `json:"plugins"`
 	MCP             MCPConfig                 `json:"mcp"`
+	Approval        SanitizedApprovalConfig   `json:"approval,omitempty"`
 	OTLPExport      SanitizedOTLPExportConfig `json:"otlp_export,omitempty"`
 	Sandbox         SanitizedSandboxConfig    `json:"sandbox,omitempty"`
+}
+
+// SanitizedApprovalConfig represents the client-facing view of HITL approval settings.
+type SanitizedApprovalConfig struct {
+	Enabled                 bool     `json:"enabled"`
+	DefaultTTL              string   `json:"default_ttl"`
+	MaxPending              int      `json:"max_pending"`
+	RequireDistinctApprover bool     `json:"require_distinct_approver"`
+	CriticalCommands        []string `json:"critical_commands,omitempty"`
+	CriticalPlugins         []string `json:"critical_plugins,omitempty"`
+	CriticalMCPTools        []string `json:"critical_mcp_tools,omitempty"`
 }
 
 // SanitizedSandboxConfig represents the client-facing view of sandbox settings.
@@ -349,9 +419,10 @@ type CommandDefinition struct {
 	Command        string         `yaml:"command" json:"command"`
 	Args           []string       `yaml:"args" json:"args"`
 	TimeoutSeconds int            `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
-	Timeout        string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Preset         bool           `yaml:"preset,omitempty" json:"preset,omitempty"`
-	Sandbox        *SandboxConfig `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+	Timeout         string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Preset          bool           `yaml:"preset,omitempty" json:"preset,omitempty"`
+	RequireApproval bool           `yaml:"require_approval,omitempty" json:"require_approval,omitempty"`
+	Sandbox         *SandboxConfig `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
 }
 
 // AuthConfig configures user authentication, personal access tokens, and third-party service accounts.
@@ -453,6 +524,7 @@ func DefaultConfig() *Config {
 			Enabled:      true,
 			MaxMemoryLog: 1000,
 		},
+		Approval: DefaultApprovalConfig(),
 		MultiConfig: MultiConfig{
 			Enabled:        false,
 			Endpoint:       "/api/v1/config",
@@ -978,8 +1050,9 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 			BootstrapToken:    "[REDACTED]",
 			StorePath:         cfg.Auth.StorePath,
 		},
-		Plugins: cfg.Plugins,
-		MCP:     cfg.MCP,
+		Plugins:  cfg.Plugins,
+		MCP:      cfg.MCP,
+		Approval: cfg.Approval.Sanitized(),
 		OTLPExport: SanitizedOTLPExportConfig{
 			Enabled:            cfg.OTLPExport.Enabled,
 			Endpoint:           cfg.OTLPExport.Endpoint,
