@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
@@ -24,6 +25,7 @@ type SubmitJobRequest struct {
 	Priority        jobs.Priority  `json:"priority,omitempty" example:"high" enums:"low,normal,high,critical"`
 	Timeout         string         `json:"timeout,omitempty" example:"45s"`
 	TimeoutOverride string         `json:"timeout_override,omitempty"`
+	ApprovalID      string         `json:"approval_id,omitempty"`
 }
 
 // SubmitJobResponse defines the response returned upon successful job enqueueing (HTTP 202).
@@ -179,6 +181,7 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Two-tier authorization: verify underlying command or plugin action
+	cmdRequireApproval := false
 	if jobType == jobs.TypeCommand {
 		if env.Config != nil && !env.Config.Executor.Enabled {
 			writeJSONError(w, "Command executor is disabled", http.StatusNotFound)
@@ -191,10 +194,12 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if _, found := env.FindCommand(actionName); !found {
+		cmdDef, found := env.FindCommand(actionName)
+		if !found {
 			writeJSONError(w, fmt.Sprintf("Command %q not found", actionName), http.StatusNotFound)
 			return
 		}
+		cmdRequireApproval = cmdDef.RequireApproval
 	} else if jobType == jobs.TypePlugin {
 		actionKey := fmt.Sprintf("plugin:%s:%s", pluginID, actionName)
 		if err := auth.Authorize(principal, "plugins:execute", actionKey); err != nil {
@@ -235,6 +240,15 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, fmt.Sprintf("Requested timeout %s exceeds maximum allowed timeout %s", timeoutOverride, maxAllowed), http.StatusBadRequest)
 			return
 		}
+	}
+
+	if !env.enforceApprovalGate(w, r, principal, approval.Target{
+		Channel:    approval.ChannelJob,
+		Action:     actionName,
+		PluginID:   pluginID,
+		Parameters: req.Params,
+	}, cmdRequireApproval, req.ApprovalID) {
+		return
 	}
 
 	actorID := principal.Username

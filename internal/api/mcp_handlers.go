@@ -63,8 +63,9 @@ func (env *APIEnv) MCPHandler(w http.ResponseWriter, r *http.Request) {
 		sessionID = strings.TrimSpace(r.URL.Query().Get("session_id"))
 	}
 	actor := p.Type + ":" + p.Name
+	mcpCtx := withMCPApprovalContext(r.Context(), p, r.RemoteAddr, r.Header.Get("X-Approval-ID"))
 
-	rpcResp := env.MCPServer.HandleJSONRPCWithAuthorizer(r.Context(), rpcReq, sessionID, actor, func(requiredScope, targetAction string) error {
+	rpcResp := env.MCPServer.HandleJSONRPCWithAuthorizer(mcpCtx, rpcReq, sessionID, actor, func(requiredScope, targetAction string) error {
 		return auth.Authorize(p, requiredScope, targetAction)
 	})
 	if rpcResp.TraceID != "" {

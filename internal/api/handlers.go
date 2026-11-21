@@ -95,6 +95,7 @@ type ExecuteCommandRequest struct {
 	Timeout           string  `json:"timeout,omitempty"`
 	TimeoutSeconds    float64 `json:"timeout_seconds,omitempty"`
 	TimeoutMs         int64   `json:"timeout_ms,omitempty"`
+	ApprovalID        string  `json:"approval_id,omitempty"`
 	rawTimeout        string
 	hasRawTimeout     bool
 	rawTimeoutSeconds string
@@ -125,6 +126,7 @@ func (r *ExecuteCommandRequest) UnmarshalJSON(data []byte) error {
 		Timeout        json.RawMessage `json:"timeout"`
 		TimeoutSeconds json.RawMessage `json:"timeout_seconds"`
 		TimeoutMs      json.RawMessage `json:"timeout_ms"`
+		ApprovalID     json.RawMessage `json:"approval_id"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -132,6 +134,12 @@ func (r *ExecuteCommandRequest) UnmarshalJSON(data []byte) error {
 
 	if len(raw.Name) > 0 && string(raw.Name) != "null" {
 		if err := json.Unmarshal(raw.Name, &r.Name); err != nil {
+			return err
+		}
+	}
+
+	if len(raw.ApprovalID) > 0 && string(raw.ApprovalID) != "null" {
+		if err := json.Unmarshal(raw.ApprovalID, &r.ApprovalID); err != nil {
 			return err
 		}
 	}
@@ -403,6 +411,18 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 	cmdDef := &cmdCopy
 
 	effectiveTimeout := activeConfig.Executor.ResolveTimeout(*cmdDef, timeoutOverride)
+
+	var approvalParams map[string]any
+	if timeoutOverride > 0 {
+		approvalParams = map[string]any{"timeout": timeoutOverride.String()}
+	}
+	if !env.enforceApprovalGate(w, r, principal, approval.Target{
+		Channel:    approval.ChannelCommand,
+		Action:     cmdDef.Name,
+		Parameters: approvalParams,
+	}, cmdDef.RequireApproval, req.ApprovalID) {
+		return
+	}
 
 	execStart := time.Now()
 	output, err := core.ExecuteCommandWithTimeout(*cmdDef, effectiveTimeout)

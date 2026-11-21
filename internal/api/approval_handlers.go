@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,11 +9,205 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
+	"go-admin-tool/internal/mcp"
 )
+
+// ApprovalChallengeResponse is returned (HTTP 202 Accepted) when a critical operation
+// pauses for Human-in-the-Loop approval before execution.
+type ApprovalChallengeResponse struct {
+	Status        string    `json:"status"`
+	ApprovalID    string    `json:"approval_id"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	PayloadSHA256 string    `json:"payload_sha256"`
+	Message       string    `json:"message"`
+	ApproveURL    string    `json:"approve_url"`
+	RejectURL     string    `json:"reject_url"`
+}
+
+type mcpApprovalCtxKey struct{}
+
+type mcpApprovalCtxData struct {
+	Principal  *auth.Principal
+	SourceIP   string
+	ApprovalID string
+}
+
+func withMCPApprovalContext(ctx context.Context, p *auth.Principal, sourceIP, approvalID string) context.Context {
+	return context.WithValue(ctx, mcpApprovalCtxKey{}, mcpApprovalCtxData{
+		Principal:  p,
+		SourceIP:   sourceIP,
+		ApprovalID: strings.TrimSpace(approvalID),
+	})
+}
+
+func extractApprovalID(r *http.Request, bodyApprovalID string) string {
+	if id := strings.TrimSpace(bodyApprovalID); id != "" {
+		return id
+	}
+	if r != nil {
+		if id := strings.TrimSpace(r.Header.Get("X-Approval-ID")); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+// enforceApprovalGate evaluates HITL approval policy for a REST/Job request strictly after RBAC
+// and before any subprocess/plugin/job execution. Returns true only when execution may proceed.
+func (env *APIEnv) enforceApprovalGate(
+	w http.ResponseWriter,
+	r *http.Request,
+	p *auth.Principal,
+	target approval.Target,
+	commandFlag bool,
+	suppliedApprovalID string,
+) bool {
+	if env == nil || env.ApprovalStore == nil {
+		return true
+	}
+	if !env.ApprovalStore.Policy().RequiresApproval(target, commandFlag) {
+		return true
+	}
+
+	digest, err := approval.ComputePayloadSHA256(target)
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("Failed to compute approval payload digest: %v", err), http.StatusBadRequest)
+		return false
+	}
+
+	actorID := principalActorID(p)
+	actorType := "anonymous"
+	if p != nil && strings.TrimSpace(p.Type) != "" {
+		actorType = p.Type
+	}
+	sourceIP := ""
+	if r != nil {
+		sourceIP = r.RemoteAddr
+	}
+
+	approvalID := extractApprovalID(r, suppliedApprovalID)
+	if approvalID == "" {
+		req, createErr := env.ApprovalStore.Create(approval.CreateParams{
+			Target:        target,
+			RequesterID:   actorID,
+			RequesterType: actorType,
+			SourceIP:      sourceIP,
+			Reason:        fmt.Sprintf("HITL policy requires approval for %s:%s", target.Channel, target.Action),
+		})
+		if createErr != nil {
+			if errors.Is(createErr, approval.ErrMaxPendingReached) {
+				writeJSONError(w, createErr.Error(), http.StatusTooManyRequests)
+				return false
+			}
+			writeJSONError(w, fmt.Sprintf("Failed to create approval request: %v", createErr), http.StatusInternalServerError)
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Approval-ID", req.ID)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(ApprovalChallengeResponse{
+			Status:        "pending_approval",
+			ApprovalID:    req.ID,
+			ExpiresAt:     req.ExpiresAt,
+			PayloadSHA256: req.PayloadSHA256,
+			Message:       "Human-in-the-Loop approval required before execution",
+			ApproveURL:    fmt.Sprintf("/api/v1/approvals/%s/approve", req.ID),
+			RejectURL:     fmt.Sprintf("/api/v1/approvals/%s/reject", req.ID),
+		})
+		return false
+	}
+
+	if _, consumeErr := env.ApprovalStore.Consume(approvalID, digest, actorID, actorType, sourceIP); consumeErr != nil {
+		switch {
+		case errors.Is(consumeErr, approval.ErrNotFound):
+			writeJSONError(w, consumeErr.Error(), http.StatusNotFound)
+		case errors.Is(consumeErr, approval.ErrPayloadMismatch):
+			writeJSONError(w, consumeErr.Error(), http.StatusForbidden)
+		case errors.Is(consumeErr, approval.ErrAlreadyConsumed),
+			errors.Is(consumeErr, approval.ErrExpired),
+			errors.Is(consumeErr, approval.ErrInvalidTransition):
+			writeJSONError(w, consumeErr.Error(), http.StatusConflict)
+		default:
+			writeJSONError(w, consumeErr.Error(), http.StatusInternalServerError)
+		}
+		return false
+	}
+
+	return true
+}
+
+// NewMCPApprovalGate builds a decoupled mcp.ApprovalGate callback backed by env.ApprovalStore.
+func (env *APIEnv) NewMCPApprovalGate() mcp.ApprovalGate {
+	return func(ctx context.Context, req mcp.ApprovalGateRequest) (mcp.ApprovalGateDecision, error) {
+		if env == nil || env.ApprovalStore == nil {
+			return mcp.ApprovalGateDecision{Allowed: true}, nil
+		}
+		target := approval.Target{
+			Channel:    approval.ChannelMCP,
+			Action:     req.Action,
+			PluginID:   req.PluginID,
+			ToolName:   req.ToolName,
+			Parameters: req.Parameters,
+		}
+		if !env.ApprovalStore.Policy().RequiresApproval(target, req.CommandFlag) {
+			return mcp.ApprovalGateDecision{Allowed: true}, nil
+		}
+
+		digest, err := approval.ComputePayloadSHA256(target)
+		if err != nil {
+			return mcp.ApprovalGateDecision{}, err
+		}
+
+		actorID := strings.TrimSpace(req.Actor)
+		actorType := "mcp_client"
+		sourceIP := ""
+		approvalID := strings.TrimSpace(req.ApprovalID)
+
+		if ctxData, ok := ctx.Value(mcpApprovalCtxKey{}).(mcpApprovalCtxData); ok {
+			if ctxData.Principal != nil {
+				actorID = principalActorID(ctxData.Principal)
+				if strings.TrimSpace(ctxData.Principal.Type) != "" {
+					actorType = ctxData.Principal.Type
+				}
+			}
+			sourceIP = ctxData.SourceIP
+			if approvalID == "" {
+				approvalID = ctxData.ApprovalID
+			}
+		}
+
+		if approvalID == "" {
+			created, createErr := env.ApprovalStore.Create(approval.CreateParams{
+				Target:        target,
+				RequesterID:   actorID,
+				RequesterType: actorType,
+				SourceIP:      sourceIP,
+				Reason:        fmt.Sprintf("HITL policy requires approval for MCP tool %s", req.ToolName),
+			})
+			if createErr != nil {
+				return mcp.ApprovalGateDecision{}, createErr
+			}
+			return mcp.ApprovalGateDecision{
+				Allowed:       false,
+				Pending:       true,
+				ApprovalID:    created.ID,
+				ExpiresAt:     created.ExpiresAt,
+				PayloadSHA256: created.PayloadSHA256,
+				Reason:        "Human-in-the-Loop approval required before MCP tool execution",
+			}, nil
+		}
+
+		if _, consumeErr := env.ApprovalStore.Consume(approvalID, digest, actorID, actorType, sourceIP); consumeErr != nil {
+			return mcp.ApprovalGateDecision{Allowed: false, Reason: consumeErr.Error()}, consumeErr
+		}
+		return mcp.ApprovalGateDecision{Allowed: true, ApprovalID: approvalID}, nil
+	}
+}
 
 // ApprovalListResponse defines the JSON response returned by GET /api/v1/approvals.
 type ApprovalListResponse struct {

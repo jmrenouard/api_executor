@@ -13,6 +13,24 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-074` — HITL Pre-Execution Approval Gate Across Command, Plugin, Job, and MCP Paths (Pillar 1B)
+- **Timestamp (UTC)**: `2026-11-22T00:56:00Z`
+- **GitHub Issue**: [#148](https://github.com/jmrenouard/api_executor/issues/148)
+- **Branch**: `feat/issue-148-hitl-pre-execution-gate`
+- **Request**:
+  - Enforce a fail-closed Human-in-the-Loop (HITL) pre-execution approval gate across `ExecuteCommandHandler`, `PluginExecuteHandler`, `SubmitJobHandler`, and `MCPServer.handleToolCall` (`tools/call`) strictly after RBAC authorization and before any subprocess/plugin execution or job enqueueing, bound by canonical `payload_sha256` and single-use atomic consumption.
+- **Changes**:
+  - Modified [`internal/mcp/server.go`](../internal/mcp/server.go): Added decoupled `ApprovalGate` callback (`ApprovalGateRequest`, `ApprovalGateDecision`, `SetApprovalGate`, `HasApprovalGate`, `extractMCPApprovalArgs`) and enforced it after `ToolAuthorizer` across `tools/call` handlers, returning structured `pending_approval` challenges or fail-closed errors.
+  - Modified [`internal/api/approval_handlers.go`](../internal/api/approval_handlers.go): Added `ApprovalChallengeResponse`, `extractApprovalID`, shared `enforceApprovalGate`, `withMCPApprovalContext`, and `NewMCPApprovalGate` (preserving canonical username identity across MCP->REST separation of duties).
+  - Modified [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/plugin_handlers.go`](../internal/api/plugin_handlers.go), [`internal/api/job_handlers.go`](../internal/api/job_handlers.go), [`internal/api/mcp_handlers.go`](../internal/api/mcp_handlers.go), [`internal/api/router.go`](../internal/api/router.go), and [`cmd/server/main.go`](../cmd/server/main.go): Wired HITL enforcement into all four execution channels with `approval_id` / `X-Approval-ID` / `_approval_id` support.
+  - Created [`internal/api/approval_gate_test.go`](../internal/api/approval_gate_test.go) and updated [`internal/mcp/server_test.go`](../internal/mcp/server_test.go): Added cross-channel HITL gate, anti-TOCTOU payload tampering, distinct-approver MCP->REST, RBAC-before-HITL, and backward-compatibility tests.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-074`.
+- **Result**:
+  - Verified 100% pass across all 13 Go packages (`go test -cover ./...`, `go vet ./...`, and WSL2 `CGO_ENABLED=1 go test -race`).
+  - GitHub Issue [#148](https://github.com/jmrenouard/api_executor/issues/148).
+
+---
+
 ### `ACT-073` — HITL Approval Domain Store, Policy Engine, and REST Management API (Pillar 1A)
 - **Timestamp (UTC)**: `2026-11-22T00:48:00Z`
 - **GitHub Issue**: [#146](https://github.com/jmrenouard/api_executor/issues/146)

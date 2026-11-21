@@ -230,6 +230,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		JobEngine:          jobEngine,
 		StartTime:          time.Now(),
 	}
+	mcpServer.SetApprovalGate(apiEnv.NewMCPApprovalGate())
 
 	router := api.NewRouter(apiEnv)
 	return apiEnv, router, cleanup, nil

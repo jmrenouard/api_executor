@@ -122,6 +122,7 @@ type Server struct {
 	auditLogger    *audit.AuditLogger
 	logger         *core.Logger
 	metricCallback ActionMetricCallback
+	approvalGate   ApprovalGate
 	traces         []MCPTrace
 }
 
@@ -374,6 +375,118 @@ func (s *Server) Prompts() []MCPPrompt {
 // ToolAuthorizer validates whether the authenticated caller is permitted to invoke a given scope and target action.
 type ToolAuthorizer func(requiredScope string, targetAction string) error
 
+// ApprovalGateRequest describes an MCP tool invocation requiring HITL evaluation.
+type ApprovalGateRequest struct {
+	ToolName    string
+	Action      string
+	PluginID    string
+	Parameters  map[string]any
+	CommandFlag bool
+	ApprovalID  string
+	Actor       string
+}
+
+// ApprovalGateDecision represents the outcome of a pre-execution HITL approval gate check.
+type ApprovalGateDecision struct {
+	Allowed       bool
+	Pending       bool
+	ApprovalID    string
+	ExpiresAt     time.Time
+	PayloadSHA256 string
+	Reason        string
+}
+
+// ApprovalGate enforces Human-in-the-Loop pre-execution approvals for MCP tools/call
+// while keeping internal/mcp decoupled from HTTP handlers and approval persistence.
+type ApprovalGate func(ctx context.Context, req ApprovalGateRequest) (ApprovalGateDecision, error)
+
+// SetApprovalGate configures the pre-execution HITL approval gate for tools/call.
+func (s *Server) SetApprovalGate(gate ApprovalGate) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.approvalGate = gate
+	s.mu.Unlock()
+}
+
+// HasApprovalGate reports whether an ApprovalGate callback is configured.
+func (s *Server) HasApprovalGate() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.approvalGate != nil
+}
+
+func (s *Server) getApprovalGate() ApprovalGate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.approvalGate
+}
+
+func (s *Server) checkApprovalGate(ctx context.Context, req ApprovalGateRequest, traceID string) (MCPCallToolResult, string, bool) {
+	gate := s.getApprovalGate()
+	if gate == nil {
+		return MCPCallToolResult{}, "", true
+	}
+	decision, err := gate(ctx, req)
+	if err != nil {
+		return s.toolErrorResult(traceID, fmt.Sprintf("approval gate denied %q: %v", req.ToolName, err)), "denied", false
+	}
+	if decision.Pending {
+		msg := decision.Reason
+		if strings.TrimSpace(msg) == "" {
+			msg = "Human-in-the-Loop approval required before execution"
+		}
+		return MCPCallToolResult{
+			Content: []MCPContentBlock{{
+				Type: "text",
+				Text: fmt.Sprintf("%s (approval_id=%s, expires_at=%s)", msg, decision.ApprovalID, decision.ExpiresAt.UTC().Format(time.RFC3339)),
+			}},
+			IsError: false,
+			StructuredContent: map[string]any{
+				"status":         "pending_approval",
+				"approval_id":    decision.ApprovalID,
+				"expires_at":     decision.ExpiresAt.UTC(),
+				"payload_sha256": decision.PayloadSHA256,
+				"message":        msg,
+			},
+			TraceID: traceID,
+		}, "pending_approval", false
+	}
+	if !decision.Allowed {
+		reason := decision.Reason
+		if strings.TrimSpace(reason) == "" {
+			reason = "execution denied by approval gate"
+		}
+		return s.toolErrorResult(traceID, reason), "denied", false
+	}
+	return MCPCallToolResult{}, "", true
+}
+
+func extractMCPApprovalArgs(args map[string]any) (string, map[string]any) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	var approvalID string
+	clean := make(map[string]any, len(args))
+	for k, v := range args {
+		if k == "_approval_id" {
+			if v != nil {
+				approvalID = strings.TrimSpace(fmt.Sprintf("%v", v))
+			}
+			continue
+		}
+		clean[k] = v
+	}
+	if len(clean) == 0 {
+		return approvalID, nil
+	}
+	return approvalID, clean
+}
+
 // HandleJSONRPC processes a JSON-RPC 2.0 MCP request, records a persistent trace, and writes an audit log entry.
 func (s *Server) HandleJSONRPC(ctx context.Context, req JSONRPCRequest, sessionID string, actor string) JSONRPCResponse {
 	return s.HandleJSONRPCWithAuthorizer(ctx, req, sessionID, actor, nil)
@@ -428,7 +541,7 @@ func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCReq
 		}
 
 	case "tools/call":
-		callRes, calledTool, callStatus, rpcErr := s.handleToolCall(ctx, req.Params, traceID, authorizer)
+		callRes, calledTool, callStatus, rpcErr := s.handleToolCall(ctx, req.Params, traceID, actor, authorizer)
 		toolName = calledTool
 		status = callStatus
 		if rpcErr != nil {
@@ -531,7 +644,7 @@ func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCReq
 	return resp
 }
 
-func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, traceID string, authorizer ToolAuthorizer) (MCPCallToolResult, string, string, *JSONRPCError) {
+func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, traceID string, actor string, authorizer ToolAuthorizer) (MCPCallToolResult, string, string, *JSONRPCError) {
 	var callReq struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
@@ -549,6 +662,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			Message: "Tool name is required",
 		}
 	}
+	approvalID, cleanArgs := extractMCPApprovalArgs(callReq.Arguments)
 
 	switch toolName {
 	case "execute_command":
@@ -611,6 +725,17 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			return s.toolErrorResult(traceID, fmt.Sprintf("command %q not found", cmdName)), toolName, "error", nil
 		}
 
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:    toolName,
+			Action:      cmdName,
+			Parameters:  cleanArgs,
+			CommandFlag: cmdDef.RequireApproval,
+			ApprovalID:  approvalID,
+			Actor:       actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
+
 		effTimeout := core.DefaultCommandTimeout
 		if s.appConfig != nil {
 			effTimeout = s.appConfig.Executor.ResolveTimeout(*cmdDef, timeoutOverride)
@@ -666,6 +791,15 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		}, toolName, "ok", nil
 
 	case "list_commands":
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			Action:     toolName,
+			Parameters: cleanArgs,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
 		osFilter := ""
 		if callReq.Arguments != nil {
 			if v, ok := callReq.Arguments["os_family"]; ok {
@@ -728,6 +862,24 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			}
 		}
 
+		if _, exists := s.pluginRegistry.Get(pluginID); !exists {
+			if s.metricCallback != nil {
+				s.metricCallback(metricLabel, "error", false, 0)
+			}
+			return s.toolErrorResult(traceID, fmt.Sprintf("plugin %q not found", pluginID)), toolName, "error", nil
+		}
+
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			PluginID:   pluginID,
+			Action:     action,
+			Parameters: params,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
+
 		res, err := s.pluginRegistry.Execute(ctx, pluginID, action, params, 30*time.Second)
 		if err != nil {
 			if s.metricCallback != nil {
@@ -759,7 +911,17 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_query: %v", err)), toolName, "denied", nil
 			}
 		}
-		res, err := s.pluginRegistry.Execute(ctx, "db-exposure", "query_readonly", callReq.Arguments, 15*time.Second)
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			PluginID:   "db-exposure",
+			Action:     "query_readonly",
+			Parameters: cleanArgs,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
+		res, err := s.pluginRegistry.Execute(ctx, "db-exposure", "query_readonly", cleanArgs, 15*time.Second)
 		if err != nil {
 			return MCPCallToolResult{
 				Content:           []MCPContentBlock{{Type: "text", Text: fmt.Sprintf("Database query rejected: %v", err)}},
@@ -784,6 +946,16 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_list_tables: %v", err)), toolName, "denied", nil
 			}
 		}
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			PluginID:   "db-exposure",
+			Action:     "list_tables",
+			Parameters: cleanArgs,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
 		res, err := s.pluginRegistry.Execute(ctx, "db-exposure", "list_tables", nil, 10*time.Second)
 		if err != nil {
 			return s.toolErrorResult(traceID, err.Error()), toolName, "error", nil
@@ -796,6 +968,15 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		}, toolName, "ok", nil
 
 	case "tls_status":
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			Action:     toolName,
+			Parameters: cleanArgs,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
 		var info core.CertificateInfo
 		if s.certManager != nil {
 			info = s.certManager.Info()
@@ -809,6 +990,15 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		}, toolName, "ok", nil
 
 	case "audit_query":
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			Action:     toolName,
+			Parameters: cleanArgs,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
 		if s.auditLogger == nil {
 			return s.toolErrorResult(traceID, "audit logger is not enabled"), toolName, "error", nil
 		}
@@ -831,6 +1021,15 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		}, toolName, "ok", nil
 
 	case "audit_verify":
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			Action:     toolName,
+			Parameters: cleanArgs,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
 		if s.auditLogger == nil {
 			return s.toolErrorResult(traceID, "audit logger is not enabled"), toolName, "error", nil
 		}
