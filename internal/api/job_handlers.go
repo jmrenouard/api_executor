@@ -242,11 +242,12 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	jobApprovalParams := cloneApprovalParamsWithTimeout(req.Params, timeoutOverride)
 	if !env.enforceApprovalGate(w, r, principal, approval.Target{
 		Channel:    approval.ChannelJob,
 		Action:     actionName,
 		PluginID:   pluginID,
-		Parameters: req.Params,
+		Parameters: jobApprovalParams,
 	}, cmdRequireApproval, req.ApprovalID) {
 		return
 	}

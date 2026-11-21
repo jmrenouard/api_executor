@@ -57,6 +57,20 @@ func extractApprovalID(r *http.Request, bodyApprovalID string) string {
 	return ""
 }
 
+func cloneApprovalParamsWithTimeout(params map[string]any, timeoutOverride time.Duration) map[string]any {
+	if len(params) == 0 && timeoutOverride <= 0 {
+		return nil
+	}
+	out := make(map[string]any, len(params)+1)
+	for k, v := range params {
+		out[k] = v
+	}
+	if timeoutOverride > 0 {
+		out["_timeout"] = timeoutOverride.String()
+	}
+	return out
+}
+
 // enforceApprovalGate evaluates HITL approval policy for a REST/Job request strictly after RBAC
 // and before any subprocess/plugin/job execution. Returns true only when execution may proceed.
 func (env *APIEnv) enforceApprovalGate(

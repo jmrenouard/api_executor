@@ -113,6 +113,7 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 	if env.Config != nil {
 		timeout = env.Config.Executor.EffectiveDefaultTimeout()
 	}
+	var timeoutOverride time.Duration
 	if strings.TrimSpace(req.Timeout) != "" {
 		parsed, err := core.ParseTimeoutDuration(req.Timeout)
 		if err != nil {
@@ -121,6 +122,7 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		timeout = parsed
+		timeoutOverride = parsed
 	}
 
 	if _, exists := env.PluginRegistry.Get(req.PluginID); !exists {
@@ -129,11 +131,12 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	approvalParams := cloneApprovalParamsWithTimeout(req.Params, timeoutOverride)
 	if !env.enforceApprovalGate(w, r, p, approval.Target{
 		Channel:    approval.ChannelPlugin,
 		PluginID:   req.PluginID,
 		Action:     req.Action,
-		Parameters: req.Params,
+		Parameters: approvalParams,
 	}, false, req.ApprovalID) {
 		return
 	}

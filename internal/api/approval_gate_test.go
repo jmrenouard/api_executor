@@ -282,6 +282,14 @@ func TestHITLPreExecutionGate_CommandPluginJobAndMCP(t *testing.T) {
 		if code := approveViaAPI(t, router, tokens["admin"], ch.ApprovalID); code != http.StatusOK {
 			t.Fatalf("approve job status = %d, want 200", code)
 		}
+		// Tampered job timeout fails closed (403 Forbidden)
+		rrTamperJob := httptest.NewRecorder()
+		reqTamperJob := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewBufferString(`{"type":"command","action":"restart-postgres","timeout":"60s","approval_id":"`+ch.ApprovalID+`"}`))
+		reqTamperJob.Header.Set("Authorization", "Bearer "+tokens["operator"])
+		router.ServeHTTP(rrTamperJob, reqTamperJob)
+		if rrTamperJob.Code != http.StatusForbidden {
+			t.Fatalf("tampered job timeout status = %d, want 403", rrTamperJob.Code)
+		}
 		rrRun := httptest.NewRecorder()
 		reqRun := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewBufferString(`{"type":"command","action":"restart-postgres","approval_id":"`+ch.ApprovalID+`"}`))
 		reqRun.Header.Set("Authorization", "Bearer "+tokens["operator"])
