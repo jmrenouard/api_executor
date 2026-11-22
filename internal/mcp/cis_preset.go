@@ -47,34 +47,38 @@ type CISBenchmarksPresetResource struct {
 	PluginSchema         *plugins.PluginInfo   `json:"plugin_schema,omitempty"`
 }
 
+var cisCanonicalTargets = [...]string{
+	"mariadb106",
+	"mariadb1011",
+	"mysql80",
+	"mysql-community84",
+	"mysql-enterprise84",
+	"mysql-community97",
+	"mysql-enterprise97",
+	"postgresql16",
+	"postgresql17",
+	"postgresql18",
+	"mongodb7",
+	"mongodb8",
+	"cassandra40",
+	"cassandra41",
+	"cassandra50",
+	"rhel8",
+	"rhel9",
+	"rhel10",
+}
+
 // CISCanonicalTargets returns the 18 canonical benchmark targets defined by cis.mcp.contract.v1.
 func CISCanonicalTargets() []string {
-	return []string{
-		"mariadb106",
-		"mariadb1011",
-		"mysql80",
-		"mysql-community84",
-		"mysql-enterprise84",
-		"mysql-community97",
-		"mysql-enterprise97",
-		"postgresql16",
-		"postgresql17",
-		"postgresql18",
-		"mongodb7",
-		"mongodb8",
-		"cassandra40",
-		"cassandra41",
-		"cassandra50",
-		"rhel8",
-		"rhel9",
-		"rhel10",
-	}
+	out := make([]string, len(cisCanonicalTargets))
+	copy(out, cisCanonicalTargets[:])
+	return out
 }
 
 // IsValidCISTarget reports whether target belongs to the 18 canonical cis.mcp.contract.v1 targets.
 func IsValidCISTarget(target string) bool {
 	trimmed := strings.TrimSpace(target)
-	for _, allowed := range CISCanonicalTargets() {
+	for _, allowed := range cisCanonicalTargets {
 		if trimmed == allowed {
 			return true
 		}

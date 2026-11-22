@@ -124,6 +124,7 @@ func TestCISBenchmarksPreset_RejectsInjectionTraversalAndForbiddenFlagsFailClose
 		{name: "output_path_flag_smuggle", action: "cis_audit_sarif", params: map[string]any{"target": "postgresql17", "output_path": "--apply"}},
 		{name: "output_path_shell_pipe", action: "cis_audit_sarif", params: map[string]any{"target": "postgresql17", "output_path": "/tmp/out.sarif|id"}},
 		{name: "dry_run_report_traversal", action: "cis_remediate_dry_run", params: map[string]any{"report_path": "/tmp/../etc/shadow.json"}},
+		{name: "dry_run_report_outside_audit_dirs", action: "cis_remediate_dry_run", params: map[string]any{"report_path": "/etc/docker/daemon.json"}},
 		{name: "dry_run_report_non_json", action: "cis_remediate_dry_run", params: map[string]any{"report_path": "/etc/passwd"}},
 		{name: "dry_run_report_flag_smuggle", action: "cis_remediate_dry_run", params: map[string]any{"report_path": "--apply"}},
 		{name: "dry_run_format_invalid", action: "cis_remediate_dry_run", params: map[string]any{"report_path": "/tmp/report.json", "remediation_format": "apply"}},

@@ -111,8 +111,8 @@ actions:
     type: string
     required: true
     default: /tmp/cis-audit.json
-    pattern: ^(/[a-zA-Z0-9][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)*)+\.json$
-    description: Absolute non-traversal path to an existing CIS JSON audit report
+    pattern: ^(/tmp|/var/tmp|/var/log/cis)(/[a-zA-Z0-9][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)*)+\.json$
+    description: Safe path under /tmp, /var/tmp, or /var/log/cis to an existing CIS JSON audit report
   - name: remediation_format
     type: string
     required: false
