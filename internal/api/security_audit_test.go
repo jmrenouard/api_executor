@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
@@ -58,6 +59,8 @@ func setupSecurityAuditEnv(t *testing.T, requireAuth bool) (*APIEnv, http.Handle
 	cfg.Auth.RequireAuth = requireAuth
 	cfg.Auth.BootstrapUsername = "admin"
 	cfg.Auth.BootstrapPassword = "AdminSecurePassword!2026"
+	cfg.Approval = core.DefaultApprovalConfig()
+	cfg.Approval.Enabled = true
 
 	logger, err := core.NewLogger(core.LoggingConfig{Level: "info"})
 	if err != nil {
@@ -124,6 +127,11 @@ func setupSecurityAuditEnv(t *testing.T, requireAuth bool) (*APIEnv, http.Handle
 		cancel()
 	})
 
+	approvalStore, err := approval.NewStore(cfg.Approval, db, auditLogger)
+	if err != nil {
+		t.Fatalf("failed to init approval store: %v", err)
+	}
+
 	env := &APIEnv{
 		Config:         cfg,
 		Logger:         logger,
@@ -131,6 +139,7 @@ func setupSecurityAuditEnv(t *testing.T, requireAuth bool) (*APIEnv, http.Handle
 		CertManager:    cm,
 		AuditLogger:    auditLogger,
 		AuthManager:    authMgr,
+		ApprovalStore:  approvalStore,
 		PluginRegistry: reg,
 		MCPServer:      mcpSrv,
 		JobEngine:      jobEngine,
@@ -242,7 +251,14 @@ func TestAPISecurityAudit_UnauthorizedAccessAllEndpoints(t *testing.T) {
 		{"MCP_Tools", http.MethodGet, "/api/v1/mcp/tools", ""},
 		{"MCP_TracesList", http.MethodGet, "/api/v1/mcp/traces", ""},
 		{"MCP_TracesDelete", http.MethodDelete, "/api/v1/mcp/traces", ""},
+		{"MCP_TracesVerify", http.MethodGet, "/api/v1/mcp/traces/verify", ""},
 		{"MCP_TraceByID", http.MethodGet, "/api/v1/mcp/traces/mcp_tr_1", ""},
+		{"MCP_TraceByIDVerify", http.MethodGet, "/api/v1/mcp/traces/mcp_tr_1/verify", ""},
+		{"MCP_TraceByIDReplay", http.MethodPost, "/api/v1/mcp/traces/mcp_tr_1/replay", `{"mode":"dry_run"}`},
+		{"Approvals_List", http.MethodGet, "/api/v1/approvals", ""},
+		{"Approvals_GetByID", http.MethodGet, "/api/v1/approvals/apr_1", ""},
+		{"Approvals_Approve", http.MethodPost, "/api/v1/approvals/apr_1/approve", `{"comment":"ok"}`},
+		{"Approvals_Reject", http.MethodPost, "/api/v1/approvals/apr_1/reject", `{"comment":"no"}`},
 		{"Jobs_Submit", http.MethodPost, "/api/v1/jobs", `{"type":"command","action":"allowed-cmd"}`},
 		{"Jobs_List", http.MethodGet, "/api/v1/jobs", ""},
 		{"Jobs_QueueStats", http.MethodGet, "/api/v1/jobs/queue", ""},
@@ -297,6 +313,7 @@ func TestAPISecurityAudit_UnauthorizedAccessAllEndpoints(t *testing.T) {
 			CertManager:    env.CertManager,
 			AuditLogger:    env.AuditLogger,
 			AuthManager:    nil,
+			ApprovalStore:  env.ApprovalStore,
 			PluginRegistry: env.PluginRegistry,
 			MCPServer:      env.MCPServer,
 			JobEngine:      env.JobEngine,
@@ -316,6 +333,10 @@ func TestAPISecurityAudit_UnauthorizedAccessAllEndpoints(t *testing.T) {
 			{http.MethodGet, "/api/v1/mcp", ""},
 			{http.MethodGet, "/api/v1/mcp/tools", ""},
 			{http.MethodGet, "/api/v1/mcp/traces", ""},
+			{http.MethodGet, "/api/v1/mcp/traces/verify", ""},
+			{http.MethodPost, "/api/v1/mcp/traces/mcp_tr_1/replay", `{"mode":"dry_run"}`},
+			{http.MethodGet, "/api/v1/approvals", ""},
+			{http.MethodPost, "/api/v1/approvals/apr_1/approve", `{"comment":"x"}`},
 			{http.MethodGet, "/api/v1/auth/me", ""},
 		} {
 			req := httptest.NewRequest(ep.method, ep.path, strings.NewReader(ep.body))
@@ -365,6 +386,9 @@ func TestAPISecurityAudit_PrivilegeEscalationAndUnauthorizedAdditions(t *testing
 		{"AddDeclarativePlugin", http.MethodPost, "/api/v1/plugins/declarative", `{"id":"rogue-plugin","name":"Rogue","version":"1.0.0","actions":[{"name":"pwn","command":"echo","args":["hi"]}]}`},
 		{"RotateTLSCertificate", http.MethodPost, "/api/v1/tls/renew", ""},
 		{"ClearMCPTraces", http.MethodDelete, "/api/v1/mcp/traces", ""},
+		{"ApproveHITLRequest", http.MethodPost, "/api/v1/approvals/apr_1/approve", `{"comment":"bypass"}`},
+		{"RejectHITLRequest", http.MethodPost, "/api/v1/approvals/apr_1/reject", `{"comment":"bypass"}`},
+		{"LiveReplayMCPTrace", http.MethodPost, "/api/v1/mcp/traces/mcp_tr_1/replay", `{"mode":"live"}`},
 	}
 
 	for _, actor := range nonAdminPrincipals {
@@ -398,7 +422,12 @@ func TestAPISecurityAudit_PrivilegeEscalationAndUnauthorizedAdditions(t *testing
 		{"Viewer_MCPAccess", http.MethodGet, "/api/v1/mcp", ""},
 		{"Viewer_MCPTools", http.MethodGet, "/api/v1/mcp/tools", ""},
 		{"Viewer_MCPTracesList", http.MethodGet, "/api/v1/mcp/traces", ""},
+		{"Viewer_MCPTracesVerify", http.MethodGet, "/api/v1/mcp/traces/verify", ""},
 		{"Viewer_MCPTraceByID", http.MethodGet, "/api/v1/mcp/traces/mcp_tr_1", ""},
+		{"Viewer_MCPTraceByIDVerify", http.MethodGet, "/api/v1/mcp/traces/mcp_tr_1/verify", ""},
+		{"Viewer_MCPTraceByIDReplayDryRun", http.MethodPost, "/api/v1/mcp/traces/mcp_tr_1/replay", `{"mode":"dry_run"}`},
+		{"Viewer_ApprovalsList", http.MethodGet, "/api/v1/approvals", ""},
+		{"Viewer_ApprovalsGetByID", http.MethodGet, "/api/v1/approvals/apr_1", ""},
 		{"Viewer_SubmitAsyncJob", http.MethodPost, "/api/v1/jobs", `{"type":"command","action":"allowed-cmd"}`},
 	}
 
@@ -687,7 +716,7 @@ func TestAPISecurityAudit_DDoSAndRateLimitingResilience(t *testing.T) {
 			t.Errorf("expected 400 Bad Request when timeout exceeds max_timeout_seconds, got %d", recExceedTimeout.Code)
 		}
 
-		// Fuzz 100 random paths and dynamic action labels; verify cardinality stays bounded
+		// Fuzz 100 random paths, Bastion dynamic IDs, and gatekeeper labels; verify cardinality stays bounded.
 		ResetHTTPMetrics()
 		ResetActionMetrics()
 		for i := 0; i < 100; i++ {
@@ -696,6 +725,32 @@ func TestAPISecurityAudit_DDoSAndRateLimitingResilience(t *testing.T) {
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 			recordActionCall(fmt.Sprintf("unconfigured-fuzz-action-%d", i), "error", false, 0)
+		}
+		for i := 0; i < 25; i++ {
+			for _, bastionPath := range []struct {
+				method string
+				path   string
+			}{
+				{http.MethodGet, fmt.Sprintf("/api/v1/approvals/apr_fuzz_%d", i)},
+				{http.MethodPost, fmt.Sprintf("/api/v1/approvals/apr_fuzz_%d/approve", i)},
+				{http.MethodGet, fmt.Sprintf("/api/v1/mcp/traces/mcp_tr_fuzz_%d/verify", i)},
+				{http.MethodPost, fmt.Sprintf("/api/v1/mcp/traces/mcp_tr_fuzz_%d/replay", i)},
+			} {
+				req := httptest.NewRequest(bastionPath.method, bastionPath.path, nil)
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+			}
+			RecordGatekeeperEvaluation(fmt.Sprintf("fuzz_mode_%d", i), fmt.Sprintf("fuzz_chan_%d", i), fmt.Sprintf("fuzz_dec_%d", i), time.Millisecond)
+		}
+
+		metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		metricsRec := httptest.NewRecorder()
+		router.ServeHTTP(metricsRec, metricsReq)
+		metricsOut := metricsRec.Body.String()
+		for _, leak := range []string{"apr_fuzz_", "mcp_tr_fuzz_", "fuzz_dec_", "fuzz_chan_", "fuzz_mode_"} {
+			if strings.Contains(metricsOut, leak) {
+				t.Errorf("Prometheus /metrics leaked high-cardinality label prefix %q", leak)
+			}
 		}
 
 		actionLabelsMu.Lock()

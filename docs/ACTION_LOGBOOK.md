@@ -13,6 +13,24 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-080` — Zero-Trust MCP Bastion E2E TLS 1.3 Security Suite & `SECURITY.md` Matrix Update
+- **Timestamp (UTC)**: `2026-11-22T01:13:00Z`
+- **GitHub Issue**: [#160](https://github.com/jmrenouard/api_executor/issues/160)
+- **Branch**: `test/issue-160-bastion-e2e-security-suite`
+- **Request**:
+  - Certify the complete Zero-Trust MCP Bastion stack (HITL approvals `#146`/`#148`, MCP trace SHA-256 chain & deterministic replay `#150`/`#152`, pluggable `MicroLLM` `microllm.guard.v1` System-1 hook `#154`/`#156`, and read-only `CISBenchmarks` `cis.mcp.contract.v1` preset `#158`) with a full-stack real HTTPS TLS 1.3 E2E test suite, expanded API security audit & Prometheus cardinality tests, and updated `SECURITY.md` and `README.md` documentation.
+- **Changes**:
+  - Created [`tests/e2e/tier4_bastion_test.go`](../tests/e2e/tier4_bastion_test.go): Added `TestTier4_ZeroTrustMCPBastion_TLS13_FullLifecycle` running over real ECDSA HTTPS **TLS 1.3** (`min_version: "1.3"`, verified TLS 1.2 rejection and `tls.VersionTLS13` client negotiation) with `RequireAuth=true` and UID/GID `10001` sandbox, chaining `MicroLLM` (`allow`/`block`/`escalate` -> `x_abstain`), HITL distinct-approver/TOCTOU/single-use/replay checks, SHA-256 audit + MCP trace chain cross-verification, deterministic `dry_run`/`live` trace replay with `parent_trace_id` lineage, read-only `CISBenchmarks` MCP resource/prompt/flag-rejection/RBAC isolation, and `/metrics` zero-ID-leak verification.
+  - Modified [`internal/api/security_audit_test.go`](../internal/api/security_audit_test.go): Wired `ApprovalStore` in `setupSecurityAuditEnv` and expanded unauthorized (`401` + fail-closed nil-manager), anti-privilege-escalation (`403` across `anonymous`, `viewer`, `operator`, `service_account`), and Prometheus cardinality fuzzing suites to cover `/api/v1/approvals*`, `/api/v1/mcp/traces/verify`, `/api/v1/mcp/traces/{id}/verify`, `/api/v1/mcp/traces/{id}/replay`, and `RecordGatekeeperEvaluation`.
+  - Modified [`internal/api/handlers.go`](../internal/api/handlers.go): Fixed `RCA-054` data race detected by WSL2 `-race` by guarding value-receiver `activeConfig.Executor.ResolveTimeout` and `EffectiveDefaultTimeout` calls with `env.commandsMu.RLock()`.
+  - Modified [`SECURITY.md`](../SECURITY.md) and [`README.md`](../README.md): Documented the Zero-Trust MCP Bastion architecture, expanded the RBAC matrix to 33 endpoints, updated REST API & test catalogs, and preserved 100% of `docs/branding_test.go` integrity markers.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): Recorded `ACT-080` and `RCA-054`.
+- **Result**:
+  - Verified 100% pass across `go vet ./...`, all 14 Go packages (`go test -p 1 -cover ./...`), `go test -v ./docs/...`, `go test -v ./tests/e2e/...`, and WSL2 `CGO_ENABLED=1 go test -race`.
+  - GitHub Issue [#160](https://github.com/jmrenouard/api_executor/issues/160).
+
+---
+
 ### `ACT-079` — Add Read-Only `CISBenchmarks` Declarative MCP Audit Preset (Pillar 4)
 - **Timestamp (UTC)**: `2026-11-22T01:00:00Z`
 - **GitHub Issue**: [#158](https://github.com/jmrenouard/api_executor/issues/158)

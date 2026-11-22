@@ -412,7 +412,9 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 	}
 	cmdDef := &cmdCopy
 
+	env.commandsMu.RLock()
 	effectiveTimeout := activeConfig.Executor.ResolveTimeout(*cmdDef, timeoutOverride)
+	env.commandsMu.RUnlock()
 
 	var approvalParams map[string]any
 	if timeoutOverride > 0 {
@@ -644,7 +646,9 @@ func (env *APIEnv) ListCommandsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	env.commandsMu.RLock()
 	defaultTimeout := activeConfig.Executor.EffectiveDefaultTimeout()
+	env.commandsMu.RUnlock()
 
 	// To avoid exposing the raw binary/arguments, we only return the metadata and effective timeouts.
 	type commandInfo struct {

@@ -781,6 +781,20 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified by `TestJobAndActionModeMetrics_ZeroAllocAndNormalization` (`testing.AllocsPerRun == 0`) and `BenchmarkRecordActionCallWithMode` / `BenchmarkRecordJobExecution` (`0 B/op, 0 allocs/op` across all steady-state benchmarks) in `internal/api/metrics_timeout_test.go`, plus 100% pass across all 12 Go packages (`internal/api` coverage `87.5%`) and `tests/e2e`.
 
+### `RCA-054` — Data Race Between Concurrent `ActivatePresetsHandler` Writes and Value-Receiver `ExecutorConfig` Calls in `handlers.go`
+- **Date**: `2026-11-22`
+- **Observed Symptom**:
+  Running `CGO_ENABLED=1 go test -race ./internal/api/...` under WSL2 Linux during the Zero-Trust MCP Bastion certification (Issue #160) triggered a Go race detector failure in `TestConcurrentPresetActivationAndCommandExecution`: concurrent write to `env.Config.Executor.Commands` and `env.Config.Executor.EnableOSPresets` in `ActivatePresetsHandler` (`internal/api/presets_handlers.go:75-76`) raced with reads at `handlers.go:415` (`activeConfig.Executor.ResolveTimeout(...)`) and `handlers.go:647` (`activeConfig.Executor.EffectiveDefaultTimeout()`).
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did reading timeout defaults race with modifying `Executor.Commands`?* `ResolveTimeout` and `EffectiveDefaultTimeout` use value receivers (`func (e ExecutorConfig)`), causing Go to copy the entire `ExecutorConfig` struct—including its `Commands` slice header and `EnableOSPresets` boolean—at each call site.
+  2. *Why was `env.Config.Executor` mutated concurrently?* `ActivatePresetsHandler` appends OS presets to `env.Config.Executor.Commands` and sets `EnableOSPresets = true` while holding `env.commandsMu.Lock()`.
+  3. *Why were lines 415 and 647 unsynchronized?* Both handlers used `env.FindCommand` / `env.GetCommands` (which acquire `env.commandsMu.RLock()`), but invoked `ResolveTimeout` and `EffectiveDefaultTimeout` outside `env.commandsMu.RLock()`.
+  4. *Root Cause*: Calling value-receiver methods on `activeConfig.Executor` without holding `env.commandsMu.RLock()`, copying fields written concurrently under `env.commandsMu.Lock()`.
+- **Applied Change / Fix**:
+  Guarded all concurrent readers of `env.Config.Executor` (`activeConfig.Executor.ResolveTimeout` at `internal/api/handlers.go:415`, `EffectiveDefaultTimeout` at `internal/api/handlers.go:649` and `internal/api/plugin_handlers.go:115`, and `buildFallbackSanitizedView` at `internal/api/config_handlers.go:177`) with `env.commandsMu.RLock()` / `env.commandsMu.RUnlock()`.
+- **Result & Non-Regression Test**:
+  Verified by `CGO_ENABLED=1 go test -race -count=1 ./internal/api/...` under WSL2 Linux passing 100% with 0 data races.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)

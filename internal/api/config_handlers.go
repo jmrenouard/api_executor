@@ -174,7 +174,9 @@ func (env *APIEnv) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	env.commandsMu.RLock()
 	view := buildFallbackSanitizedView(activeCfg)
+	env.commandsMu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(view)
