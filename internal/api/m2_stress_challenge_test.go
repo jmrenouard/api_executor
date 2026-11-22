@@ -95,7 +95,7 @@ func TestM2Challenger_API_CatalogExposure(t *testing.T) {
 	}{
 		"SysAdmin":     {28, 28},
 		"NetOps":       {28, 28},
-		"SecOps":       {28, 28},
+		"SecOps":       {29, 29},
 		"ContainerOps": {28, 28},
 		"Kubernetes":   {28, 28},
 		"General":      {1, 1},

@@ -720,5 +720,159 @@ func TestMCPServer_ApprovalGateHook(t *testing.T) {
 	}
 }
 
+func TestMCPServer_CISBenchmarksResourceAndPrompt(t *testing.T) {
+	reg := plugins.NewEmptyRegistry()
+	pluginsDir := "plugins"
+	if _, err := os.Stat(pluginsDir); err != nil && os.IsNotExist(err) {
+		pluginsDir = "../../plugins"
+	}
+	if _, err := reg.LoadDeclarativeDirectory(pluginsDir); err != nil {
+		t.Fatalf("LoadDeclarativeDirectory failed: %v", err)
+	}
+
+	srv, err := NewServer(core.MCPConfig{Enabled: true, RetainTraces: true, MaxTraces: 50}, core.DefaultConfig(), nil, nil, reg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer srv.Close()
+
+	// 1. Verify executor://cis-benchmarks/preset is listed in Resources().
+	foundRes := false
+	for _, r := range srv.Resources() {
+		if r.URI == CISResourceURI {
+			foundRes = true
+			break
+		}
+	}
+	if !foundRes {
+		t.Fatalf("expected %s in Resources()", CISResourceURI)
+	}
+
+	// 2. Read executor://cis-benchmarks/preset and verify contract fields + loaded plugin schema.
+	readParams, _ := json.Marshal(map[string]any{"uri": CISResourceURI})
+	readResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "resources/read",
+		Params:  readParams,
+	}, "sess-cis", "auditor")
+	if readResp.Error != nil {
+		t.Fatalf("resources/read(%s) returned error: %+v", CISResourceURI, readResp.Error)
+	}
+	resMap, ok := readResp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected resources/read result type %T", readResp.Result)
+	}
+	contents, _ := resMap["contents"].([]map[string]any)
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(contents))
+	}
+	var parsed CISBenchmarksPresetResource
+	if err := json.Unmarshal([]byte(contents[0]["text"].(string)), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal CIS preset resource JSON: %v", err)
+	}
+	if parsed.SchemaVersion != CISContractSchemaVersion || !parsed.ReadOnly || parsed.Mutating {
+		t.Errorf("unexpected contract header: %+v", parsed)
+	}
+	if len(parsed.CanonicalTargets) != 18 {
+		t.Errorf("expected 18 canonical targets, got %d", len(parsed.CanonicalTargets))
+	}
+	if len(parsed.Actions) != 4 {
+		t.Errorf("expected 4 read-only preset actions, got %d", len(parsed.Actions))
+	}
+	if len(parsed.ComplianceStates) != 5 {
+		t.Errorf("expected 5 compliance states, got %d", len(parsed.ComplianceStates))
+	}
+	if !strings.Contains(parsed.CredentialBoundary, "CIS_DB_PASSWORD") {
+		t.Errorf("expected CIS_DB_PASSWORD in credential_boundary, got %q", parsed.CredentialBoundary)
+	}
+	if !parsed.PluginLoaded || parsed.PluginSchema == nil || parsed.PluginSchema.ID != CISPluginID {
+		t.Errorf("expected PluginLoaded=true with PluginSchema.ID=%q, got loaded=%v schema=%+v", CISPluginID, parsed.PluginLoaded, parsed.PluginSchema)
+	}
+
+	// 3. Verify cis-benchmark-audit prompt is listed and generates structured prompt for valid targets/formats.
+	foundPrompt := false
+	for _, p := range srv.Prompts() {
+		if p.Name == CISPromptName {
+			foundPrompt = true
+			break
+		}
+	}
+	if !foundPrompt {
+		t.Fatalf("expected %s in Prompts()", CISPromptName)
+	}
+
+	promptParams, _ := json.Marshal(map[string]any{
+		"name":      CISPromptName,
+		"arguments": map[string]string{"target": "postgresql17", "format": "sarif"},
+	})
+	promptResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      2,
+		Method:  "prompts/get",
+		Params:  promptParams,
+	}, "sess-cis", "auditor")
+	if promptResp.Error != nil {
+		t.Fatalf("prompts/get(%s) returned error: %+v", CISPromptName, promptResp.Error)
+	}
+	promptMap, _ := promptResp.Result.(map[string]any)
+	msgs, _ := promptMap["messages"].([]map[string]any)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 prompt message, got %d", len(msgs))
+	}
+	contentMap, _ := msgs[0]["content"].(map[string]any)
+	promptText, _ := contentMap["text"].(string)
+	for _, marker := range []string{"postgresql17", "sarif", "cis_audit_sarif", CISResourceURI, "CIS_DB_PASSWORD", "mcp_trace_verify"} {
+		if !strings.Contains(promptText, marker) {
+			t.Errorf("expected prompt text to contain %q, got: %s", marker, promptText)
+		}
+	}
+
+	// 4. Reject invalid/injected target or format fail-closed (-32602).
+	for _, badArgs := range []map[string]string{
+		{"target": "rhel9; rm -rf /"},
+		{"target": "--apply"},
+		{"target": "rhel9", "format": "shell"},
+	} {
+		badParams, _ := json.Marshal(map[string]any{"name": CISPromptName, "arguments": badArgs})
+		badResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      3,
+			Method:  "prompts/get",
+			Params:  badParams,
+		}, "sess-cis", "auditor")
+		if badResp.Error == nil || badResp.Error.Code != -32602 {
+			t.Errorf("expected -32602 for bad prompt args %+v, got %+v", badArgs, badResp.Error)
+		}
+	}
+
+	// 5. Attempting forbidden remediation flags via MCP execute_plugin fails closed with isError=true.
+	callParams, _ := json.Marshal(map[string]any{
+		"name": "execute_plugin",
+		"arguments": map[string]any{
+			"plugin_id": CISPluginID,
+			"action":    "cis_audit_json",
+			"params": map[string]any{
+				"target":      "rhel9",
+				"output_path": "--apply",
+			},
+		},
+	})
+	callResp := srv.HandleJSONRPC(context.Background(), JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      4,
+		Method:  "tools/call",
+		Params:  callParams,
+	}, "sess-cis", "auditor")
+	if callResp.Error != nil {
+		t.Fatalf("expected tool-level error result, got RPC error: %+v", callResp.Error)
+	}
+	callRes, ok := callResp.Result.(MCPCallToolResult)
+	if !ok || !callRes.IsError {
+		t.Fatalf("expected MCP IsError=true when forbidden flag is passed, got %+v", callResp.Result)
+	}
+}
+
+
 
 

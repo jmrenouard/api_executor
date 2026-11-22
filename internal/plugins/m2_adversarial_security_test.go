@@ -81,8 +81,8 @@ func TestM2Adversarial_ZeroShellInvocationsAcrossAllManifests(t *testing.T) {
 		}
 	}
 
-	if totalManifests != 140 {
-		t.Fatalf("expected exactly 140 manifests across 5 domains, found %d", totalManifests)
+	if totalManifests != 141 {
+		t.Fatalf("expected exactly 141 manifests across 5 domains, found %d", totalManifests)
 	}
 	t.Logf("PASS: Audited %d declarative manifests across 5 domains: zero shell interpreters used.", totalManifests)
 }

@@ -13,6 +13,24 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-079` — Add Read-Only `CISBenchmarks` Declarative MCP Audit Preset (Pillar 4)
+- **Timestamp (UTC)**: `2026-11-22T01:00:00Z`
+- **GitHub Issue**: [#158](https://github.com/jmrenouard/api_executor/issues/158)
+- **Branch**: `feat/issue-158-cis-benchmarks-mcp-preset`
+- **Request**:
+  - Implement Pillar 4 of the Zero-Trust MCP Bastion roadmap: create the strictly read-only `CISBenchmarks` declarative MCP audit preset (`plugins/secops/cis-benchmarks-audit.yaml`, `configs/cis-benchmarks-audit.yaml`, `config.yaml` multi-config profile) aligned with `jmrenouard/cis_benchmarks_tools`'s finalized `cis.mcp.contract.v1` contract (commit `47f1660`), expose MCP resource `executor://cis-benchmarks/preset` and MCP prompt `cis-benchmark-audit`, and verify regex confinement, UID 10001 sandbox invariants, and scoped service-account RBAC.
+- **Changes**:
+  - Created [`plugins/secops/cis-benchmarks-audit.yaml`](../plugins/secops/cis-benchmarks-audit.yaml): Added declarative `SecOps` plugin (`id: "cis-benchmarks-audit"`) implementing the 4 read-only `cis.mcp.contract.v1` actions (`cis_list_targets`, `cis_audit_json`, `cis_audit_sarif`, `cis_remediate_dry_run`) invoking `audit-cis` via direct argv with pre-compiled regex allowlists (18 canonical targets, `en|fr`, `local|ssh`, `diff|sql|shell|ansible|json`, safe non-traversal output/report paths).
+  - Created [`configs/cis-benchmarks-audit.yaml`](../configs/cis-benchmarks-audit.yaml) and updated [`config.yaml`](../config.yaml): Added hardened `version: "2.2.0"` CIS profile with TLS 1.3, UID/GID `10001` (`keep-id`) sandbox, zero `systemctl`, and read-only `audit-cis` command presets; registered `cis-benchmarks` under `multi_config.profiles`.
+  - Created [`internal/mcp/cis_preset.go`](../internal/mcp/cis_preset.go) and updated [`internal/mcp/server.go`](../internal/mcp/server.go): Exposed read-only MCP resource `executor://cis-benchmarks/preset` and allowlist-validated MCP prompt `cis-benchmark-audit`.
+  - Created [`internal/plugins/cis_preset_test.go`](../internal/plugins/cis_preset_test.go) and [`internal/api/cis_preset_test.go`](../internal/api/cis_preset_test.go), and updated [`internal/plugins/plugins_test.go`](../internal/plugins/plugins_test.go), [`internal/plugins/m2_stress_challenge_test.go`](../internal/plugins/m2_stress_challenge_test.go), [`internal/plugins/m2_adversarial_security_test.go`](../internal/plugins/m2_adversarial_security_test.go), [`internal/api/m2_stress_challenge_test.go`](../internal/api/m2_stress_challenge_test.go), [`internal/mcp/server_test.go`](../internal/mcp/server_test.go), [`internal/core/config_test.go`](../internal/core/config_test.go), and [`docs/branding_test.go`](branding_test.go): Verified catalog count (`282` declarative plugins, `SecOps: 29`), adversarial shell/traversal/forbidden-flag rejection, sandbox/version invariants, MCP resource/prompt schemas, and `plugin:cis-benchmarks-audit:*` service-account RBAC isolation.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-079`.
+- **Result**:
+  - Verified 100% pass across all 14 Go packages (`go test -p 1 -cover ./...`, `go vet ./...`, and WSL2 `CGO_ENABLED=1 go test -race`).
+  - GitHub Issue [#158](https://github.com/jmrenouard/api_executor/issues/158).
+
+---
+
 ### `ACT-078` — Wire `MicroLLM` System-1 Pre-Execution Hook with `x_abstain` Escalation to HITL (Pillar 3B)
 - **Timestamp (UTC)**: `2026-11-22T01:33:00Z`
 - **GitHub Issue**: [#156](https://github.com/jmrenouard/api_executor/issues/156)

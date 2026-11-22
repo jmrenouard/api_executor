@@ -1,0 +1,127 @@
+id: cis-benchmarks-audit
+name: CIS Benchmarks Read-Only Compliance Audit Preset
+version: 1.0.0
+category: SecOps
+description: Strictly read-only CIS compliance audit and dry-run remediation preset
+  aligned with jmrenouard/cis_benchmarks_tools (cis.mcp.contract.v1). Invokes audit-cis
+  via direct argv with zero shell interpolation, zero host mutations, and zero
+  credentials on CLI arguments (CIS_DB_PASSWORD env var only).
+os_family: linux
+actions:
+- name: cis_list_targets
+  description: List all 18 canonical CIS benchmark targets and 887 compliance controls (read-only)
+  command: audit-cis
+  args:
+  - --list-targets
+  timeout: 30s
+- name: cis_audit_json
+  description: Execute a strictly read-only CIS compliance audit and emit a JSON report
+  command: audit-cis
+  args:
+  - --target
+  - '{{target}}'
+  - --format
+  - json
+  - --lang
+  - '{{lang}}'
+  - --mode
+  - '{{mode}}'
+  - --output
+  - '{{output_path}}'
+  timeout: 120s
+  parameters:
+  - name: target
+    type: string
+    required: true
+    default: rhel9
+    pattern: ^(mariadb106|mariadb1011|mysql80|mysql-community84|mysql-enterprise84|mysql-community97|mysql-enterprise97|postgresql16|postgresql17|postgresql18|mongodb7|mongodb8|cassandra40|cassandra41|cassandra50|rhel8|rhel9|rhel10)$
+    description: Canonical CIS benchmark target identifier (18 supported OS and database targets)
+  - name: lang
+    type: string
+    required: false
+    default: en
+    pattern: ^(en|fr)$
+    description: Report language ('en' or 'fr')
+  - name: mode
+    type: string
+    required: false
+    default: local
+    pattern: ^(local|ssh)$
+    description: Read-only audit execution mode ('local' or 'ssh')
+  - name: output_path
+    type: string
+    required: false
+    default: /tmp/cis-audit.json
+    pattern: ^(/tmp|/var/tmp)(/[a-zA-Z0-9][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)*)+\.json$
+    description: Safe output file path under /tmp or /var/tmp ending in .json
+- name: cis_audit_sarif
+  description: Execute a strictly read-only CIS compliance audit and emit a SARIF v2.1.0 report
+  command: audit-cis
+  args:
+  - --target
+  - '{{target}}'
+  - --format
+  - sarif
+  - --lang
+  - '{{lang}}'
+  - --mode
+  - '{{mode}}'
+  - --output
+  - '{{output_path}}'
+  timeout: 120s
+  parameters:
+  - name: target
+    type: string
+    required: true
+    default: rhel9
+    pattern: ^(mariadb106|mariadb1011|mysql80|mysql-community84|mysql-enterprise84|mysql-community97|mysql-enterprise97|postgresql16|postgresql17|postgresql18|mongodb7|mongodb8|cassandra40|cassandra41|cassandra50|rhel8|rhel9|rhel10)$
+    description: Canonical CIS benchmark target identifier (18 supported OS and database targets)
+  - name: lang
+    type: string
+    required: false
+    default: en
+    pattern: ^(en|fr)$
+    description: Report language ('en' or 'fr')
+  - name: mode
+    type: string
+    required: false
+    default: local
+    pattern: ^(local|ssh)$
+    description: Read-only audit execution mode ('local' or 'ssh')
+  - name: output_path
+    type: string
+    required: false
+    default: /tmp/cis-audit.sarif
+    pattern: ^(/tmp|/var/tmp)(/[a-zA-Z0-9][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)*)+\.(sarif|json)$
+    description: Safe output file path under /tmp or /var/tmp ending in .sarif or .json
+- name: cis_remediate_dry_run
+  description: Generate a strictly read-only dry-run remediation plan from an existing CIS JSON audit report (executes zero system commands)
+  command: audit-cis
+  args:
+  - --remediate-dry-run
+  - --from-report
+  - '{{report_path}}'
+  - --remediation-format
+  - '{{remediation_format}}'
+  - --remediation-output
+  - '{{output_path}}'
+  timeout: 60s
+  parameters:
+  - name: report_path
+    type: string
+    required: true
+    default: /tmp/cis-audit.json
+    pattern: ^(/tmp|/var/tmp|/var/log/cis)(/[a-zA-Z0-9][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)*)+\.json$
+    description: Safe path under /tmp, /var/tmp, or /var/log/cis to an existing CIS JSON audit report
+  - name: remediation_format
+    type: string
+    required: false
+    default: json
+    pattern: ^(diff|sql|shell|ansible|json)$
+    description: Dry-run remediation output format ('diff', 'sql', 'shell', 'ansible', or 'json')
+  - name: output_path
+    type: string
+    required: false
+    default: /tmp/cis-remediation-dry-run.json
+    pattern: ^(/tmp|/var/tmp)(/[a-zA-Z0-9][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)*)+\.(diff|sql|sh|yml|yaml|json)$
+    description: Safe dry-run remediation output file path under /tmp or /var/tmp
