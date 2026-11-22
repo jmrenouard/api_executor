@@ -64,6 +64,11 @@ func TestNormalizeMetricPath(t *testing.T) {
 		{"files trailing slash", "/api/v1/files/", "/api/v1/files/:filename"},
 		{"mcp traces dynamic uuid", "/api/v1/mcp/traces/uuid-999", "/api/v1/mcp/traces/:trace_id"},
 		{"mcp traces dynamic custom", "/api/v1/mcp/traces/trace-session-42", "/api/v1/mcp/traces/:trace_id"},
+		{"mcp traces verify static", "/api/v1/mcp/traces/verify", "/api/v1/mcp/traces/verify"},
+		{"mcp traces verify trailing slash", "/api/v1/mcp/traces/verify/", "/api/v1/mcp/traces/verify"},
+		{"mcp traces dynamic verify", "/api/v1/mcp/traces/mcp_tr_abc123/verify", "/api/v1/mcp/traces/:trace_id/verify"},
+		{"mcp traces dynamic verify trailing slash", "/api/v1/mcp/traces/mcp_tr_abc123/verify/", "/api/v1/mcp/traces/:trace_id/verify"},
+		{"mcp traces unknown subpath", "/api/v1/mcp/traces/mcp_tr_abc123/unknown", "other"},
 
 		// 2. Exact static routes
 		{"root path", "/", "/"},

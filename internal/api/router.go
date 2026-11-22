@@ -477,6 +477,7 @@ var knownStaticPaths = map[string]struct{}{
 	"/api/v1/mcp/tools":                    {},
 	"/api/v1/mcp/resources":                {},
 	"/api/v1/mcp/traces":                   {},
+	"/api/v1/mcp/traces/verify":            {},
 	"/api/v1/jobs":                         {},
 	"/api/v1/jobs/queue":                   {},
 	"/api/v1/approvals":                    {},
@@ -505,8 +506,23 @@ func normalizeMetricPath(path string) string {
 	if strings.HasPrefix(path, "/api/v1/files/") && path != "/api/v1/files" {
 		return "/api/v1/files/:filename"
 	}
-	if strings.HasPrefix(path, "/api/v1/mcp/traces/") && path != "/api/v1/mcp/traces" {
-		return "/api/v1/mcp/traces/:trace_id"
+	if strings.HasPrefix(path, "/api/v1/mcp/traces/") {
+		trimmed := strings.TrimSuffix(path, "/")
+		if trimmed == "/api/v1/mcp/traces" {
+			return "/api/v1/mcp/traces"
+		}
+		sub := strings.TrimPrefix(trimmed, "/api/v1/mcp/traces/")
+		parts := strings.Split(sub, "/")
+		if len(parts) == 1 && parts[0] != "" {
+			if parts[0] == "verify" {
+				return "/api/v1/mcp/traces/verify"
+			}
+			return "/api/v1/mcp/traces/:trace_id"
+		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "verify" {
+			return "/api/v1/mcp/traces/:trace_id/verify"
+		}
+		return "other"
 	}
 	if strings.HasPrefix(path, "/api/v1/jobs/") {
 		trimmed := strings.TrimSuffix(path, "/")
@@ -656,6 +672,7 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/mcp", http.HandlerFunc(env.MCPHandler))
 	mux.Handle("/api/v1/mcp/tools", http.HandlerFunc(env.MCPToolsHandler))
 	mux.Handle("/api/v1/mcp/traces", http.HandlerFunc(env.MCPTracesHandler))
+	mux.Handle("/api/v1/mcp/traces/verify", http.HandlerFunc(env.MCPTracesVerifyHandler))
 	mux.Handle("/api/v1/mcp/traces/", http.HandlerFunc(env.MCPTraceByIDHandler))
 
 	// Asynchronous Action Execution, Job Queue, Logs & Telemetry routes
@@ -723,6 +740,7 @@ func NewRouter(env *APIEnv) http.Handler {
 		"/api/v1/mcp":                          {},
 		"/api/v1/mcp/tools":                    {},
 		"/api/v1/mcp/traces":                   {},
+		"/api/v1/mcp/traces/verify":            {},
 		"/api/v1/mcp/traces/":                  {},
 		"/api/v1/jobs":                         {},
 		"/api/v1/jobs/queue":                   {},

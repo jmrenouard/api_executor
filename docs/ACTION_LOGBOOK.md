@@ -13,6 +13,24 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-075` — SHA-256 Hash Chaining and Audit Cross-Verification for MCP Traces (Pillar 2A)
+- **Timestamp (UTC)**: `2026-11-22T01:03:00Z`
+- **GitHub Issue**: [#150](https://github.com/jmrenouard/api_executor/issues/150)
+- **Branch**: `feat/issue-150-mcp-trace-sha256-chain`
+- **Request**:
+  - Add deterministic SHA-256 canonical request/response digests and hash chaining (`PrevTraceHash` -> `TraceHash`) to `MCPTrace` cross-linked with `AuditEvent.EntryHash`, persist across SQLite (with idempotent migration) and JSONL, add read-only `mcp_trace_verify` MCP tool, and expose `GET /api/v1/mcp/traces/verify` and `GET /api/v1/mcp/traces/{trace_id}/verify` with RBAC and bounded Prometheus route normalization.
+- **Changes**:
+  - Created [`internal/mcp/trace_integrity.go`](../internal/mcp/trace_integrity.go): Added `MCPTraceGenesisHash`, `ErrTraceNotFound`, `CanonicalJSONSHA256`, `ComputeTraceHash`, `VerifyTraceChain()`, and `VerifyTraceIntegrity(traceID)` verifying payload digests, chain linkage, and audit cross-link continuity.
+  - Modified [`internal/mcp/server.go`](../internal/mcp/server.go): Extended `MCPTrace` with `RequestSHA256`, `ResponseSHA256`, `PrevTraceHash`, `TraceHash`, and `AuditEntryHash`, added idempotent `ensureMCPTracesColumns` SQLite migration, wired atomic chain recording + `ClearTraces` genesis reset, and added the `mcp_trace_verify` read-only MCP tool.
+  - Modified [`internal/api/mcp_handlers.go`](../internal/api/mcp_handlers.go) and [`internal/api/router.go`](../internal/api/router.go): Added `MCPTracesVerifyHandler`, subroute dispatch for `/api/v1/mcp/traces/{trace_id}/verify`, and ordered route normalization in `normalizeMetricPath`.
+  - Created [`internal/mcp/trace_integrity_test.go`](../internal/mcp/trace_integrity_test.go) and updated [`internal/api/mcp_test.go`](../internal/api/mcp_test.go) and [`internal/api/router_test.go`](../internal/api/router_test.go).
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-075`.
+- **Result**:
+  - Verified 100% pass across all 13 Go packages (`go test -cover ./...`, `go vet ./...`, and WSL2 `CGO_ENABLED=1 go test -race` including real SQLite legacy schema migration).
+  - GitHub Issue [#150](https://github.com/jmrenouard/api_executor/issues/150).
+
+---
+
 ### `ACT-074` — HITL Pre-Execution Approval Gate Across Command, Plugin, Job, and MCP Paths (Pillar 1B)
 - **Timestamp (UTC)**: `2026-11-22T00:56:00Z`
 - **GitHub Issue**: [#148](https://github.com/jmrenouard/api_executor/issues/148)
