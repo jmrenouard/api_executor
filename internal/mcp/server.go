@@ -86,6 +86,7 @@ type MCPCallToolResult struct {
 // MCPTrace captures the full request/response lifecycle of an MCP interaction for auditing and debugging.
 type MCPTrace struct {
 	TraceID         string         `json:"trace_id"`
+	ParentTraceID   string         `json:"parent_trace_id,omitempty"`
 	SessionID       string         `json:"session_id,omitempty"`
 	Timestamp       time.Time      `json:"timestamp"`
 	Method          string         `json:"method"`
@@ -171,6 +172,7 @@ func NewServer(
 		const createTracesSQL = `
 		CREATE TABLE IF NOT EXISTS mcp_traces (
 			trace_id TEXT NOT NULL PRIMARY KEY,
+			parent_trace_id TEXT,
 			session_id TEXT,
 			timestamp DATETIME NOT NULL,
 			method TEXT NOT NULL,
@@ -520,6 +522,10 @@ func (s *Server) HandleJSONRPC(ctx context.Context, req JSONRPCRequest, sessionI
 
 // HandleJSONRPCWithAuthorizer processes a JSON-RPC 2.0 MCP request while enforcing caller RBAC scopes and service-account action allowlists.
 func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCRequest, sessionID string, actor string, authorizer ToolAuthorizer) JSONRPCResponse {
+	return s.handleJSONRPCInternal(ctx, req, sessionID, actor, "", authorizer)
+}
+
+func (s *Server) handleJSONRPCInternal(ctx context.Context, req JSONRPCRequest, sessionID string, actor string, parentTraceID string, authorizer ToolAuthorizer) JSONRPCResponse {
 	start := time.Now()
 	traceID := generateTraceID()
 	if strings.TrimSpace(actor) == "" {
@@ -654,6 +660,7 @@ func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCReq
 		}
 		trace := MCPTrace{
 			TraceID:         traceID,
+			ParentTraceID:   strings.TrimSpace(parentTraceID),
 			SessionID:       sessionID,
 			Timestamp:       start.UTC(),
 			Method:          req.Method,
@@ -1250,6 +1257,7 @@ func ensureMCPTracesColumns(db *database.DB) error {
 	_ = rows.Close()
 
 	required := []string{
+		"parent_trace_id",
 		"request_sha256",
 		"response_sha256",
 		"prev_trace_hash",
@@ -1302,9 +1310,9 @@ func (s *Server) recordTrace(tr MCPTrace) {
 			isErrInt = 1
 		}
 		_, _ = s.db.Exec(
-			`INSERT INTO mcp_traces(trace_id, session_id, timestamp, method, tool_name, actor, status, is_error, duration_ms, request_json, response_json, request_sha256, response_sha256, prev_trace_hash, trace_hash, audit_event_id, audit_entry_hash)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			tr.TraceID, tr.SessionID, tr.Timestamp, tr.Method, tr.ToolName, tr.Actor, tr.Status, isErrInt,
+			`INSERT INTO mcp_traces(trace_id, parent_trace_id, session_id, timestamp, method, tool_name, actor, status, is_error, duration_ms, request_json, response_json, request_sha256, response_sha256, prev_trace_hash, trace_hash, audit_event_id, audit_entry_hash)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			tr.TraceID, tr.ParentTraceID, tr.SessionID, tr.Timestamp, tr.Method, tr.ToolName, tr.Actor, tr.Status, isErrInt,
 			tr.DurationMs, string(reqBytes), string(respBytes), tr.RequestSHA256, tr.ResponseSHA256,
 			tr.PrevTraceHash, tr.TraceHash, tr.AuditEventID, tr.AuditEntryHash,
 		)

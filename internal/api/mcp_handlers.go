@@ -3,10 +3,13 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/mcp"
 )
@@ -185,7 +188,7 @@ func (env *APIEnv) MCPTracesVerifyHandler(w http.ResponseWriter, r *http.Request
 }
 
 // MCPTraceByIDHandler dispatches GET /api/v1/mcp/traces/verify, GET /api/v1/mcp/traces/{trace_id}/verify,
-// and GET /api/v1/mcp/traces/{trace_id}.
+// POST /api/v1/mcp/traces/{trace_id}/replay, and GET /api/v1/mcp/traces/{trace_id}.
 func (env *APIEnv) MCPTraceByIDHandler(w http.ResponseWriter, r *http.Request) {
 	if env.MCPServer == nil {
 		writeJSONError(w, "MCP server is not initialized", http.StatusServiceUnavailable)
@@ -202,6 +205,19 @@ func (env *APIEnv) MCPTraceByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sub := strings.TrimPrefix(trimmed, "/api/v1/mcp/traces/")
+	parts := strings.Split(sub, "/")
+	traceID := strings.TrimSpace(parts[0])
+	if traceID == "" {
+		env.MCPTracesHandler(w, r)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "replay" {
+		env.handleMCPTraceReplay(w, r, traceID)
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -215,14 +231,6 @@ func (env *APIEnv) MCPTraceByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := auth.Authorize(p, "mcp:access", ""); err != nil {
 		writeJSONError(w, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	sub := strings.TrimPrefix(trimmed, "/api/v1/mcp/traces/")
-	parts := strings.Split(sub, "/")
-	traceID := strings.TrimSpace(parts[0])
-	if traceID == "" {
-		env.MCPTracesHandler(w, r)
 		return
 	}
 
@@ -253,4 +261,96 @@ func (env *APIEnv) MCPTraceByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(tr)
+}
+
+func (env *APIEnv) handleMCPTraceReplay(w http.ResponseWriter, r *http.Request, traceID string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if err := auth.Authorize(p, "mcp:access", ""); err != nil {
+		writeJSONError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	var body struct {
+		Mode       string `json:"mode,omitempty"`
+		ApprovalID string `json:"approval_id,omitempty"`
+		SessionID  string `json:"session_id,omitempty"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+	}
+
+	mode, err := mcp.ParseReplayMode(body.Mode)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if mode == mcp.ReplayModeLive {
+		if p == nil || p.Type == "anonymous" || p.Role != auth.RoleAdmin {
+			if env.AuditLogger != nil {
+				_, _ = env.AuditLogger.Record(audit.AuditEvent{
+					TraceID:   traceID,
+					Category:  "mcp",
+					Action:    "mcp.trace_replay",
+					ActorType: p.Type,
+					ActorID:   principalActorID(p),
+					SourceIP:  r.RemoteAddr,
+					Status:    "denied",
+					Summary:   fmt.Sprintf("Denied live MCP trace replay of %s for %s: admin role required", traceID, principalActorID(p)),
+				})
+			}
+			writeJSONError(w, "Authenticated admin role required for live MCP trace replay", http.StatusForbidden)
+			return
+		}
+	}
+
+	approvalID := extractApprovalID(r, body.ApprovalID)
+	replayCtx := withMCPApprovalContext(r.Context(), p, r.RemoteAddr, approvalID)
+	actor := p.Type + ":" + principalActorID(p)
+
+	report, replayErr := env.MCPServer.ReplayTrace(replayCtx, traceID, mcp.ReplayOptions{
+		Mode:       mode,
+		Actor:      actor,
+		SessionID:  body.SessionID,
+		ApprovalID: approvalID,
+	}, func(requiredScope, targetAction string) error {
+		return auth.Authorize(p, requiredScope, targetAction)
+	})
+	if replayErr != nil {
+		if errors.Is(replayErr, mcp.ErrTraceNotFound) {
+			writeJSONError(w, replayErr.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(replayErr, mcp.ErrIntegrityFailed) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(report)
+			return
+		}
+		if errors.Is(replayErr, mcp.ErrInvalidReplayMode) {
+			writeJSONError(w, replayErr.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSONError(w, replayErr.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if report.ReplayTraceID != "" {
+		w.Header().Set("X-MCP-Trace-ID", report.ReplayTraceID)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(report)
 }

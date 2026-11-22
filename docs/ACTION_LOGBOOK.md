@@ -13,6 +13,24 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-076` — Deterministic MCP Trace Replay Engine and REST Endpoint (Pillar 2B)
+- **Timestamp (UTC)**: `2026-11-22T01:10:00Z`
+- **GitHub Issue**: [#152](https://github.com/jmrenouard/api_executor/issues/152)
+- **Branch**: `feat/issue-152-mcp-trace-replay-engine`
+- **Request**:
+  - Implement a deterministic MCP trace replay engine (`internal/mcp/replay.go`) supporting zero-side-effect `dry_run` verification (default) and strictly `admin`-gated `live` replay with SHA-256 output comparison and append-only trace/audit lineage (`parent_trace_id`), exposed via `POST /api/v1/mcp/traces/{trace_id}/replay` with Prometheus route normalization.
+- **Changes**:
+  - Created [`internal/mcp/replay.go`](../internal/mcp/replay.go): Implemented `ReplayMode`, `ReplayOptions`, `ReplayReport`, `ParseReplayMode`, ephemeral-`traceId`-normalized deterministic output comparison, dry-run eligibility checking, fail-closed integrity gating, and live replay linking `ParentTraceID` while preserving original traces verbatim and recording `mcp.trace_replay` SHA-256 audit events.
+  - Modified [`internal/mcp/server.go`](../internal/mcp/server.go) and [`internal/mcp/trace_integrity.go`](../internal/mcp/trace_integrity.go): Added `ParentTraceID` on `MCPTrace`, SQLite schema + idempotent migration (`parent_trace_id`), included `ParentTraceID` in `ComputeTraceHash`, and extracted `handleJSONRPCInternal` to share full `ToolAuthorizer`, HITL `ApprovalGate`, and sandbox pipelines.
+  - Modified [`internal/api/mcp_handlers.go`](../internal/api/mcp_handlers.go) and [`internal/api/router.go`](../internal/api/router.go): Added `handleMCPTraceReplay` (`POST /api/v1/mcp/traces/{trace_id}/replay`) enforcing strict authenticated `admin` gating for `mode: "live"`, and normalized `/api/v1/mcp/traces/:trace_id/replay` in `normalizeMetricPath`.
+  - Created [`internal/mcp/replay_test.go`](../internal/mcp/replay_test.go) and updated [`internal/api/mcp_test.go`](../internal/api/mcp_test.go) and [`internal/api/router_test.go`](../internal/api/router_test.go).
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-076`.
+- **Result**:
+  - Verified 100% pass across all 13 Go packages (`go test -p 2 -cover ./...`, `go vet ./...`, and WSL2 `CGO_ENABLED=1 go test -race`).
+  - GitHub Issue [#152](https://github.com/jmrenouard/api_executor/issues/152).
+
+---
+
 ### `ACT-075` — SHA-256 Hash Chaining and Audit Cross-Verification for MCP Traces (Pillar 2A)
 - **Timestamp (UTC)**: `2026-11-22T01:03:00Z`
 - **GitHub Issue**: [#150](https://github.com/jmrenouard/api_executor/issues/150)
