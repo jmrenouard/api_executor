@@ -229,7 +229,7 @@ func TestMCPEndpointsAndTraceInspection(t *testing.T) {
 	}
 
 	nilMCPRouter := NewRouter(&APIEnv{Config: cfg, AuthManager: authMgr})
-	for _, path := range []string{"/api/v1/mcp", "/api/v1/mcp/tools", "/api/v1/mcp/traces", "/api/v1/mcp/traces/id1"} {
+	for _, path := range []string{"/api/v1/mcp", "/api/v1/mcp/tools", "/api/v1/mcp/traces", "/api/v1/mcp/traces/verify", "/api/v1/mcp/traces/id1"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("X-Service-Key", saKey)
 		rec := httptest.NewRecorder()
@@ -237,6 +237,107 @@ func TestMCPEndpointsAndTraceInspection(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("expected 503 for %s when MCPServer is nil, got %d", path, rec.Code)
 		}
+	}
+}
+
+func TestMCPTraceVerificationEndpoints_AuthAndCrossVerify(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Auth.Enabled = true
+	cfg.Auth.RequireAuth = true
+	cfg.MCP.Enabled = true
+	cfg.MCP.RetainTraces = true
+
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("auth.NewManager: %v", err)
+	}
+	auditLogger, err := audit.NewAuditLogger(core.AuditConfig{Enabled: true, MaxMemoryLog: 200}, nil, nil)
+	if err != nil {
+		t.Fatalf("audit.NewAuditLogger: %v", err)
+	}
+	defer auditLogger.Close()
+
+	mcpSrv, err := mcp.NewServer(cfg.MCP, cfg, nil, nil, nil, auditLogger, nil, RecordActionCall)
+	if err != nil {
+		t.Fatalf("mcp.NewServer: %v", err)
+	}
+	defer mcpSrv.Close()
+
+	_, adminTok, _ := authMgr.CreateToken("admin", "admin-tok", nil, 0)
+	viewer, _ := authMgr.CreateUser("viewer1", "secret123", "Viewer", "v@local", auth.RoleViewer)
+	_, viewerTok, _ := authMgr.CreateToken(viewer.ID, "viewer-tok", nil, 0)
+
+	env := &APIEnv{
+		Config:      cfg,
+		AuthManager: authMgr,
+		AuditLogger: auditLogger,
+		MCPServer:   mcpSrv,
+	}
+	router := NewRouter(env)
+
+	// Record a valid MCP trace via POST /api/v1/mcp
+	recCall := httptest.NewRecorder()
+	reqCall := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	reqCall.Header.Set("Authorization", "Bearer "+adminTok)
+	router.ServeHTTP(recCall, reqCall)
+	if recCall.Code != http.StatusOK {
+		t.Fatalf("POST /api/v1/mcp status = %d, want 200", recCall.Code)
+	}
+	traceID := recCall.Header().Get("X-MCP-Trace-ID")
+	if traceID == "" {
+		t.Fatalf("expected X-MCP-Trace-ID response header")
+	}
+
+	// 1. Unauthenticated -> 401; viewer (no mcp:access) -> 403
+	for _, path := range []string{"/api/v1/mcp/traces/verify", "/api/v1/mcp/traces/" + traceID + "/verify"} {
+		rrUnauth := httptest.NewRecorder()
+		router.ServeHTTP(rrUnauth, httptest.NewRequest(http.MethodGet, path, nil))
+		if rrUnauth.Code != http.StatusUnauthorized {
+			t.Errorf("unauthenticated GET %s = %d, want 401", path, rrUnauth.Code)
+		}
+
+		rrViewer := httptest.NewRecorder()
+		reqViewer := httptest.NewRequest(http.MethodGet, path, nil)
+		reqViewer.Header.Set("Authorization", "Bearer "+viewerTok)
+		router.ServeHTTP(rrViewer, reqViewer)
+		if rrViewer.Code != http.StatusForbidden {
+			t.Errorf("viewer GET %s = %d, want 403", path, rrViewer.Code)
+		}
+	}
+
+	// 2. Authorized admin verifies full chain
+	rrChain := httptest.NewRecorder()
+	reqChain := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/traces/verify", nil)
+	reqChain.Header.Set("Authorization", "Bearer "+adminTok)
+	router.ServeHTTP(rrChain, reqChain)
+	if rrChain.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/mcp/traces/verify = %d, want 200 (body=%s)", rrChain.Code, rrChain.Body.String())
+	}
+	var chainRes mcp.TraceChainVerificationResult
+	if err := json.Unmarshal(rrChain.Body.Bytes(), &chainRes); err != nil || !chainRes.Valid || !chainRes.AuditChainValid || chainRes.TotalTraces != 1 {
+		t.Fatalf("unexpected chain verify result: %+v err=%v", chainRes, err)
+	}
+
+	// 3. Authorized admin verifies single trace cross-linked with audit chain
+	rrSingle := httptest.NewRecorder()
+	reqSingle := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/traces/"+traceID+"/verify", nil)
+	reqSingle.Header.Set("Authorization", "Bearer "+adminTok)
+	router.ServeHTTP(rrSingle, reqSingle)
+	if rrSingle.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/mcp/traces/{id}/verify = %d, want 200 (body=%s)", rrSingle.Code, rrSingle.Body.String())
+	}
+	var singleRes mcp.TraceIntegrityResult
+	if err := json.Unmarshal(rrSingle.Body.Bytes(), &singleRes); err != nil || !singleRes.Valid || !singleRes.AuditLinkValid {
+		t.Fatalf("unexpected single verify result: %+v err=%v", singleRes, err)
+	}
+
+	// 4. Unknown trace verify returns 404
+	rrMissing := httptest.NewRecorder()
+	reqMissing := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/traces/mcp_tr_missing/verify", nil)
+	reqMissing.Header.Set("Authorization", "Bearer "+adminTok)
+	router.ServeHTTP(rrMissing, reqMissing)
+	if rrMissing.Code != http.StatusNotFound {
+		t.Fatalf("missing trace verify = %d, want 404", rrMissing.Code)
 	}
 }
 

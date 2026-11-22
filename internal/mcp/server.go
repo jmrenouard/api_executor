@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,7 +96,12 @@ type MCPTrace struct {
 	DurationMs      int64          `json:"duration_ms"`
 	RequestPayload  map[string]any `json:"request_payload,omitempty"`
 	ResponsePayload any            `json:"response_payload,omitempty"`
+	RequestSHA256   string         `json:"request_sha256,omitempty"`
+	ResponseSHA256  string         `json:"response_sha256,omitempty"`
+	PrevTraceHash   string         `json:"prev_trace_hash,omitempty"`
+	TraceHash       string         `json:"trace_hash,omitempty"`
 	AuditEventID    string         `json:"audit_event_id,omitempty"`
+	AuditEntryHash  string         `json:"audit_entry_hash,omitempty"`
 }
 
 // TraceFilter defines filters for querying stored MCP traces.
@@ -121,9 +125,11 @@ type Server struct {
 	pluginRegistry *plugins.Registry
 	auditLogger    *audit.AuditLogger
 	logger         *core.Logger
-	metricCallback ActionMetricCallback
-	approvalGate   ApprovalGate
-	traces         []MCPTrace
+	metricCallback      ActionMetricCallback
+	approvalGate        ApprovalGate
+	traces              []MCPTrace
+	lastTraceHash       string
+	firstTraceIsGenesis bool
 }
 
 // NewServer creates and initializes the MCP server and its trace store.
@@ -148,15 +154,17 @@ func NewServer(
 	}
 
 	s := &Server{
-		cfg:            cfg,
-		appConfig:      appConfig,
-		db:             db,
-		certManager:    certManager,
-		pluginRegistry: pluginRegistry,
-		auditLogger:    auditLogger,
-		logger:         logger,
-		metricCallback: metricCallback,
-		traces:         make([]MCPTrace, 0, 128),
+		cfg:                 cfg,
+		appConfig:           appConfig,
+		db:                  db,
+		certManager:         certManager,
+		pluginRegistry:      pluginRegistry,
+		auditLogger:         auditLogger,
+		logger:              logger,
+		metricCallback:      metricCallback,
+		traces:              make([]MCPTrace, 0, 128),
+		lastTraceHash:       MCPTraceGenesisHash,
+		firstTraceIsGenesis: true,
 	}
 
 	if db != nil && !db.IsInMemory() && db.DB != nil {
@@ -173,10 +181,18 @@ func NewServer(
 			duration_ms INTEGER NOT NULL,
 			request_json TEXT,
 			response_json TEXT,
-			audit_event_id TEXT
+			request_sha256 TEXT,
+			response_sha256 TEXT,
+			prev_trace_hash TEXT,
+			trace_hash TEXT,
+			audit_event_id TEXT,
+			audit_entry_hash TEXT
 		);`
 		if _, err := db.Exec(createTracesSQL); err != nil {
 			return nil, fmt.Errorf("failed to create mcp_traces table: %w", err)
+		}
+		if err := ensureMCPTracesColumns(db); err != nil {
+			return nil, fmt.Errorf("failed to migrate mcp_traces schema: %w", err)
 		}
 	}
 
@@ -310,6 +326,16 @@ func (s *Server) Tools() []MCPTool {
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
+			},
+		},
+		{
+			Name:        "mcp_trace_verify",
+			Description: "Cryptographically verify SHA-256 hash chaining and audit cross-link continuity for MCP traces",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"trace_id": map[string]any{"type": "string", "description": "Optional specific MCP trace_id to verify (verifies full chain when omitted)"},
+				},
 			},
 		},
 	}
@@ -594,6 +620,7 @@ func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCReq
 
 	duration := time.Since(start)
 	var auditEventID string
+	var auditEntryHash string
 	if s.auditLogger != nil {
 		actionLabel := req.Method
 		if toolName != "" {
@@ -616,6 +643,7 @@ func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCReq
 		})
 		if err == nil {
 			auditEventID = ev.EventID
+			auditEntryHash = ev.EntryHash
 		}
 	}
 
@@ -637,6 +665,7 @@ func (s *Server) HandleJSONRPCWithAuthorizer(ctx context.Context, req JSONRPCReq
 			RequestPayload:  reqMap,
 			ResponsePayload: respPayload,
 			AuditEventID:    auditEventID,
+			AuditEntryHash:  auditEntryHash,
 		}
 		s.recordTrace(trace)
 	}
@@ -1042,6 +1071,44 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			TraceID:           traceID,
 		}, toolName, "ok", nil
 
+	case "mcp_trace_verify":
+		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:   toolName,
+			Action:     toolName,
+			Parameters: cleanArgs,
+			ApprovalID: approvalID,
+			Actor:      actor,
+		}, traceID); !proceed {
+			return gateRes, toolName, gateStatus, nil
+		}
+		targetTraceID := ""
+		if cleanArgs != nil {
+			if v, ok := cleanArgs["trace_id"]; ok && v != nil {
+				targetTraceID = strings.TrimSpace(fmt.Sprintf("%v", v))
+			}
+		}
+		if targetTraceID != "" {
+			v, err := s.VerifyTraceIntegrity(targetTraceID)
+			if err != nil {
+				return s.toolErrorResult(traceID, err.Error()), toolName, "error", nil
+			}
+			raw, _ := json.MarshalIndent(v, "", "  ")
+			return MCPCallToolResult{
+				Content:           []MCPContentBlock{{Type: "text", Text: string(raw)}},
+				IsError:           !v.Valid,
+				StructuredContent: v,
+				TraceID:           traceID,
+			}, toolName, "ok", nil
+		}
+		v := s.VerifyTraceChain()
+		raw, _ := json.MarshalIndent(v, "", "  ")
+		return MCPCallToolResult{
+			Content:           []MCPContentBlock{{Type: "text", Text: string(raw)}},
+			IsError:           !v.Valid,
+			StructuredContent: v,
+			TraceID:           traceID,
+		}, toolName, "ok", nil
+
 	default:
 		return s.toolErrorResult(traceID, fmt.Sprintf("unknown MCP tool %q", toolName)), toolName, "error", nil
 	}
@@ -1158,10 +1225,62 @@ func (s *Server) handlePromptGet(rawParams json.RawMessage) (any, *JSONRPCError)
 	}
 }
 
+func ensureMCPTracesColumns(db *database.DB) error {
+	rows, err := db.Query("PRAGMA table_info(mcp_traces)")
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		existing[strings.ToLower(name)] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+
+	required := []string{
+		"request_sha256",
+		"response_sha256",
+		"prev_trace_hash",
+		"trace_hash",
+		"audit_entry_hash",
+	}
+	for _, col := range required {
+		if !existing[col] {
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE mcp_traces ADD COLUMN %s TEXT", col)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Server) recordTrace(tr MCPTrace) {
+	if reqDigest, err := CanonicalJSONSHA256(tr.RequestPayload); err == nil {
+		tr.RequestSHA256 = reqDigest
+	}
+	if respDigest, err := CanonicalJSONSHA256(tr.ResponsePayload); err == nil {
+		tr.ResponseSHA256 = respDigest
+	}
+
 	s.mu.Lock()
+	tr.PrevTraceHash = s.lastTraceHash
+	tr.TraceHash = ComputeTraceHash(tr)
+	s.lastTraceHash = tr.TraceHash
 	if len(s.traces) >= s.cfg.MaxTraces {
 		s.traces = append(s.traces[1:], tr)
+		s.firstTraceIsGenesis = false
 	} else {
 		s.traces = append(s.traces, tr)
 	}
@@ -1183,10 +1302,11 @@ func (s *Server) recordTrace(tr MCPTrace) {
 			isErrInt = 1
 		}
 		_, _ = s.db.Exec(
-			`INSERT INTO mcp_traces(trace_id, session_id, timestamp, method, tool_name, actor, status, is_error, duration_ms, request_json, response_json, audit_event_id)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO mcp_traces(trace_id, session_id, timestamp, method, tool_name, actor, status, is_error, duration_ms, request_json, response_json, request_sha256, response_sha256, prev_trace_hash, trace_hash, audit_event_id, audit_entry_hash)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			tr.TraceID, tr.SessionID, tr.Timestamp, tr.Method, tr.ToolName, tr.Actor, tr.Status, isErrInt,
-			tr.DurationMs, string(reqBytes), string(respBytes), tr.AuditEventID,
+			tr.DurationMs, string(reqBytes), string(respBytes), tr.RequestSHA256, tr.ResponseSHA256,
+			tr.PrevTraceHash, tr.TraceHash, tr.AuditEventID, tr.AuditEntryHash,
 		)
 	}
 }
@@ -1235,14 +1355,16 @@ func (s *Server) GetTrace(traceID string) (MCPTrace, error) {
 			return s.traces[i], nil
 		}
 	}
-	return MCPTrace{}, errors.New("MCP trace not found")
+	return MCPTrace{}, ErrTraceNotFound
 }
 
-// ClearTraces clears the in-memory MCP trace buffer.
+// ClearTraces clears the in-memory MCP trace buffer and resets chain genesis tracking.
 func (s *Server) ClearTraces() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := len(s.traces)
 	s.traces = make([]MCPTrace, 0, 128)
+	s.lastTraceHash = MCPTraceGenesisHash
+	s.firstTraceIsGenesis = true
 	return n
 }

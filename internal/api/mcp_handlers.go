@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -157,9 +158,10 @@ func (env *APIEnv) MCPTracesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// MCPTraceByIDHandler retrieves a single MCP trace by its TraceID from /api/v1/mcp/traces/{trace_id}.
-func (env *APIEnv) MCPTraceByIDHandler(w http.ResponseWriter, r *http.Request) {
+// MCPTracesVerifyHandler verifies the cryptographic SHA-256 hash chain across all retained MCP traces.
+func (env *APIEnv) MCPTracesVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -177,11 +179,73 @@ func (env *APIEnv) MCPTraceByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	traceID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/v1/mcp/traces/"))
+	ver := env.MCPServer.VerifyTraceChain()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ver)
+}
+
+// MCPTraceByIDHandler dispatches GET /api/v1/mcp/traces/verify, GET /api/v1/mcp/traces/{trace_id}/verify,
+// and GET /api/v1/mcp/traces/{trace_id}.
+func (env *APIEnv) MCPTraceByIDHandler(w http.ResponseWriter, r *http.Request) {
+	if env.MCPServer == nil {
+		writeJSONError(w, "MCP server is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	trimmed := strings.TrimSuffix(r.URL.Path, "/")
+	if trimmed == "/api/v1/mcp/traces" {
+		env.MCPTracesHandler(w, r)
+		return
+	}
+	if trimmed == "/api/v1/mcp/traces/verify" {
+		env.MCPTracesVerifyHandler(w, r)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	p, err := env.resolvePrincipal(r)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if err := auth.Authorize(p, "mcp:access", ""); err != nil {
+		writeJSONError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	sub := strings.TrimPrefix(trimmed, "/api/v1/mcp/traces/")
+	parts := strings.Split(sub, "/")
+	traceID := strings.TrimSpace(parts[0])
 	if traceID == "" {
 		env.MCPTracesHandler(w, r)
 		return
 	}
+
+	if len(parts) == 2 && parts[1] == "verify" {
+		res, verifyErr := env.MCPServer.VerifyTraceIntegrity(traceID)
+		if verifyErr != nil {
+			if errors.Is(verifyErr, mcp.ErrTraceNotFound) {
+				writeJSONError(w, verifyErr.Error(), http.StatusNotFound)
+				return
+			}
+			writeJSONError(w, verifyErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res)
+		return
+	}
+
+	if len(parts) != 1 {
+		writeJSONError(w, "Unknown MCP trace subroute", http.StatusNotFound)
+		return
+	}
+
 	tr, err := env.MCPServer.GetTrace(traceID)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusNotFound)
