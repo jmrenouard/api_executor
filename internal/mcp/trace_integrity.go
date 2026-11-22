@@ -170,6 +170,16 @@ func (s *Server) VerifyTraceChain() TraceChainVerificationResult {
 				AuditChainValid: auditValid,
 			}
 		}
+		if i == 0 && !firstIsGenesis && len(tr.PrevTraceHash) != 64 {
+			return TraceChainVerificationResult{
+				Valid:           false,
+				TotalTraces:     len(traces),
+				LastTraceHash:   lastHash,
+				BrokenAtTraceID: tr.TraceID,
+				Reason:          fmt.Sprintf("invalid evicted-head prev_trace_hash at trace %s", tr.TraceID),
+				AuditChainValid: auditValid,
+			}
+		}
 		if i > 0 && !constantTimeHexEqual(tr.PrevTraceHash, traces[i-1].TraceHash) {
 			return TraceChainVerificationResult{
 				Valid:           false,
