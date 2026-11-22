@@ -31,6 +31,12 @@ const (
 	DefaultApprovalTTL = 10 * time.Minute
 	// DefaultMaxPendingApprovals caps concurrent pending HITL approval requests to prevent OOM floods.
 	DefaultMaxPendingApprovals = 500
+	// DefaultGatekeeperTimeout is the default System-1 MicroLLM evaluation timeout target (< 5ms).
+	DefaultGatekeeperTimeout = 5 * time.Millisecond
+	// DefaultGatekeeperMinConfidence is the minimum confidence threshold required to accept a System-1 allow decision.
+	DefaultGatekeeperMinConfidence = 0.70
+	// DefaultGatekeeperEnvironment is the default execution environment label passed to MicroLLM.
+	DefaultGatekeeperEnvironment = "production"
 )
 
 type Config struct {
@@ -48,9 +54,117 @@ type Config struct {
 	MCP         MCPConfig        `yaml:"mcp,omitempty" json:"mcp"`
 	Audit       AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 	Approval    ApprovalConfig   `yaml:"approval,omitempty" json:"approval,omitempty"`
+	Gatekeeper  GatekeeperConfig `yaml:"gatekeeper,omitempty" json:"gatekeeper,omitempty"`
 	MultiConfig MultiConfig      `yaml:"multi_config,omitempty" json:"multi_config,omitempty"`
 	OTLPExport  OTLPExportConfig `yaml:"otlp_export,omitempty" json:"otlp_export,omitempty"`
 	Sandbox     SandboxConfig    `yaml:"sandbox" json:"sandbox"`
+}
+
+// GatekeeperConfig configures the pluggable System-1 MicroLLM pre-execution gatekeeper.
+type GatekeeperConfig struct {
+	Enabled             bool              `yaml:"enabled" json:"enabled"`
+	Mode                string            `yaml:"mode,omitempty" json:"mode,omitempty"` // "http", "cli", or "noop"
+	Endpoint            string            `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	AllowRemoteEndpoint bool              `yaml:"allow_remote_endpoint,omitempty" json:"allow_remote_endpoint,omitempty"`
+	InsecureSkipVerify  bool              `yaml:"insecure_skip_verify,omitempty" json:"insecure_skip_verify,omitempty"`
+	CLIPath             string            `yaml:"cli_path,omitempty" json:"cli_path,omitempty"`
+	CLIArgs             []string          `yaml:"cli_args,omitempty" json:"cli_args,omitempty"`
+	Timeout             string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	MinConfidence       float64           `yaml:"min_confidence,omitempty" json:"min_confidence,omitempty"`
+	FailMode            string            `yaml:"fail_mode,omitempty" json:"fail_mode,omitempty"` // "escalate_hitl" or "deny"
+	Environment         string            `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Headers             map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+}
+
+// DefaultGatekeeperConfig returns secure defaults for the MicroLLM System-1 gatekeeper.
+func DefaultGatekeeperConfig() GatekeeperConfig {
+	return GatekeeperConfig{
+		Enabled:       false,
+		Mode:          "http",
+		Endpoint:      "http://127.0.0.1:8000/v1/guard/evaluate",
+		Timeout:       DefaultGatekeeperTimeout.String(),
+		MinConfidence: DefaultGatekeeperMinConfidence,
+		FailMode:      "escalate_hitl",
+		Environment:   DefaultGatekeeperEnvironment,
+	}
+}
+
+// EffectiveMode returns the normalized gatekeeper adapter mode ("http", "cli", or "noop").
+func (g GatekeeperConfig) EffectiveMode() string {
+	if !g.Enabled {
+		return "noop"
+	}
+	switch strings.ToLower(strings.TrimSpace(g.Mode)) {
+	case "cli":
+		return "cli"
+	case "noop":
+		return "noop"
+	default:
+		return "http"
+	}
+}
+
+// EffectiveTimeout returns the configured System-1 timeout budget, falling back to 5ms.
+func (g GatekeeperConfig) EffectiveTimeout() time.Duration {
+	if strings.TrimSpace(g.Timeout) != "" {
+		if d, err := ParseTimeoutDuration(g.Timeout); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultGatekeeperTimeout
+}
+
+// EffectiveMinConfidence returns the minimum confidence bound in (0, 1], defaulting to 0.70.
+func (g GatekeeperConfig) EffectiveMinConfidence() float64 {
+	if !math.IsNaN(g.MinConfidence) && !math.IsInf(g.MinConfidence, 0) && g.MinConfidence > 0 && g.MinConfidence <= 1.0 {
+		return g.MinConfidence
+	}
+	return DefaultGatekeeperMinConfidence
+}
+
+// EffectiveFailMode returns "deny" or "escalate_hitl" (default).
+func (g GatekeeperConfig) EffectiveFailMode() string {
+	switch strings.ToLower(strings.TrimSpace(g.FailMode)) {
+	case "deny", "block":
+		return "deny"
+	default:
+		return "escalate_hitl"
+	}
+}
+
+// EffectiveEnvironment returns a MicroLLM-valid environment ("production", "staging", or "development").
+func (g GatekeeperConfig) EffectiveEnvironment() string {
+	switch strings.ToLower(strings.TrimSpace(g.Environment)) {
+	case "staging", "stage":
+		return "staging"
+	case "development", "dev":
+		return "development"
+	default:
+		return DefaultGatekeeperEnvironment
+	}
+}
+
+// Sanitized returns the client-facing view of GatekeeperConfig with all custom headers masked.
+func (g GatekeeperConfig) Sanitized() SanitizedGatekeeperConfig {
+	var redactedHeaders map[string]string
+	if len(g.Headers) > 0 {
+		redactedHeaders = make(map[string]string, len(g.Headers))
+		for k := range g.Headers {
+			redactedHeaders[k] = "[REDACTED]"
+		}
+	}
+	return SanitizedGatekeeperConfig{
+		Enabled:             g.Enabled,
+		Mode:                g.EffectiveMode(),
+		Endpoint:            g.Endpoint,
+		AllowRemoteEndpoint: g.AllowRemoteEndpoint,
+		CLIPath:             g.CLIPath,
+		Timeout:             g.EffectiveTimeout().String(),
+		MinConfidence:       g.EffectiveMinConfidence(),
+		FailMode:            g.EffectiveFailMode(),
+		Environment:         g.EffectiveEnvironment(),
+		Headers:             redactedHeaders,
+	}
 }
 
 // ApprovalConfig configures Human-in-the-Loop (HITL) pre-execution approvals.
@@ -271,8 +385,23 @@ type SanitizedConfigView struct {
 	Plugins         PluginsConfig             `json:"plugins"`
 	MCP             MCPConfig                 `json:"mcp"`
 	Approval        SanitizedApprovalConfig   `json:"approval,omitempty"`
+	Gatekeeper      SanitizedGatekeeperConfig `json:"gatekeeper,omitempty"`
 	OTLPExport      SanitizedOTLPExportConfig `json:"otlp_export,omitempty"`
 	Sandbox         SanitizedSandboxConfig    `json:"sandbox,omitempty"`
+}
+
+// SanitizedGatekeeperConfig represents the client-facing view of gatekeeper settings with headers redacted.
+type SanitizedGatekeeperConfig struct {
+	Enabled             bool              `json:"enabled"`
+	Mode                string            `json:"mode"`
+	Endpoint            string            `json:"endpoint,omitempty"`
+	AllowRemoteEndpoint bool              `json:"allow_remote_endpoint,omitempty"`
+	CLIPath             string            `json:"cli_path,omitempty"`
+	Timeout             string            `json:"timeout"`
+	MinConfidence       float64           `json:"min_confidence"`
+	FailMode            string            `json:"fail_mode"`
+	Environment         string            `json:"environment"`
+	Headers             map[string]string `json:"headers,omitempty"`
 }
 
 // SanitizedApprovalConfig represents the client-facing view of HITL approval settings.
@@ -524,7 +653,8 @@ func DefaultConfig() *Config {
 			Enabled:      true,
 			MaxMemoryLog: 1000,
 		},
-		Approval: DefaultApprovalConfig(),
+		Approval:   DefaultApprovalConfig(),
+		Gatekeeper: DefaultGatekeeperConfig(),
 		MultiConfig: MultiConfig{
 			Enabled:        false,
 			Endpoint:       "/api/v1/config",
@@ -1050,9 +1180,10 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 			BootstrapToken:    "[REDACTED]",
 			StorePath:         cfg.Auth.StorePath,
 		},
-		Plugins:  cfg.Plugins,
-		MCP:      cfg.MCP,
-		Approval: cfg.Approval.Sanitized(),
+		Plugins:    cfg.Plugins,
+		MCP:        cfg.MCP,
+		Approval:   cfg.Approval.Sanitized(),
+		Gatekeeper: cfg.Gatekeeper.Sanitized(),
 		OTLPExport: SanitizedOTLPExportConfig{
 			Enabled:            cfg.OTLPExport.Enabled,
 			Endpoint:           cfg.OTLPExport.Endpoint,
