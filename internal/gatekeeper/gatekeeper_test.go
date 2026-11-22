@@ -202,6 +202,7 @@ func TestHTTPGatekeeper_MicroLLMContractV1AndFailClosed(t *testing.T) {
 		{"oversized_payload", http.StatusOK, strings.Repeat("x", MaxResponseBytes+1024), 0},
 		{"unknown_decision", http.StatusOK, `{"schema_version":"microllm.guard.v1","decision":"maybe","confidence":0.9,"abstain":false}`, 0},
 		{"missing_confidence", http.StatusOK, `{"schema_version":"microllm.guard.v1","decision":"allow","abstain":false}`, 0},
+		{"hijack_suspected_on_allow", http.StatusOK, `{"schema_version":"microllm.guard.v1","decision":"allow","confidence":0.99,"abstain":false,"hijack_suspected":true}`, 0},
 		{"timeout", http.StatusOK, `{"schema_version":"microllm.guard.v1","decision":"allow","confidence":0.99,"abstain":false}`, 250 * time.Millisecond},
 	}
 	for _, tc := range failCases {

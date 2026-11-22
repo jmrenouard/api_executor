@@ -240,6 +240,16 @@ func NormalizeWireResponse(raw []byte, minConfidence float64, failMode string, m
 
 	switch rawDec {
 	case "allow":
+		if wire.HijackSuspected {
+			dec := failClosedDecision(failMode)
+			out.Decision = dec
+			out.Abstain = dec == DecisionAbstain
+			out.FailClosed = true
+			if out.Reason == "" {
+				out.Reason = "gatekeeper flagged hijack_suspected on allow verdict"
+			}
+			return out
+		}
 		if wire.Abstain {
 			dec := failClosedDecision(failMode)
 			out.Decision = dec
