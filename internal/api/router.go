@@ -519,8 +519,13 @@ func normalizeMetricPath(path string) string {
 			}
 			return "/api/v1/mcp/traces/:trace_id"
 		}
-		if len(parts) == 2 && parts[0] != "" && parts[1] == "verify" {
-			return "/api/v1/mcp/traces/:trace_id/verify"
+		if len(parts) == 2 && parts[0] != "" {
+			if parts[1] == "verify" {
+				return "/api/v1/mcp/traces/:trace_id/verify"
+			}
+			if parts[1] == "replay" {
+				return "/api/v1/mcp/traces/:trace_id/replay"
+			}
 		}
 		return "other"
 	}

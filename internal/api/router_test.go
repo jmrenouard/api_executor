@@ -68,6 +68,8 @@ func TestNormalizeMetricPath(t *testing.T) {
 		{"mcp traces verify trailing slash", "/api/v1/mcp/traces/verify/", "/api/v1/mcp/traces/verify"},
 		{"mcp traces dynamic verify", "/api/v1/mcp/traces/mcp_tr_abc123/verify", "/api/v1/mcp/traces/:trace_id/verify"},
 		{"mcp traces dynamic verify trailing slash", "/api/v1/mcp/traces/mcp_tr_abc123/verify/", "/api/v1/mcp/traces/:trace_id/verify"},
+		{"mcp traces dynamic replay", "/api/v1/mcp/traces/mcp_tr_abc123/replay", "/api/v1/mcp/traces/:trace_id/replay"},
+		{"mcp traces dynamic replay trailing slash", "/api/v1/mcp/traces/mcp_tr_abc123/replay/", "/api/v1/mcp/traces/:trace_id/replay"},
 		{"mcp traces unknown subpath", "/api/v1/mcp/traces/mcp_tr_abc123/unknown", "other"},
 
 		// 2. Exact static routes

@@ -341,4 +341,124 @@ func TestMCPTraceVerificationEndpoints_AuthAndCrossVerify(t *testing.T) {
 	}
 }
 
+func TestMCPTraceReplayEndpoint_RBACDryRunLiveAndAuditIntegrity(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Auth.Enabled = true
+	cfg.Auth.RequireAuth = true
+	cfg.MCP.Enabled = true
+	cfg.MCP.RetainTraces = true
+
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("auth.NewManager: %v", err)
+	}
+	auditLogger, err := audit.NewAuditLogger(core.AuditConfig{Enabled: true, MaxMemoryLog: 200}, nil, nil)
+	if err != nil {
+		t.Fatalf("audit.NewAuditLogger: %v", err)
+	}
+	defer auditLogger.Close()
+
+	mcpSrv, err := mcp.NewServer(cfg.MCP, cfg, nil, nil, nil, auditLogger, nil, RecordActionCall)
+	if err != nil {
+		t.Fatalf("mcp.NewServer: %v", err)
+	}
+	defer mcpSrv.Close()
+
+	_, adminTok, _ := authMgr.CreateToken("admin", "admin-tok", nil, 0)
+	opUser, _ := authMgr.CreateUser("op1", "secret123", "Op", "op@local", auth.RoleOperator)
+	_, opTok, _ := authMgr.CreateToken(opUser.ID, "op-tok", nil, 0)
+	viewUser, _ := authMgr.CreateUser("viewer1", "secret123", "Viewer", "v@local", auth.RoleViewer)
+	_, viewerTok, _ := authMgr.CreateToken(viewUser.ID, "viewer-tok", nil, 0)
+	_, svcKey, _ := authMgr.CreateServiceAccount("svc1", "Bot", "bot", nil, []string{"*"}, 0)
+
+	env := &APIEnv{
+		Config:      cfg,
+		AuthManager: authMgr,
+		AuditLogger: auditLogger,
+		MCPServer:   mcpSrv,
+	}
+	router := NewRouter(env)
+
+	// Record a deterministic tools/list trace
+	rrInit := httptest.NewRecorder()
+	reqInit := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	reqInit.Header.Set("Authorization", "Bearer "+adminTok)
+	router.ServeHTTP(rrInit, reqInit)
+	traceID := rrInit.Header().Get("X-MCP-Trace-ID")
+	if traceID == "" {
+		t.Fatalf("expected X-MCP-Trace-ID")
+	}
+
+	replayPath := "/api/v1/mcp/traces/" + traceID + "/replay"
+
+	// 1. GET returns 405 Method Not Allowed
+	rrGet := httptest.NewRecorder()
+	reqGet := httptest.NewRequest(http.MethodGet, replayPath, nil)
+	reqGet.Header.Set("Authorization", "Bearer "+adminTok)
+	router.ServeHTTP(rrGet, reqGet)
+	if rrGet.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET replay = %d, want 405", rrGet.Code)
+	}
+
+	// 2. Unauthenticated -> 401
+	rrUnauth := httptest.NewRecorder()
+	router.ServeHTTP(rrUnauth, httptest.NewRequest(http.MethodPost, replayPath, nil))
+	if rrUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated POST replay = %d, want 401", rrUnauth.Code)
+	}
+
+	// 3. Operator default dry_run succeeds with 200 OK
+	rrDry := httptest.NewRecorder()
+	reqDry := httptest.NewRequest(http.MethodPost, replayPath, nil)
+	reqDry.Header.Set("Authorization", "Bearer "+opTok)
+	router.ServeHTTP(rrDry, reqDry)
+	if rrDry.Code != http.StatusOK {
+		t.Fatalf("operator dry_run replay = %d, want 200 (body=%s)", rrDry.Code, rrDry.Body.String())
+	}
+	var dryRep mcp.ReplayReport
+	if err := json.Unmarshal(rrDry.Body.Bytes(), &dryRep); err != nil || dryRep.Mode != mcp.ReplayModeDryRun || !dryRep.IntegrityValid {
+		t.Fatalf("unexpected dry_run replay report: %+v err=%v", dryRep, err)
+	}
+
+	// 4. Live replay rejected with 403 for viewer, operator, and service_account
+	for name, tok := range map[string]string{"viewer": viewerTok, "operator": opTok, "service": svcKey} {
+		rrDeny := httptest.NewRecorder()
+		reqDeny := httptest.NewRequest(http.MethodPost, replayPath, bytes.NewBufferString(`{"mode":"live"}`))
+		reqDeny.Header.Set("Authorization", "Bearer "+tok)
+		router.ServeHTTP(rrDeny, reqDeny)
+		if rrDeny.Code != http.StatusForbidden {
+			t.Errorf("role=%s live replay = %d, want 403", name, rrDeny.Code)
+		}
+	}
+
+	// 5. Authenticated admin live replay succeeds and links parent_trace_id
+	rrLive := httptest.NewRecorder()
+	reqLive := httptest.NewRequest(http.MethodPost, replayPath, bytes.NewBufferString(`{"mode":"live"}`))
+	reqLive.Header.Set("Authorization", "Bearer "+adminTok)
+	router.ServeHTTP(rrLive, reqLive)
+	if rrLive.Code != http.StatusOK {
+		t.Fatalf("admin live replay = %d, want 200 (body=%s)", rrLive.Code, rrLive.Body.String())
+	}
+	var liveRep mcp.ReplayReport
+	if err := json.Unmarshal(rrLive.Body.Bytes(), &liveRep); err != nil || !liveRep.DeterministicMatch || !liveRep.StatusMatch || liveRep.ReplayTraceID == "" {
+		t.Fatalf("unexpected live replay report: %+v err=%v", liveRep, err)
+	}
+
+	// 6. Both /api/v1/audit/verify and /api/v1/mcp/traces/verify remain valid
+	for _, verifyURL := range []string{"/api/v1/audit/verify", "/api/v1/mcp/traces/verify"} {
+		rrVer := httptest.NewRecorder()
+		reqVer := httptest.NewRequest(http.MethodGet, verifyURL, nil)
+		reqVer.Header.Set("Authorization", "Bearer "+adminTok)
+		router.ServeHTTP(rrVer, reqVer)
+		if rrVer.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", verifyURL, rrVer.Code)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(rrVer.Body.Bytes(), &out)
+		if out["valid"] != true {
+			t.Fatalf("expected valid=true on %s, got %+v", verifyURL, out)
+		}
+	}
+}
+
 
