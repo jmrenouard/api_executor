@@ -20,6 +20,7 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/gatekeeper"
 	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
@@ -79,12 +80,16 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 	var auditLogger *audit.AuditLogger
 	var mcpServer *mcp.Server
 	var jobEngine *jobs.Engine
+	var system1Gatekeeper gatekeeper.Gatekeeper
 
 	cleanup := func() {
 		if jobEngine != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = jobEngine.Shutdown(shutdownCtx)
 			cancel()
+		}
+		if system1Gatekeeper != nil {
+			_ = system1Gatekeeper.Close()
 		}
 		if mcpServer != nil {
 			_ = mcpServer.Close()
@@ -118,6 +123,12 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("failed to initialize approval store: %w", err)
+	}
+
+	system1Gatekeeper, err = gatekeeper.NewFromConfig(config.Gatekeeper, config.Sandbox)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize System-1 gatekeeper: %w", err)
 	}
 
 	pluginRegistry := plugins.NewEmptyRegistry()
@@ -225,6 +236,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		AuditLogger:        auditLogger,
 		AuthManager:        authManager,
 		ApprovalStore:      approvalStore,
+		Gatekeeper:         system1Gatekeeper,
 		PluginRegistry:     pluginRegistry,
 		MCPServer:          mcpServer,
 		JobEngine:          jobEngine,

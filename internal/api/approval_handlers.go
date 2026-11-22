@@ -14,19 +14,22 @@ import (
 	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
+	"go-admin-tool/internal/gatekeeper"
 	"go-admin-tool/internal/mcp"
 )
 
 // ApprovalChallengeResponse is returned (HTTP 202 Accepted) when a critical operation
 // pauses for Human-in-the-Loop approval before execution.
 type ApprovalChallengeResponse struct {
-	Status        string    `json:"status"`
-	ApprovalID    string    `json:"approval_id"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	PayloadSHA256 string    `json:"payload_sha256"`
-	Message       string    `json:"message"`
-	ApproveURL    string    `json:"approve_url"`
-	RejectURL     string    `json:"reject_url"`
+	Status             string    `json:"status"`
+	ApprovalID         string    `json:"approval_id"`
+	ExpiresAt          time.Time `json:"expires_at"`
+	PayloadSHA256      string    `json:"payload_sha256"`
+	Message            string    `json:"message"`
+	ApproveURL         string    `json:"approve_url"`
+	RejectURL          string    `json:"reject_url"`
+	GatekeeperDecision string    `json:"gatekeeper_decision,omitempty"`
+	RiskScore          float64   `json:"risk_score,omitempty"`
 }
 
 type mcpApprovalCtxKey struct{}
@@ -71,27 +74,73 @@ func cloneApprovalParamsWithTimeout(params map[string]any, timeoutOverride time.
 	return out
 }
 
-// enforceApprovalGate evaluates HITL approval policy for a REST/Job request strictly after RBAC
-// and before any subprocess/plugin/job execution. Returns true only when execution may proceed.
-func (env *APIEnv) enforceApprovalGate(
+func (env *APIEnv) hasActiveGatekeeper() bool {
+	return env != nil && env.Gatekeeper != nil && env.Gatekeeper.Mode() != "noop"
+}
+
+func (env *APIEnv) recordGatekeeperAudit(channel, targetAction, actorType, actorID, sourceIP string, resp gatekeeper.EvalResponse) {
+	if env == nil || env.AuditLogger == nil {
+		return
+	}
+	auditStatus := "ok"
+	if resp.Decision == gatekeeper.DecisionDeny {
+		auditStatus = "denied"
+	}
+	_, _ = env.AuditLogger.Record(audit.AuditEvent{
+		Category:   "gatekeeper",
+		Action:     "gatekeeper." + string(resp.Decision),
+		ActorType:  actorType,
+		ActorID:    actorID,
+		SourceIP:   sourceIP,
+		Status:     auditStatus,
+		DurationMs: int64(resp.LatencyMs),
+		Summary:    fmt.Sprintf("System-1 gatekeeper %s on %s:%s (risk=%.3f, conf=%.3f) — %s", resp.Decision, channel, targetAction, resp.RiskScore, resp.Confidence, resp.Reason),
+		Metadata: map[string]any{
+			"gatekeeper_decision":   string(resp.Decision),
+			"gatekeeper_risk_score": resp.RiskScore,
+			"gatekeeper_confidence": resp.Confidence,
+			"gatekeeper_latency_ms": resp.LatencyMs,
+			"primary_threat":        resp.PrimaryThreat,
+			"hijack_suspected":      resp.HijackSuspected,
+			"fail_closed":           resp.FailClosed,
+			"channel":               channel,
+			"target_action":         targetAction,
+		},
+	})
+}
+
+func (env *APIEnv) writeApprovalChallenge(w http.ResponseWriter, req *approval.Request, message, gkDecision string, riskScore float64) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Approval-ID", req.ID)
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(ApprovalChallengeResponse{
+		Status:             "pending_approval",
+		ApprovalID:         req.ID,
+		ExpiresAt:          req.ExpiresAt,
+		PayloadSHA256:      req.PayloadSHA256,
+		Message:            message,
+		ApproveURL:         fmt.Sprintf("/api/v1/approvals/%s/approve", req.ID),
+		RejectURL:          fmt.Sprintf("/api/v1/approvals/%s/reject", req.ID),
+		GatekeeperDecision: gkDecision,
+		RiskScore:          riskScore,
+	})
+}
+
+// enforcePreExecutionGates enforces strict zero-trust pre-execution gating AFTER RBAC:
+// 1. If a single-use approval_id is supplied, verify canonical payload_sha256 and consume atomically.
+// 2. Static HITL policy check (System-1 allow NEVER overrides RequireApproval / critical_* rules).
+// 3. System-1 MicroLLM gatekeeper hook (allow proceeds, deny returns 403, x_abstain escalates to HITL or fails closed 403 when HITL is disabled).
+func (env *APIEnv) enforcePreExecutionGates(
 	w http.ResponseWriter,
 	r *http.Request,
 	p *auth.Principal,
 	target approval.Target,
 	commandFlag bool,
 	suppliedApprovalID string,
+	evalReq gatekeeper.EvalRequest,
 ) bool {
-	if env == nil || env.ApprovalStore == nil {
+	if env == nil {
 		return true
-	}
-	if !env.ApprovalStore.Policy().RequiresApproval(target, commandFlag) {
-		return true
-	}
-
-	digest, err := approval.ComputePayloadSHA256(target)
-	if err != nil {
-		writeJSONError(w, fmt.Sprintf("Failed to compute approval payload digest: %v", err), http.StatusBadRequest)
-		return false
 	}
 
 	actorID := principalActorID(p)
@@ -105,7 +154,40 @@ func (env *APIEnv) enforceApprovalGate(
 	}
 
 	approvalID := extractApprovalID(r, suppliedApprovalID)
-	if approvalID == "" {
+	staticRequired := env.ApprovalStore != nil && env.ApprovalStore.Policy().RequiresApproval(target, commandFlag)
+	gkActive := env.hasActiveGatekeeper()
+
+	// Step 1: Consume a pre-approved single-use approval_id if supplied (used for both static HITL and x_abstain escalations).
+	if approvalID != "" {
+		if env.ApprovalStore == nil {
+			writeJSONError(w, "Approval store is not initialized", http.StatusServiceUnavailable)
+			return false
+		}
+		digest, err := approval.ComputePayloadSHA256(target)
+		if err != nil {
+			writeJSONError(w, fmt.Sprintf("Failed to compute approval payload digest: %v", err), http.StatusBadRequest)
+			return false
+		}
+		if _, consumeErr := env.ApprovalStore.Consume(approvalID, digest, actorID, actorType, sourceIP); consumeErr != nil {
+			switch {
+			case errors.Is(consumeErr, approval.ErrNotFound):
+				writeJSONError(w, consumeErr.Error(), http.StatusNotFound)
+			case errors.Is(consumeErr, approval.ErrPayloadMismatch):
+				writeJSONError(w, consumeErr.Error(), http.StatusForbidden)
+			case errors.Is(consumeErr, approval.ErrAlreadyConsumed),
+				errors.Is(consumeErr, approval.ErrExpired),
+				errors.Is(consumeErr, approval.ErrInvalidTransition):
+				writeJSONError(w, consumeErr.Error(), http.StatusConflict)
+			default:
+				writeJSONError(w, consumeErr.Error(), http.StatusInternalServerError)
+			}
+			return false
+		}
+		return true
+	}
+
+	// Step 2: Static HITL policy takes precedence over System-1 (System-1 allow must never bypass static RequireApproval).
+	if staticRequired {
 		req, createErr := env.ApprovalStore.Create(approval.CreateParams{
 			Target:        target,
 			RequesterID:   actorID,
@@ -121,44 +203,87 @@ func (env *APIEnv) enforceApprovalGate(
 			writeJSONError(w, fmt.Sprintf("Failed to create approval request: %v", createErr), http.StatusInternalServerError)
 			return false
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Approval-ID", req.ID)
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(ApprovalChallengeResponse{
-			Status:        "pending_approval",
-			ApprovalID:    req.ID,
-			ExpiresAt:     req.ExpiresAt,
-			PayloadSHA256: req.PayloadSHA256,
-			Message:       "Human-in-the-Loop approval required before execution",
-			ApproveURL:    fmt.Sprintf("/api/v1/approvals/%s/approve", req.ID),
-			RejectURL:     fmt.Sprintf("/api/v1/approvals/%s/reject", req.ID),
-		})
+		env.writeApprovalChallenge(w, req, "Human-in-the-Loop approval required before execution", "", 0)
 		return false
 	}
 
-	if _, consumeErr := env.ApprovalStore.Consume(approvalID, digest, actorID, actorType, sourceIP); consumeErr != nil {
-		switch {
-		case errors.Is(consumeErr, approval.ErrNotFound):
-			writeJSONError(w, consumeErr.Error(), http.StatusNotFound)
-		case errors.Is(consumeErr, approval.ErrPayloadMismatch):
-			writeJSONError(w, consumeErr.Error(), http.StatusForbidden)
-		case errors.Is(consumeErr, approval.ErrAlreadyConsumed),
-			errors.Is(consumeErr, approval.ErrExpired),
-			errors.Is(consumeErr, approval.ErrInvalidTransition):
-			writeJSONError(w, consumeErr.Error(), http.StatusConflict)
-		default:
-			writeJSONError(w, consumeErr.Error(), http.StatusInternalServerError)
+	// Step 3: System-1 MicroLLM Gatekeeper evaluation.
+	if !gkActive {
+		return true
+	}
+
+	evalStart := time.Now()
+	evalResp := env.Gatekeeper.Evaluate(r.Context(), evalReq)
+	evalDur := time.Since(evalStart)
+	RecordGatekeeperEvaluation(env.Gatekeeper.Mode(), string(target.Channel), string(evalResp.Decision), evalDur)
+	env.recordGatekeeperAudit(string(target.Channel), target.Action, actorType, actorID, sourceIP, evalResp)
+
+	switch evalResp.Decision {
+	case gatekeeper.DecisionAllow:
+		return true
+	case gatekeeper.DecisionDeny:
+		writeJSONError(w, fmt.Sprintf("Execution denied by System-1 gatekeeper: %s", evalResp.Reason), http.StatusForbidden)
+		return false
+	default:
+		// x_abstain (or any unknown value) escalates to HITL; fails closed 403 if HITL is disabled/unavailable.
+		if env.ApprovalStore == nil || !env.ApprovalStore.Policy().Enabled() {
+			if env.AuditLogger != nil {
+				_, _ = env.AuditLogger.Record(audit.AuditEvent{
+					Category:  "gatekeeper",
+					Action:    "gatekeeper.abstain_fail_closed",
+					ActorType: actorType,
+					ActorID:   actorID,
+					SourceIP:  sourceIP,
+					Status:    "denied",
+					Summary:   fmt.Sprintf("Failed closed on System-1 x_abstain for %s:%s because HITL approval is disabled", target.Channel, target.Action),
+				})
+			}
+			writeJSONError(w, fmt.Sprintf("System-1 gatekeeper abstained (%s) and HITL approval escalation is disabled", evalResp.Reason), http.StatusForbidden)
+			return false
 		}
+
+		req, createErr := env.ApprovalStore.Create(approval.CreateParams{
+			Target:        target,
+			RequesterID:   actorID,
+			RequesterType: actorType,
+			SourceIP:      sourceIP,
+			Reason:        fmt.Sprintf("System-1 gatekeeper abstained: %s", evalResp.Reason),
+			Metadata: map[string]any{
+				"gatekeeper_decision":   string(gatekeeper.DecisionAbstain),
+				"risk_score":            evalResp.RiskScore,
+				"confidence":            evalResp.Confidence,
+				"gatekeeper_latency_ms": evalResp.LatencyMs,
+				"primary_threat":        evalResp.PrimaryThreat,
+				"hijack_suspected":      evalResp.HijackSuspected,
+			},
+		})
+		if createErr != nil {
+			if errors.Is(createErr, approval.ErrMaxPendingReached) {
+				writeJSONError(w, createErr.Error(), http.StatusTooManyRequests)
+				return false
+			}
+			writeJSONError(w, fmt.Sprintf("Failed to create HITL escalation request: %v", createErr), http.StatusInternalServerError)
+			return false
+		}
+		env.writeApprovalChallenge(w, req, fmt.Sprintf("System-1 gatekeeper abstained (%s); Human-in-the-Loop approval required", evalResp.Reason), string(gatekeeper.DecisionAbstain), evalResp.RiskScore)
 		return false
 	}
-
-	return true
 }
 
-// NewMCPApprovalGate builds a decoupled mcp.ApprovalGate callback backed by env.ApprovalStore.
+func shouldRunSystem1OnMCPTool(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "execute_command", "execute_plugin", "db_query":
+		return true
+	default:
+		return false
+	}
+}
+
+// NewMCPApprovalGate builds a decoupled mcp.ApprovalGate callback combining static HITL policy
+// and System-1 MicroLLM evaluation with fail-closed x_abstain -> HITL escalation.
 func (env *APIEnv) NewMCPApprovalGate() mcp.ApprovalGate {
 	return func(ctx context.Context, req mcp.ApprovalGateRequest) (mcp.ApprovalGateDecision, error) {
-		if env == nil || env.ApprovalStore == nil {
+		if env == nil {
 			return mcp.ApprovalGateDecision{Allowed: true}, nil
 		}
 		target := approval.Target{
@@ -167,14 +292,6 @@ func (env *APIEnv) NewMCPApprovalGate() mcp.ApprovalGate {
 			PluginID:   req.PluginID,
 			ToolName:   req.ToolName,
 			Parameters: req.Parameters,
-		}
-		if !env.ApprovalStore.Policy().RequiresApproval(target, req.CommandFlag) {
-			return mcp.ApprovalGateDecision{Allowed: true}, nil
-		}
-
-		digest, err := approval.ComputePayloadSHA256(target)
-		if err != nil {
-			return mcp.ApprovalGateDecision{}, err
 		}
 
 		actorID := strings.TrimSpace(req.Actor)
@@ -195,7 +312,23 @@ func (env *APIEnv) NewMCPApprovalGate() mcp.ApprovalGate {
 			}
 		}
 
-		if approvalID == "" {
+		// Step 1: Consume pre-approved single-use approval_id if supplied.
+		if approvalID != "" {
+			if env.ApprovalStore == nil {
+				return mcp.ApprovalGateDecision{Allowed: false}, errors.New("approval store is not initialized")
+			}
+			digest, err := approval.ComputePayloadSHA256(target)
+			if err != nil {
+				return mcp.ApprovalGateDecision{Allowed: false}, err
+			}
+			if _, consumeErr := env.ApprovalStore.Consume(approvalID, digest, actorID, actorType, sourceIP); consumeErr != nil {
+				return mcp.ApprovalGateDecision{Allowed: false, Reason: consumeErr.Error()}, consumeErr
+			}
+			return mcp.ApprovalGateDecision{Allowed: true, ApprovalID: approvalID}, nil
+		}
+
+		// Step 2: Static HITL policy check (never bypassed by System-1 allow).
+		if env.ApprovalStore != nil && env.ApprovalStore.Policy().RequiresApproval(target, req.CommandFlag) {
 			created, createErr := env.ApprovalStore.Create(approval.CreateParams{
 				Target:        target,
 				RequesterID:   actorID,
@@ -204,7 +337,7 @@ func (env *APIEnv) NewMCPApprovalGate() mcp.ApprovalGate {
 				Reason:        fmt.Sprintf("HITL policy requires approval for MCP tool %s", req.ToolName),
 			})
 			if createErr != nil {
-				return mcp.ApprovalGateDecision{}, createErr
+				return mcp.ApprovalGateDecision{Allowed: false}, createErr
 			}
 			return mcp.ApprovalGateDecision{
 				Allowed:       false,
@@ -216,10 +349,98 @@ func (env *APIEnv) NewMCPApprovalGate() mcp.ApprovalGate {
 			}, nil
 		}
 
-		if _, consumeErr := env.ApprovalStore.Consume(approvalID, digest, actorID, actorType, sourceIP); consumeErr != nil {
-			return mcp.ApprovalGateDecision{Allowed: false, Reason: consumeErr.Error()}, consumeErr
+		// Step 3: System-1 MicroLLM Gatekeeper evaluation on execution tools.
+		if !env.hasActiveGatekeeper() || !shouldRunSystem1OnMCPTool(req.ToolName) {
+			return mcp.ApprovalGateDecision{Allowed: true}, nil
 		}
-		return mcp.ApprovalGateDecision{Allowed: true, ApprovalID: approvalID}, nil
+
+		evalStart := time.Now()
+		evalResp := env.Gatekeeper.Evaluate(ctx, gatekeeper.EvalRequest{
+			Channel:   string(approval.ChannelMCP),
+			ToolName:  req.ToolName,
+			Command:   req.CommandLine,
+			Arguments: req.Parameters,
+			Actor:     actorID,
+		})
+		evalDur := time.Since(evalStart)
+		RecordGatekeeperEvaluation(env.Gatekeeper.Mode(), string(approval.ChannelMCP), string(evalResp.Decision), evalDur)
+		env.recordGatekeeperAudit(string(approval.ChannelMCP), req.ToolName+":"+req.Action, actorType, actorID, sourceIP, evalResp)
+
+		switch evalResp.Decision {
+		case gatekeeper.DecisionAllow:
+			return mcp.ApprovalGateDecision{
+				Allowed:             true,
+				GatekeeperDecision:  string(evalResp.Decision),
+				GatekeeperRiskScore: evalResp.RiskScore,
+				GatekeeperLatencyMs: evalResp.LatencyMs,
+			}, nil
+
+		case gatekeeper.DecisionDeny:
+			return mcp.ApprovalGateDecision{
+				Allowed:             false,
+				Reason:              fmt.Sprintf("System-1 gatekeeper denied MCP tool %q: %s", req.ToolName, evalResp.Reason),
+				GatekeeperDecision:  string(evalResp.Decision),
+				GatekeeperRiskScore: evalResp.RiskScore,
+				GatekeeperLatencyMs: evalResp.LatencyMs,
+			}, nil
+
+		default:
+			if env.ApprovalStore == nil || !env.ApprovalStore.Policy().Enabled() {
+				if env.AuditLogger != nil {
+					_, _ = env.AuditLogger.Record(audit.AuditEvent{
+						Category:  "gatekeeper",
+						Action:    "gatekeeper.abstain_fail_closed",
+						ActorType: actorType,
+						ActorID:   actorID,
+						SourceIP:  sourceIP,
+						Status:    "denied",
+						Summary:   fmt.Sprintf("Failed closed on System-1 x_abstain for MCP tool %s because HITL approval is disabled", req.ToolName),
+					})
+				}
+				return mcp.ApprovalGateDecision{
+					Allowed:             false,
+					Reason:              fmt.Sprintf("System-1 gatekeeper abstained (%s) and HITL approval escalation is disabled", evalResp.Reason),
+					GatekeeperDecision:  string(gatekeeper.DecisionAbstain),
+					GatekeeperRiskScore: evalResp.RiskScore,
+					GatekeeperLatencyMs: evalResp.LatencyMs,
+				}, nil
+			}
+
+			created, createErr := env.ApprovalStore.Create(approval.CreateParams{
+				Target:        target,
+				RequesterID:   actorID,
+				RequesterType: actorType,
+				SourceIP:      sourceIP,
+				Reason:        fmt.Sprintf("System-1 gatekeeper abstained on MCP tool %s: %s", req.ToolName, evalResp.Reason),
+				Metadata: map[string]any{
+					"gatekeeper_decision":   string(gatekeeper.DecisionAbstain),
+					"risk_score":            evalResp.RiskScore,
+					"confidence":            evalResp.Confidence,
+					"gatekeeper_latency_ms": evalResp.LatencyMs,
+					"primary_threat":        evalResp.PrimaryThreat,
+					"hijack_suspected":      evalResp.HijackSuspected,
+				},
+			})
+			if createErr != nil {
+				return mcp.ApprovalGateDecision{
+					Allowed:             false,
+					GatekeeperDecision:  string(gatekeeper.DecisionAbstain),
+					GatekeeperRiskScore: evalResp.RiskScore,
+					GatekeeperLatencyMs: evalResp.LatencyMs,
+				}, createErr
+			}
+			return mcp.ApprovalGateDecision{
+				Allowed:             false,
+				Pending:             true,
+				ApprovalID:          created.ID,
+				ExpiresAt:           created.ExpiresAt,
+				PayloadSHA256:       created.PayloadSHA256,
+				Reason:              fmt.Sprintf("System-1 gatekeeper abstained (%s); Human-in-the-Loop approval required", evalResp.Reason),
+				GatekeeperDecision:  string(gatekeeper.DecisionAbstain),
+				GatekeeperRiskScore: evalResp.RiskScore,
+				GatekeeperLatencyMs: evalResp.LatencyMs,
+			}, nil
+		}
 	}
 }
 

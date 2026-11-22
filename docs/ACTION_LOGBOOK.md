@@ -13,6 +13,23 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-078` — Wire `MicroLLM` System-1 Pre-Execution Hook with `x_abstain` Escalation to HITL (Pillar 3B)
+- **Timestamp (UTC)**: `2026-11-22T01:33:00Z`
+- **GitHub Issue**: [#156](https://github.com/jmrenouard/api_executor/issues/156)
+- **Branch**: `feat/issue-156-system1-hook-hitl-escalation`
+- **Request**:
+  - Wire the pluggable System-1 `MicroLLM` (`microllm.guard.v1`) gatekeeper into `cmd/server/main.go`, synchronous REST command/plugin handlers, async job submission, and `MCPServer.handleToolCall`, strictly enforcing evaluation order (Auth -> RBAC -> Pre-Approved `approval_id` -> Static HITL -> System-1 Gatekeeper -> Sandboxed Execution) with fail-closed `x_abstain` -> HITL escalation and SHA-256 audit/trace forensic metadata.
+- **Changes**:
+  - Modified [`internal/mcp/server.go`](../internal/mcp/server.go) and [`internal/mcp/trace_integrity.go`](../internal/mcp/trace_integrity.go): Added `CommandLine` on `ApprovalGateRequest`, `GatekeeperDecision`/`GatekeeperRiskScore`/`GatekeeperLatencyMs` on `ApprovalGateDecision` and `MCPTrace` (with idempotent SQLite migration and `ComputeTraceHash` inclusion), and propagated gatekeeper metadata into `MCPTrace` and MCP `AuditEvent`.
+  - Modified [`internal/api/approval_handlers.go`](../internal/api/approval_handlers.go), [`internal/api/handlers.go`](../internal/api/handlers.go), [`internal/api/plugin_handlers.go`](../internal/api/plugin_handlers.go), [`internal/api/job_handlers.go`](../internal/api/job_handlers.go), [`internal/api/router.go`](../internal/api/router.go), and [`cmd/server/main.go`](../cmd/server/main.go): Implemented unified `enforcePreExecutionGates`, updated `NewMCPApprovalGate`, constructed and cleaned up `Gatekeeper` in `initializeServerEnv`, and wired System-1 evaluation + `x_abstain` HITL escalation (failing closed `403` when HITL is disabled).
+  - Created [`internal/api/gatekeeper_integration_test.go`](../internal/api/gatekeeper_integration_test.go): Verified `allow`, `deny`/`block`, `x_abstain`/`escalate` -> HITL approve -> single-use consume -> replay rejection, fail-closed `x_abstain` with HITL disabled, RBAC-before-System-1, static-HITL-before-System-1, and dual SHA-256 chain integrity.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-078`.
+- **Result**:
+  - Verified 100% pass across all 14 Go packages (`go test -p 2 -cover ./...`, `go vet ./...`, and WSL2 `CGO_ENABLED=1 go test -race`).
+  - GitHub Issue [#156](https://github.com/jmrenouard/api_executor/issues/156).
+
+---
+
 ### `ACT-077` — Pluggable `MicroLLM` (`microllm.guard.v1`) System-1 Gatekeeper Contract and Local HTTP/CLI Adapters (Pillar 3A)
 - **Timestamp (UTC)**: `2026-11-22T01:22:00Z`
 - **GitHub Issue**: [#154](https://github.com/jmrenouard/api_executor/issues/154)

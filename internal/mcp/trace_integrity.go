@@ -66,7 +66,7 @@ func CanonicalJSONSHA256(v any) (string, error) {
 
 // ComputeTraceHash computes the chained SHA-256 digest for an MCPTrace record.
 func ComputeTraceHash(tr MCPTrace) string {
-	payload := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%t|%d|%s|%s|%s|%s|%s",
+	payload := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%t|%d|%s|%s|%s|%s|%s|%.6f|%.3f|%s",
 		tr.TraceID,
 		tr.ParentTraceID,
 		tr.SessionID,
@@ -81,6 +81,9 @@ func ComputeTraceHash(tr MCPTrace) string {
 		tr.ResponseSHA256,
 		tr.AuditEventID,
 		tr.AuditEntryHash,
+		tr.GatekeeperDecision,
+		tr.GatekeeperRiskScore,
+		tr.GatekeeperLatencyMs,
 		tr.PrevTraceHash,
 	)
 	sum := sha256.Sum256([]byte(payload))

@@ -101,8 +101,11 @@ type MCPTrace struct {
 	ResponseSHA256  string         `json:"response_sha256,omitempty"`
 	PrevTraceHash   string         `json:"prev_trace_hash,omitempty"`
 	TraceHash       string         `json:"trace_hash,omitempty"`
-	AuditEventID    string         `json:"audit_event_id,omitempty"`
-	AuditEntryHash  string         `json:"audit_entry_hash,omitempty"`
+	AuditEventID        string  `json:"audit_event_id,omitempty"`
+	AuditEntryHash      string  `json:"audit_entry_hash,omitempty"`
+	GatekeeperDecision  string  `json:"gatekeeper_decision,omitempty"`
+	GatekeeperRiskScore float64 `json:"gatekeeper_risk_score,omitempty"`
+	GatekeeperLatencyMs float64 `json:"gatekeeper_latency_ms,omitempty"`
 }
 
 // TraceFilter defines filters for querying stored MCP traces.
@@ -188,7 +191,10 @@ func NewServer(
 			prev_trace_hash TEXT,
 			trace_hash TEXT,
 			audit_event_id TEXT,
-			audit_entry_hash TEXT
+			audit_entry_hash TEXT,
+			gatekeeper_decision TEXT,
+			gatekeeper_risk_score REAL,
+			gatekeeper_latency_ms REAL
 		);`
 		if _, err := db.Exec(createTracesSQL); err != nil {
 			return nil, fmt.Errorf("failed to create mcp_traces table: %w", err)
@@ -403,25 +409,29 @@ func (s *Server) Prompts() []MCPPrompt {
 // ToolAuthorizer validates whether the authenticated caller is permitted to invoke a given scope and target action.
 type ToolAuthorizer func(requiredScope string, targetAction string) error
 
-// ApprovalGateRequest describes an MCP tool invocation requiring HITL evaluation.
+// ApprovalGateRequest describes an MCP tool invocation requiring HITL and/or System-1 evaluation.
 type ApprovalGateRequest struct {
 	ToolName    string
 	Action      string
 	PluginID    string
+	CommandLine string
 	Parameters  map[string]any
 	CommandFlag bool
 	ApprovalID  string
 	Actor       string
 }
 
-// ApprovalGateDecision represents the outcome of a pre-execution HITL approval gate check.
+// ApprovalGateDecision represents the outcome of a pre-execution HITL / System-1 gate check.
 type ApprovalGateDecision struct {
-	Allowed       bool
-	Pending       bool
-	ApprovalID    string
-	ExpiresAt     time.Time
-	PayloadSHA256 string
-	Reason        string
+	Allowed             bool
+	Pending             bool
+	ApprovalID          string
+	ExpiresAt           time.Time
+	PayloadSHA256       string
+	Reason              string
+	GatekeeperDecision  string
+	GatekeeperRiskScore float64
+	GatekeeperLatencyMs float64
 }
 
 // ApprovalGate enforces Human-in-the-Loop pre-execution approvals for MCP tools/call
@@ -454,44 +464,61 @@ func (s *Server) getApprovalGate() ApprovalGate {
 	return s.approvalGate
 }
 
-func (s *Server) checkApprovalGate(ctx context.Context, req ApprovalGateRequest, traceID string) (MCPCallToolResult, string, bool) {
+type gateTraceMeta struct {
+	Decision  string
+	RiskScore float64
+	LatencyMs float64
+}
+
+func (s *Server) checkApprovalGate(ctx context.Context, req ApprovalGateRequest, traceID string) (MCPCallToolResult, string, gateTraceMeta, bool) {
 	gate := s.getApprovalGate()
 	if gate == nil {
-		return MCPCallToolResult{}, "", true
+		return MCPCallToolResult{}, "", gateTraceMeta{}, true
 	}
 	decision, err := gate(ctx, req)
+	meta := gateTraceMeta{
+		Decision:  decision.GatekeeperDecision,
+		RiskScore: decision.GatekeeperRiskScore,
+		LatencyMs: decision.GatekeeperLatencyMs,
+	}
 	if err != nil {
-		return s.toolErrorResult(traceID, fmt.Sprintf("approval gate denied %q: %v", req.ToolName, err)), "denied", false
+		return s.toolErrorResult(traceID, fmt.Sprintf("approval gate denied %q: %v", req.ToolName, err)), "denied", meta, false
 	}
 	if decision.Pending {
 		msg := decision.Reason
 		if strings.TrimSpace(msg) == "" {
 			msg = "Human-in-the-Loop approval required before execution"
 		}
+		sc := map[string]any{
+			"status":         "pending_approval",
+			"approval_id":    decision.ApprovalID,
+			"expires_at":     decision.ExpiresAt.UTC(),
+			"payload_sha256": decision.PayloadSHA256,
+			"message":        msg,
+		}
+		if meta.Decision != "" {
+			sc["gatekeeper_decision"] = meta.Decision
+			sc["gatekeeper_risk_score"] = meta.RiskScore
+			sc["gatekeeper_latency_ms"] = meta.LatencyMs
+		}
 		return MCPCallToolResult{
 			Content: []MCPContentBlock{{
 				Type: "text",
 				Text: fmt.Sprintf("%s (approval_id=%s, expires_at=%s)", msg, decision.ApprovalID, decision.ExpiresAt.UTC().Format(time.RFC3339)),
 			}},
-			IsError: false,
-			StructuredContent: map[string]any{
-				"status":         "pending_approval",
-				"approval_id":    decision.ApprovalID,
-				"expires_at":     decision.ExpiresAt.UTC(),
-				"payload_sha256": decision.PayloadSHA256,
-				"message":        msg,
-			},
-			TraceID: traceID,
-		}, "pending_approval", false
+			IsError:           false,
+			StructuredContent: sc,
+			TraceID:           traceID,
+		}, "pending_approval", meta, false
 	}
 	if !decision.Allowed {
 		reason := decision.Reason
 		if strings.TrimSpace(reason) == "" {
 			reason = "execution denied by approval gate"
 		}
-		return s.toolErrorResult(traceID, reason), "denied", false
+		return s.toolErrorResult(traceID, reason), "denied", meta, false
 	}
-	return MCPCallToolResult{}, "", true
+	return MCPCallToolResult{}, "", meta, true
 }
 
 func extractMCPApprovalArgs(args map[string]any) (string, map[string]any) {
@@ -544,6 +571,7 @@ func (s *Server) handleJSONRPCInternal(ctx context.Context, req JSONRPCRequest, 
 	}
 
 	var toolName string
+	var gkMeta gateTraceMeta
 	status := "ok"
 	isError := false
 
@@ -573,9 +601,10 @@ func (s *Server) handleJSONRPCInternal(ctx context.Context, req JSONRPCRequest, 
 		}
 
 	case "tools/call":
-		callRes, calledTool, callStatus, rpcErr := s.handleToolCall(ctx, req.Params, traceID, actor, authorizer)
+		callRes, calledTool, callStatus, callMeta, rpcErr := s.handleToolCall(ctx, req.Params, traceID, actor, authorizer)
 		toolName = calledTool
 		status = callStatus
+		gkMeta = callMeta
 		if rpcErr != nil {
 			resp.Error = rpcErr
 			status = "error"
@@ -641,11 +670,19 @@ func (s *Server) handleJSONRPCInternal(ctx context.Context, req JSONRPCRequest, 
 			Status:     status,
 			DurationMs: duration.Milliseconds(),
 			Summary:    fmt.Sprintf("MCP %s (tool=%s, status=%s)", req.Method, toolName, status),
-			Metadata: map[string]any{
-				"session_id": sessionID,
-				"method":     req.Method,
-				"tool_name":  toolName,
-			},
+			Metadata: func() map[string]any {
+				m := map[string]any{
+					"session_id": sessionID,
+					"method":     req.Method,
+					"tool_name":  toolName,
+				}
+				if gkMeta.Decision != "" {
+					m["gatekeeper_decision"] = gkMeta.Decision
+					m["gatekeeper_risk_score"] = gkMeta.RiskScore
+					m["gatekeeper_latency_ms"] = gkMeta.LatencyMs
+				}
+				return m
+			}(),
 		})
 		if err == nil {
 			auditEventID = ev.EventID
@@ -671,8 +708,11 @@ func (s *Server) handleJSONRPCInternal(ctx context.Context, req JSONRPCRequest, 
 			DurationMs:      duration.Milliseconds(),
 			RequestPayload:  reqMap,
 			ResponsePayload: respPayload,
-			AuditEventID:    auditEventID,
-			AuditEntryHash:  auditEntryHash,
+			AuditEventID:        auditEventID,
+			AuditEntryHash:      auditEntryHash,
+			GatekeeperDecision:  gkMeta.Decision,
+			GatekeeperRiskScore: gkMeta.RiskScore,
+			GatekeeperLatencyMs: gkMeta.LatencyMs,
 		}
 		s.recordTrace(trace)
 	}
@@ -680,25 +720,26 @@ func (s *Server) handleJSONRPCInternal(ctx context.Context, req JSONRPCRequest, 
 	return resp
 }
 
-func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, traceID string, actor string, authorizer ToolAuthorizer) (MCPCallToolResult, string, string, *JSONRPCError) {
+func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, traceID string, actor string, authorizer ToolAuthorizer) (MCPCallToolResult, string, string, gateTraceMeta, *JSONRPCError) {
 	var callReq struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal(rawParams, &callReq); err != nil {
-		return MCPCallToolResult{}, "", "error", &JSONRPCError{
+		return MCPCallToolResult{}, "", "error", gateTraceMeta{}, &JSONRPCError{
 			Code:    -32602,
 			Message: "Invalid tools/call parameters",
 		}
 	}
 	toolName := strings.TrimSpace(callReq.Name)
 	if toolName == "" {
-		return MCPCallToolResult{}, "", "error", &JSONRPCError{
+		return MCPCallToolResult{}, "", "error", gateTraceMeta{}, &JSONRPCError{
 			Code:    -32602,
 			Message: "Tool name is required",
 		}
 	}
 	approvalID, cleanArgs := extractMCPApprovalArgs(callReq.Arguments)
+	var gateMeta gateTraceMeta
 
 	switch toolName {
 	case "execute_command":
@@ -709,14 +750,14 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			}
 		}
 		if cmdName == "" {
-			return s.toolErrorResult(traceID, "missing required argument 'name'"), toolName, "error", nil
+			return s.toolErrorResult(traceID, "missing required argument 'name'"), toolName, "error", gateMeta, nil
 		}
 		if authorizer != nil {
 			if err := authorizer("commands:execute", cmdName); err != nil {
 				if s.metricCallback != nil {
 					s.metricCallback(cmdName, "error", false, 0)
 				}
-				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for command %q: %v", cmdName, err)), toolName, "denied", nil
+				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for command %q: %v", cmdName, err)), toolName, "denied", gateMeta, nil
 			}
 		}
 
@@ -728,7 +769,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 					if s.metricCallback != nil {
 						s.metricCallback(cmdName, "error", false, 0)
 					}
-					return s.toolErrorResult(traceID, fmt.Sprintf("invalid timeout override: %v", err)), toolName, "error", nil
+					return s.toolErrorResult(traceID, fmt.Sprintf("invalid timeout override: %v", err)), toolName, "error", gateMeta, nil
 				}
 				timeoutOverride = d
 			}
@@ -758,18 +799,24 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			if s.metricCallback != nil {
 				s.metricCallback(cmdName, "error", false, 0)
 			}
-			return s.toolErrorResult(traceID, fmt.Sprintf("command %q not found", cmdName)), toolName, "error", nil
+			return s.toolErrorResult(traceID, fmt.Sprintf("command %q not found", cmdName)), toolName, "error", gateMeta, nil
 		}
 
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+		cmdLine := strings.TrimSpace(cmdDef.Command + " " + strings.Join(cmdDef.Args, " "))
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
 			ToolName:    toolName,
 			Action:      cmdName,
+			CommandLine: cmdLine,
 			Parameters:  cleanArgs,
 			CommandFlag: cmdDef.RequireApproval,
 			ApprovalID:  approvalID,
 			Actor:       actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 
 		effTimeout := core.DefaultCommandTimeout
@@ -806,7 +853,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 					"timeout":   effTimeout.String(),
 				},
 				TraceID: traceID,
-			}, toolName, outcome, nil
+			}, toolName, outcome, gateMeta, nil
 		}
 
 		if s.metricCallback != nil {
@@ -824,17 +871,21 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 				"timeout": effTimeout.String(),
 			},
 			TraceID: traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "list_commands":
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
 			ToolName:   toolName,
 			Action:     toolName,
 			Parameters: cleanArgs,
 			ApprovalID: approvalID,
 			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 		osFilter := ""
 		if callReq.Arguments != nil {
@@ -861,11 +912,11 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			IsError:           false,
 			StructuredContent: map[string]any{"commands": filtered},
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "execute_plugin":
 		if s.pluginRegistry == nil {
-			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", nil
+			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", gateMeta, nil
 		}
 		pluginID := ""
 		action := ""
@@ -884,7 +935,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			}
 		}
 		if pluginID == "" || action == "" {
-			return s.toolErrorResult(traceID, "plugin_id and action are required"), toolName, "error", nil
+			return s.toolErrorResult(traceID, "plugin_id and action are required"), toolName, "error", gateMeta, nil
 		}
 		metricLabel := fmt.Sprintf("plugin:%s:%s", pluginID, action)
 		if authorizer != nil {
@@ -893,7 +944,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 					if s.metricCallback != nil {
 						s.metricCallback(metricLabel, "error", false, 0)
 					}
-					return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for plugin %q action %q: %v", pluginID, action, err)), toolName, "denied", nil
+					return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for plugin %q action %q: %v", pluginID, action, err)), toolName, "denied", gateMeta, nil
 				}
 			}
 		}
@@ -902,18 +953,23 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			if s.metricCallback != nil {
 				s.metricCallback(metricLabel, "error", false, 0)
 			}
-			return s.toolErrorResult(traceID, fmt.Sprintf("plugin %q not found", pluginID)), toolName, "error", nil
+			return s.toolErrorResult(traceID, fmt.Sprintf("plugin %q not found", pluginID)), toolName, "error", gateMeta, nil
 		}
 
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
-			ToolName:   toolName,
-			PluginID:   pluginID,
-			Action:     action,
-			Parameters: params,
-			ApprovalID: approvalID,
-			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:    toolName,
+			PluginID:    pluginID,
+			Action:      action,
+			CommandLine: pluginID + ":" + action,
+			Parameters:  params,
+			ApprovalID:  approvalID,
+			Actor:       actor,
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 
 		res, err := s.pluginRegistry.Execute(ctx, pluginID, action, params, 30*time.Second)
@@ -926,7 +982,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 				IsError:           true,
 				StructuredContent: res,
 				TraceID:           traceID,
-			}, toolName, res.Status, nil
+			}, toolName, res.Status, gateMeta, nil
 		}
 		if s.metricCallback != nil {
 			s.metricCallback(metricLabel, "ok", false, time.Duration(res.DurationMs)*time.Millisecond)
@@ -936,26 +992,37 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			IsError:           false,
 			StructuredContent: res,
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "db_query":
 		if s.pluginRegistry == nil {
-			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", nil
+			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", gateMeta, nil
 		}
 		if authorizer != nil {
 			if err := authorizer("plugins:execute", "db-exposure"); err != nil && authorizer("plugins:execute", "plugin:db-exposure:query_readonly") != nil {
-				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_query: %v", err)), toolName, "denied", nil
+				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_query: %v", err)), toolName, "denied", gateMeta, nil
 			}
 		}
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
-			ToolName:   toolName,
-			PluginID:   "db-exposure",
-			Action:     "query_readonly",
-			Parameters: cleanArgs,
-			ApprovalID: approvalID,
-			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		sqlStr := ""
+		if cleanArgs != nil {
+			if v, ok := cleanArgs["sql"]; ok && v != nil {
+				sqlStr = strings.TrimSpace(fmt.Sprintf("%v", v))
+			}
+		}
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
+			ToolName:    toolName,
+			PluginID:    "db-exposure",
+			Action:      "query_readonly",
+			CommandLine: sqlStr,
+			Parameters:  cleanArgs,
+			ApprovalID:  approvalID,
+			Actor:       actor,
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 		res, err := s.pluginRegistry.Execute(ctx, "db-exposure", "query_readonly", cleanArgs, 15*time.Second)
 		if err != nil {
@@ -964,54 +1031,62 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 				IsError:           true,
 				StructuredContent: res,
 				TraceID:           traceID,
-			}, toolName, "error", nil
+			}, toolName, "error", gateMeta, nil
 		}
 		return MCPCallToolResult{
 			Content:           []MCPContentBlock{{Type: "text", Text: res.Output}},
 			IsError:           false,
 			StructuredContent: res.Data,
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "db_list_tables":
 		if s.pluginRegistry == nil {
-			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", nil
+			return s.toolErrorResult(traceID, "plugin registry is not available"), toolName, "error", gateMeta, nil
 		}
 		if authorizer != nil {
 			if err := authorizer("plugins:read", "db-exposure"); err != nil && authorizer("plugins:execute", "db-exposure") != nil {
-				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_list_tables: %v", err)), toolName, "denied", nil
+				return s.toolErrorResult(traceID, fmt.Sprintf("authorization denied for db_list_tables: %v", err)), toolName, "denied", gateMeta, nil
 			}
 		}
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
 			ToolName:   toolName,
 			PluginID:   "db-exposure",
 			Action:     "list_tables",
 			Parameters: cleanArgs,
 			ApprovalID: approvalID,
 			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 		res, err := s.pluginRegistry.Execute(ctx, "db-exposure", "list_tables", nil, 10*time.Second)
 		if err != nil {
-			return s.toolErrorResult(traceID, err.Error()), toolName, "error", nil
+			return s.toolErrorResult(traceID, err.Error()), toolName, "error", gateMeta, nil
 		}
 		return MCPCallToolResult{
 			Content:           []MCPContentBlock{{Type: "text", Text: res.Output}},
 			IsError:           false,
 			StructuredContent: res.Data,
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "tls_status":
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
 			ToolName:   toolName,
 			Action:     toolName,
 			Parameters: cleanArgs,
 			ApprovalID: approvalID,
 			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 		var info core.CertificateInfo
 		if s.certManager != nil {
@@ -1023,20 +1098,24 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			IsError:           false,
 			StructuredContent: info,
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "audit_query":
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
 			ToolName:   toolName,
 			Action:     toolName,
 			Parameters: cleanArgs,
 			ApprovalID: approvalID,
 			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 		if s.auditLogger == nil {
-			return s.toolErrorResult(traceID, "audit logger is not enabled"), toolName, "error", nil
+			return s.toolErrorResult(traceID, "audit logger is not enabled"), toolName, "error", gateMeta, nil
 		}
 		filter := audit.AuditFilter{Limit: 50}
 		if callReq.Arguments != nil {
@@ -1054,20 +1133,24 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			IsError:           false,
 			StructuredContent: map[string]any{"events": events},
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "audit_verify":
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
 			ToolName:   toolName,
 			Action:     toolName,
 			Parameters: cleanArgs,
 			ApprovalID: approvalID,
 			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 		if s.auditLogger == nil {
-			return s.toolErrorResult(traceID, "audit logger is not enabled"), toolName, "error", nil
+			return s.toolErrorResult(traceID, "audit logger is not enabled"), toolName, "error", gateMeta, nil
 		}
 		v := s.auditLogger.VerifyChain()
 		raw, _ := json.MarshalIndent(v, "", "  ")
@@ -1076,17 +1159,21 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			IsError:           !v.Valid,
 			StructuredContent: v,
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	case "mcp_trace_verify":
-		if gateRes, gateStatus, proceed := s.checkApprovalGate(ctx, ApprovalGateRequest{
+		var gateRes MCPCallToolResult
+		var gateStatus string
+		var proceed bool
+		gateRes, gateStatus, gateMeta, proceed = s.checkApprovalGate(ctx, ApprovalGateRequest{
 			ToolName:   toolName,
 			Action:     toolName,
 			Parameters: cleanArgs,
 			ApprovalID: approvalID,
 			Actor:      actor,
-		}, traceID); !proceed {
-			return gateRes, toolName, gateStatus, nil
+		}, traceID)
+		if !proceed {
+			return gateRes, toolName, gateStatus, gateMeta, nil
 		}
 		targetTraceID := ""
 		if cleanArgs != nil {
@@ -1097,7 +1184,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 		if targetTraceID != "" {
 			v, err := s.VerifyTraceIntegrity(targetTraceID)
 			if err != nil {
-				return s.toolErrorResult(traceID, err.Error()), toolName, "error", nil
+				return s.toolErrorResult(traceID, err.Error()), toolName, "error", gateMeta, nil
 			}
 			raw, _ := json.MarshalIndent(v, "", "  ")
 			return MCPCallToolResult{
@@ -1105,7 +1192,7 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 				IsError:           !v.Valid,
 				StructuredContent: v,
 				TraceID:           traceID,
-			}, toolName, "ok", nil
+			}, toolName, "ok", gateMeta, nil
 		}
 		v := s.VerifyTraceChain()
 		raw, _ := json.MarshalIndent(v, "", "  ")
@@ -1114,10 +1201,10 @@ func (s *Server) handleToolCall(ctx context.Context, rawParams json.RawMessage, 
 			IsError:           !v.Valid,
 			StructuredContent: v,
 			TraceID:           traceID,
-		}, toolName, "ok", nil
+		}, toolName, "ok", gateMeta, nil
 
 	default:
-		return s.toolErrorResult(traceID, fmt.Sprintf("unknown MCP tool %q", toolName)), toolName, "error", nil
+		return s.toolErrorResult(traceID, fmt.Sprintf("unknown MCP tool %q", toolName)), toolName, "error", gateMeta, nil
 	}
 }
 
@@ -1256,17 +1343,23 @@ func ensureMCPTracesColumns(db *database.DB) error {
 	}
 	_ = rows.Close()
 
-	required := []string{
-		"parent_trace_id",
-		"request_sha256",
-		"response_sha256",
-		"prev_trace_hash",
-		"trace_hash",
-		"audit_entry_hash",
+	required := []struct {
+		name string
+		typ  string
+	}{
+		{"parent_trace_id", "TEXT"},
+		{"request_sha256", "TEXT"},
+		{"response_sha256", "TEXT"},
+		{"prev_trace_hash", "TEXT"},
+		{"trace_hash", "TEXT"},
+		{"audit_entry_hash", "TEXT"},
+		{"gatekeeper_decision", "TEXT"},
+		{"gatekeeper_risk_score", "REAL"},
+		{"gatekeeper_latency_ms", "REAL"},
 	}
 	for _, col := range required {
-		if !existing[col] {
-			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE mcp_traces ADD COLUMN %s TEXT", col)); err != nil {
+		if !existing[col.name] {
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE mcp_traces ADD COLUMN %s %s", col.name, col.typ)); err != nil {
 				return err
 			}
 		}
@@ -1310,11 +1403,12 @@ func (s *Server) recordTrace(tr MCPTrace) {
 			isErrInt = 1
 		}
 		_, _ = s.db.Exec(
-			`INSERT INTO mcp_traces(trace_id, parent_trace_id, session_id, timestamp, method, tool_name, actor, status, is_error, duration_ms, request_json, response_json, request_sha256, response_sha256, prev_trace_hash, trace_hash, audit_event_id, audit_entry_hash)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO mcp_traces(trace_id, parent_trace_id, session_id, timestamp, method, tool_name, actor, status, is_error, duration_ms, request_json, response_json, request_sha256, response_sha256, prev_trace_hash, trace_hash, audit_event_id, audit_entry_hash, gatekeeper_decision, gatekeeper_risk_score, gatekeeper_latency_ms)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			tr.TraceID, tr.ParentTraceID, tr.SessionID, tr.Timestamp, tr.Method, tr.ToolName, tr.Actor, tr.Status, isErrInt,
 			tr.DurationMs, string(reqBytes), string(respBytes), tr.RequestSHA256, tr.ResponseSHA256,
 			tr.PrevTraceHash, tr.TraceHash, tr.AuditEventID, tr.AuditEntryHash,
+			tr.GatekeeperDecision, tr.GatekeeperRiskScore, tr.GatekeeperLatencyMs,
 		)
 	}
 }
