@@ -13,6 +13,24 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-077` — Pluggable `MicroLLM` (`microllm.guard.v1`) System-1 Gatekeeper Contract and Local HTTP/CLI Adapters (Pillar 3A)
+- **Timestamp (UTC)**: `2026-11-22T01:22:00Z`
+- **GitHub Issue**: [#154](https://github.com/jmrenouard/api_executor/issues/154)
+- **Branch**: `feat/issue-154-microllm-gatekeeper-adapters`
+- **Request**:
+  - Implement Pillar 3A of the Zero-Trust MCP Bastion roadmap: standalone `internal/gatekeeper/` package conforming to `jmrenouard/MicroLLM`'s finalized `microllm.guard.v1` contract (`POST /v1/guard/evaluate` + `microllm-guard` CLI with exit codes `0`/`2`/`3`/`1`), loopback SSRF confinement, non-root `SandboxConfig` UID 10001 enforcement, `64 KiB` response caps, fail-closed normalization, `GatekeeperConfig` + redacted `SanitizedGatekeeperConfig`, and zero-allocation Prometheus telemetry.
+- **Changes**:
+  - Created [`internal/gatekeeper/gatekeeper.go`](../internal/gatekeeper/gatekeeper.go), [`internal/gatekeeper/http_client.go`](../internal/gatekeeper/http_client.go), and [`internal/gatekeeper/cli_client.go`](../internal/gatekeeper/cli_client.go): Implemented `Gatekeeper`, `NoopGatekeeper`, `HTTPGatekeeper` (strict `extra="forbid"` request payload, keep-alive transport, loopback-only default, redirect block, `64 KiB` cap), and `CLIGatekeeper` (direct argv `exec.CommandContext`, `ConfigureCommandProcessGroupAndSandbox`, bounded stdout, exit-code cross-validation).
+  - Modified [`internal/core/config.go`](../internal/core/config.go) and [`internal/api/config_handlers.go`](../internal/api/config_handlers.go): Added `GatekeeperConfig`, `DefaultGatekeeperConfig`, and `SanitizedGatekeeperConfig` redacting all custom headers to `[REDACTED]`.
+  - Created [`internal/api/gatekeeper_metrics.go`](../internal/api/gatekeeper_metrics.go): Registered bounded zero-alloc `gatekeeper_decisions_total{decision,channel}` and `gatekeeper_latency_seconds{mode}`.
+  - Created [`internal/gatekeeper/gatekeeper_test.go`](../internal/gatekeeper/gatekeeper_test.go) and [`internal/api/gatekeeper_metrics_test.go`](../internal/api/gatekeeper_metrics_test.go): Added `microllm.guard.v1` HTTP/CLI contract tests, SSRF tests, fail-closed matrix, localhost `< 5 ms` benchmark, header redaction test, and `0 allocs/op` metric verification.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md): Recorded `ACT-077`.
+- **Result**:
+  - Verified 100% pass across all 14 Go packages (`go test -p 2 -cover ./...`, `go vet ./...`, localhost latency benchmark `< 5 ms`, and WSL2 `CGO_ENABLED=1 go test -race`).
+  - GitHub Issue [#154](https://github.com/jmrenouard/api_executor/issues/154).
+
+---
+
 ### `ACT-076` — Deterministic MCP Trace Replay Engine and REST Endpoint (Pillar 2B)
 - **Timestamp (UTC)**: `2026-11-22T01:10:00Z`
 - **GitHub Issue**: [#152](https://github.com/jmrenouard/api_executor/issues/152)
