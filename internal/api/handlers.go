@@ -18,6 +18,7 @@ import (
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
 	"go-admin-tool/internal/database"
+	"go-admin-tool/internal/gatekeeper"
 	"go-admin-tool/internal/jobs"
 	"go-admin-tool/internal/mcp"
 	"go-admin-tool/internal/plugins"
@@ -33,6 +34,7 @@ type APIEnv struct {
 	AuditLogger        *audit.AuditLogger
 	AuthManager        *auth.Manager
 	ApprovalStore      *approval.Store
+	Gatekeeper         gatekeeper.Gatekeeper
 	PluginRegistry     *plugins.Registry
 	MCPServer          *mcp.Server
 	JobEngine          *jobs.Engine
@@ -416,11 +418,18 @@ func (env *APIEnv) ExecuteCommandHandler(w http.ResponseWriter, r *http.Request)
 	if timeoutOverride > 0 {
 		approvalParams = map[string]any{"timeout": timeoutOverride.String()}
 	}
-	if !env.enforceApprovalGate(w, r, principal, approval.Target{
+	cmdLine := strings.TrimSpace(cmdDef.Command + " " + strings.Join(cmdDef.Args, " "))
+	if !env.enforcePreExecutionGates(w, r, principal, approval.Target{
 		Channel:    approval.ChannelCommand,
 		Action:     cmdDef.Name,
 		Parameters: approvalParams,
-	}, cmdDef.RequireApproval, req.ApprovalID) {
+	}, cmdDef.RequireApproval, req.ApprovalID, gatekeeper.EvalRequest{
+		Channel:   string(approval.ChannelCommand),
+		ToolName:  "execute_command",
+		Command:   cmdLine,
+		Arguments: map[string]any{"name": cmdDef.Name, "timeout": effectiveTimeout.String()},
+		Actor:     principalActorID(principal),
+	}) {
 		return
 	}
 

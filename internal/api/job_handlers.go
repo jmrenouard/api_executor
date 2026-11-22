@@ -13,6 +13,7 @@ import (
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
+	"go-admin-tool/internal/gatekeeper"
 	"go-admin-tool/internal/jobs"
 )
 
@@ -182,6 +183,7 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Two-tier authorization: verify underlying command or plugin action
 	cmdRequireApproval := false
+	jobCommandLine := ""
 	if jobType == jobs.TypeCommand {
 		if env.Config != nil && !env.Config.Executor.Enabled {
 			writeJSONError(w, "Command executor is disabled", http.StatusNotFound)
@@ -200,6 +202,7 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cmdRequireApproval = cmdDef.RequireApproval
+		jobCommandLine = strings.TrimSpace(cmdDef.Command + " " + strings.Join(cmdDef.Args, " "))
 	} else if jobType == jobs.TypePlugin {
 		actionKey := fmt.Sprintf("plugin:%s:%s", pluginID, actionName)
 		if err := auth.Authorize(principal, "plugins:execute", actionKey); err != nil {
@@ -243,12 +246,23 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobApprovalParams := cloneApprovalParamsWithTimeout(req.Params, timeoutOverride)
-	if !env.enforceApprovalGate(w, r, principal, approval.Target{
+	gkTool := "execute_command"
+	if jobType == jobs.TypePlugin {
+		gkTool = "execute_plugin"
+		jobCommandLine = pluginID + ":" + actionName
+	}
+	if !env.enforcePreExecutionGates(w, r, principal, approval.Target{
 		Channel:    approval.ChannelJob,
 		Action:     actionName,
 		PluginID:   pluginID,
 		Parameters: jobApprovalParams,
-	}, cmdRequireApproval, req.ApprovalID) {
+	}, cmdRequireApproval, req.ApprovalID, gatekeeper.EvalRequest{
+		Channel:   string(approval.ChannelJob),
+		ToolName:  gkTool,
+		Command:   jobCommandLine,
+		Arguments: req.Params,
+		Actor:     principalActorID(principal),
+	}) {
 		return
 	}
 

@@ -12,6 +12,7 @@ import (
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
+	"go-admin-tool/internal/gatekeeper"
 	"go-admin-tool/internal/plugins"
 )
 
@@ -132,12 +133,18 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	approvalParams := cloneApprovalParamsWithTimeout(req.Params, timeoutOverride)
-	if !env.enforceApprovalGate(w, r, p, approval.Target{
+	if !env.enforcePreExecutionGates(w, r, p, approval.Target{
 		Channel:    approval.ChannelPlugin,
 		PluginID:   req.PluginID,
 		Action:     req.Action,
 		Parameters: approvalParams,
-	}, false, req.ApprovalID) {
+	}, false, req.ApprovalID, gatekeeper.EvalRequest{
+		Channel:   string(approval.ChannelPlugin),
+		ToolName:  "execute_plugin",
+		Command:   req.PluginID + ":" + req.Action,
+		Arguments: req.Params,
+		Actor:     principalActorID(p),
+	}) {
 		return
 	}
 
