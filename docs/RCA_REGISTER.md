@@ -791,7 +791,7 @@ This living governance register records all errors encountered, technical dead-e
   3. *Why were lines 415 and 647 unsynchronized?* Both handlers used `env.FindCommand` / `env.GetCommands` (which acquire `env.commandsMu.RLock()`), but invoked `ResolveTimeout` and `EffectiveDefaultTimeout` outside `env.commandsMu.RLock()`.
   4. *Root Cause*: Calling value-receiver methods on `activeConfig.Executor` without holding `env.commandsMu.RLock()`, copying fields written concurrently under `env.commandsMu.Lock()`.
 - **Applied Change / Fix**:
-  Guarded `activeConfig.Executor.ResolveTimeout` (`internal/api/handlers.go:415`) and `activeConfig.Executor.EffectiveDefaultTimeout` (`internal/api/handlers.go:647`) with `env.commandsMu.RLock()` / `env.commandsMu.RUnlock()`.
+  Guarded all concurrent readers of `env.Config.Executor` (`activeConfig.Executor.ResolveTimeout` at `internal/api/handlers.go:415`, `EffectiveDefaultTimeout` at `internal/api/handlers.go:649` and `internal/api/plugin_handlers.go:115`, and `buildFallbackSanitizedView` at `internal/api/config_handlers.go:177`) with `env.commandsMu.RLock()` / `env.commandsMu.RUnlock()`.
 - **Result & Non-Regression Test**:
   Verified by `CGO_ENABLED=1 go test -race -count=1 ./internal/api/...` under WSL2 Linux passing 100% with 0 data races.
 

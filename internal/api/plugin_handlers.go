@@ -112,7 +112,9 @@ func (env *APIEnv) PluginExecuteHandler(w http.ResponseWriter, r *http.Request) 
 
 	timeout := 30 * time.Second
 	if env.Config != nil {
+		env.commandsMu.RLock()
 		timeout = env.Config.Executor.EffectiveDefaultTimeout()
+		env.commandsMu.RUnlock()
 	}
 	var timeoutOverride time.Duration
 	if strings.TrimSpace(req.Timeout) != "" {

@@ -190,7 +190,7 @@ go test -v -race ./internal/audit/...
 go test -v ./tests/e2e -run "TestTier2_Boundary|TestTier3_Combination|TestTier4_ZeroTrustMCPBastion"
 
 # 5. Run the Zero-Trust Bastion HITL, Gatekeeper, MCP Replay & CIS Preset suites (with race detector)
-go test -v -race ./internal/approval/... ./internal/gatekeeper/... ./internal/mcp/... ./internal/plugins/... -run "Test|TestCIS"
+go test -v -race ./internal/approval/... ./internal/gatekeeper/... ./internal/mcp/... ./internal/plugins/...
 ```
 
 ### Continuous Integration (`.github/workflows/security.yml`)

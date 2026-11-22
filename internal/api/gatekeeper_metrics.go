@@ -111,7 +111,7 @@ func RecordGatekeeperEvaluation(mode, channel, decision string, duration time.Du
 		normalizeGatekeeperDecision(decision),
 		normalizeGatekeeperChannel(channel),
 	).Inc()
-	if duration > 0 {
+	if duration >= 0 {
 		gatekeeperLatencySeconds.WithLabelValues(normalizeGatekeeperMode(mode)).Observe(duration.Seconds())
 	}
 }
