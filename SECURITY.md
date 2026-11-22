@@ -13,7 +13,7 @@ Every control documented below is continuously verified by deterministic unit, a
 
 ## 1. Executive Summary & Audit Scope (`/repo-scan` + `/ponytail-audit`)
 
-An end-to-end security review was performed across all **26 REST and JSON-RPC 2.0 endpoints**, authentication/authorization resolvers, command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
+An end-to-end security review was performed across all **33 REST and JSON-RPC 2.0 endpoints**, authentication/authorization resolvers, the **Zero-Trust MCP Bastion** control plane (Human-in-the-Loop pre-execution approvals, pluggable `MicroLLM` System-1 gatekeeper, SHA-256 hash-chained & replayable MCP traces, read-only `CISBenchmarks` MCP audit preset), command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
 
 ### Key Security Guarantees Verified by Automated Tests
 
@@ -33,11 +33,16 @@ An end-to-end security review was performed across all **26 REST and JSON-RPC 2.
    - **Per-IP Token-Bucket Rate Limiting (`internal/api/security_middleware.go`)**: Throttles volumetric floods and credential brute-force attacks with `429 Too Many Requests`, `Retry-After: 1`, and `X-RateLimit-Limit` headers while bounding tracker memory (`MaxTrackedRateLimitIPs = 10000`) against spoofed-IP floods.
    - **Request Body Size Cap (`MaxRequestBodyBytes = 1 MiB`)**: Rejects oversized `Content-Length` and chunked request streams with `413 Request Entity Too Large` before JSON decoding can exhaust heap memory.
    - **Subprocess Timeout Ceilings & Process-Group Kill**: Enforces `executor.max_timeout_seconds` (`400 Bad Request` on excessive overrides) and kills entire process groups on timeout or job cancellation.
-   - **Prometheus Cardinality Protection**: Normalizes dynamic HTTP path segments (`{id}`) and caps dynamic action labels at `MaxDynamicActionLabels = 64` (falling back to `_other`).
+   - **Prometheus Cardinality Protection**: Normalizes dynamic HTTP path segments (`:id`, `:trace_id`), enforces closed-set `gatekeeper_decisions_total` / `gatekeeper_latency_seconds` labels, and caps dynamic action labels at `MaxDynamicActionLabels = 64` (falling back to `_other`).
+5. **Zero-Trust MCP Bastion Controls (HITL, System-1 Gatekeeper, Cryptographic Trace Replay & Read-Only CIS Audits)**:
+   - **Human-in-the-Loop (HITL) Pre-Execution Gate (`internal/approval/`, `internal/api/approval_handlers.go`)**: Intercepts critical commands, plugins, async jobs, and MCP `tools/call` operations with a canonical SHA-256 payload digest (`PayloadSHA256`), enforces distinct-approver separation (`RequireDistinctApprover`), blocks TOCTOU payload tampering (`403 Forbidden`), and enforces atomic single-use approval consumption (`409 Conflict` on replay).
+   - **Pluggable `MicroLLM` (`microllm.guard.v1`) System-1 Gatekeeper (`internal/gatekeeper/`)**: Evaluates requests in strict order (`Auth -> RBAC -> Pre-Approved approval_id -> Static HITL -> System-1 -> Execution`) over loopback-confined HTTP (`< 5 ms` target, `64 KiB` response cap, redirect-blocked) or non-root UID `10001` CLI subprocesses; escalates `x_abstain` / timeouts / invalid outputs fail-closed to HITL (or `403 Forbidden` when HITL is disabled) and forces fail-closed denial on `hijack_suspected: true`.
+   - **Tamper-Evident MCP Trace Chain & Deterministic Replay (`internal/mcp/trace_integrity.go`, `internal/mcp/replay.go`)**: Chains every MCP trace via `PrevTraceHash -> TraceHash`, cross-links to `audit_entry_hash`, exposes `GET /api/v1/mcp/traces/verify` and `GET /api/v1/mcp/traces/{id}/verify`, and provides zero-side-effect `dry_run` replay plus strictly `admin`-gated `live` replay with `parent_trace_id` lineage.
+   - **Read-Only `CISBenchmarks` (`cis.mcp.contract.v1`) MCP Audit Preset (`plugins/secops/cis-benchmarks-audit.yaml`, `configs/cis-benchmarks-audit.yaml`)**: Exposes 4 strictly read-only `audit-cis` presets (`cis_list_targets`, `cis_audit_json`, `cis_audit_sarif`, `cis_remediate_dry_run`), 18 canonical targets, directory-confined report/output regex allowlists, zero shell interpolation, `CIS_DB_PASSWORD` env-only credential boundary, and UID/GID `10001` (`keep-id`) sandbox enforcement.
 
 ---
 
-## 2. Complete API Surface & RBAC Security Matrix (26 Endpoints)
+## 2. Complete API Surface & RBAC Security Matrix (33 Endpoints)
 
 | # | Endpoint | Methods | Required Scope / Role | Anonymous (`require_auth: true`) | `viewer` | `operator` | `service_account` (Scoped) | `admin` | Security Controls & Confinement |
 | :- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -67,8 +72,13 @@ An end-to-end security review was performed across all **26 REST and JSON-RPC 2.
 | 24 | `/api/v1/db/query` | `POST` | `db:read` | `401` | `200` | `200` | Allowlist only | `200` | `ValidateReadOnlySQL` (`SELECT`/`WITH`/`EXPLAIN` only; `403` on DDL/DML/stacked SQL) |
 | 25 | `/api/v1/audit/events`, `/stats`, `/verify` | `GET` | `audit:read` | `401` | `200` | `200` | `403` | `200` | Cryptographic SHA-256 hash-chain verification (`GENESIS` -> head) |
 | 26 | `/api/v1/tls/status` (`GET`), `/api/v1/tls/renew` (`POST`) | `GET`, `POST` | `tls:read` (`GET`), `tls:manage` / `admin` (`POST`) | `401` | `200` (`GET`) / `403` (`POST`) | `200` (`GET`) / `403` (`POST`) | `403` | `200` | Atomic ECDSA P-256 certificate regeneration restricted to `admin` |
-| 27 | `/api/v1/mcp` (`POST`), `/api/v1/mcp/traces*` (`GET`, `DELETE`) | `POST`, `GET`, `DELETE` | `mcp:access` (`POST`/`GET`), `admin` (`DELETE`) | `401` | `403` | `200` (`POST`/`GET`) / `403` (`DELETE`) | Allowlist only (`POST`) | `200` | Per-tool RBAC (`commands:execute`, `plugins:execute`, `db:read`, `tls:manage`) |
-| 28 | `/api/v1/jobs` (`POST`, `GET`), `/api/v1/jobs/{id}` (`GET`), `/logs` (`GET`), `/cancel` (`POST`) | `POST`, `GET` | `jobs:submit` + underlying action RBAC, `jobs:read`, `jobs:cancel` | `401` | `403` (`POST`) / `200` (`GET`) | `202`/`200` | Allowlist only (`POST`) | `202`/`200` | Dual authorization (job scope + command/plugin allowlist), `429` queue backpressure |
+| 27 | `/api/v1/mcp` (`POST`), `/api/v1/mcp/traces*` (`GET`, `DELETE`) | `POST`, `GET`, `DELETE` | `mcp:access` (`POST`/`GET`), `admin` (`DELETE`) | `401` | `403` | `200` (`POST`/`GET`) / `403` (`DELETE`) | Allowlist only (`POST`) | `200` | Per-tool RBAC (`commands:execute`, `plugins:execute`, `db:read`, `tls:manage`), HITL & System-1 hooks |
+| 28 | `/api/v1/jobs` (`POST`, `GET`), `/api/v1/jobs/{id}` (`GET`), `/logs` (`GET`), `/cancel` (`POST`) | `POST`, `GET` | `jobs:submit` + underlying action RBAC, `jobs:read`, `jobs:cancel` | `401` | `403` (`POST`) / `200` (`GET`) | `202`/`200` | Allowlist only (`POST`) | `202`/`200` | Dual authorization (job scope + command/plugin allowlist), HITL & System-1 gates, `429` queue backpressure |
+| 29 | `/api/v1/approvals`, `/api/v1/approvals/{id}` | `GET` | `approvals:read` (`admin` / scoped) | `401` | `403` | `403` | `403` | `200` | Bounded pending approval queue (`MaxPending`), canonical SHA-256 payload digest inspection |
+| 30 | `/api/v1/approvals/{id}/approve`, `/api/v1/approvals/{id}/reject` | `POST` | `approvals:decide` (`admin`, distinct approver) | `401` | `403` | `403` | `403` | `200` (`403` self) | Distinct-approver enforcement (`RequireDistinctApprover`), atomic single-use consumption (`409` on replay) |
+| 31 | `/api/v1/mcp/traces/verify` | `GET` | `mcp:access` | `401` | `403` | `200` | `403` | `200` | Cryptographic SHA-256 chain continuity verification (`GENESIS` -> head) across retained MCP traces |
+| 32 | `/api/v1/mcp/traces/{trace_id}/verify` | `GET` | `mcp:access` | `401` | `403` | `200` | `403` | `200` | Recomputes request/response/trace SHA-256 digests and verifies cross-link to `audit_entry_hash` |
+| 33 | `/api/v1/mcp/traces/{trace_id}/replay` | `POST` | `mcp:access` (`dry_run`), `admin` (`live`) | `401` | `403` | `200` (`dry_run`) / `403` (`live`) | `403` (`live`) | `200` | Zero-side-effect `dry_run` default; `live` replay enforces `admin`, SHA-256 determinism & `parent_trace_id` lineage |
 
 ---
 
@@ -117,6 +127,19 @@ An end-to-end security review was performed across all **26 REST and JSON-RPC 2.
 | **L6: Async Job Queue Flood** | Submitting thousands of concurrent background jobs | Bounded priority heap capacity check (`Engine.Submit`) | `QueueCapacity = 1000` | `429 Too Many Requests` |
 | **L7: Telemetry Cardinality DoS** | Fuzzing random URLs or action names to exhaust Prometheus RAM | Path segment normalization (`normalizeMetricsPath`) + action label cap | `MaxDynamicActionLabels = 64` (overflow -> `_other`) | Bounded time-series memory |
 
+### 3.5 Zero-Trust MCP Bastion Controls (HITL, `MicroLLM` System-1, Trace Replay & `CISBenchmarks`)
+
+- **Strict Pre-Execution Evaluation Pipeline (`internal/api/approval_handlers.go`, `internal/mcp/server.go`)**:
+  - Every command, plugin, async job, and MCP tool invocation passes through: **Auth -> RBAC -> Pre-Approved `approval_id` (canonical SHA-256 match + atomic single-use consume) -> Static HITL Policy -> Pluggable `MicroLLM` System-1 Gatekeeper -> Non-Root UID `10001` Sandboxed Execution**.
+  - Unauthenticated or unauthorized callers are rejected (`401`/`403`) before creating HITL challenges or invoking the System-1 gatekeeper, preventing unauthenticated queue-exhaustion or inference-flooding DoS.
+- **Fail-Closed `MicroLLM` (`microllm.guard.v1`) Confinement (`internal/gatekeeper/`)**:
+  - HTTP mode enforces loopback-only endpoints by default (`allow_remote: false`), disables HTTP redirects, caps response bodies at `64 KiB`, sends strict `extra="forbid"` request payloads, and redacts custom headers in `/api/v1/config`.
+  - CLI mode invokes direct argv via `exec.CommandContext` with `ConfigureCommandProcessGroupAndSandbox` (UID/GID `10001`), zero shell interpolation, and strict exit-code cross-validation (`0`=allow, `2`=deny, `3`=x_abstain, `1`=error).
+  - Any `hijack_suspected: true` flag overrides `allow` fail-closed; `x_abstain`, timeout, or malformed wire output escalates to HITL (or denies `403 Forbidden` when HITL is disabled).
+- **Read-Only `CISBenchmarks` (`cis.mcp.contract.v1`) Audit Preset (`plugins/secops/cis-benchmarks-audit.yaml`, `configs/cis-benchmarks-audit.yaml`)**:
+  - Exposes 4 strictly read-only `audit-cis` actions (`cis_list_targets`, `cis_audit_json`, `cis_audit_sarif`, `cis_remediate_dry_run`) with 11 pre-compiled regex allowlists (18 canonical targets, directory-confined `/tmp`/`/var/tmp`/`/var/log/cis` paths), zero `systemctl`, zero shell wrappers, and `CIS_DB_PASSWORD` env-only credential handling.
+  - Exposes MCP resource `executor://cis-benchmarks/preset` and allowlist-validated prompt `cis-benchmark-audit`.
+
 ---
 
 ## 4. Catalog of Passing Security Tests
@@ -141,7 +164,11 @@ All security controls are validated by automated tests executed on every push an
 | [`internal/plugins/m2_adversarial_test.go`](internal/plugins/m2_adversarial_test.go) | Adversarial security tests for JWT algorithm confusion (`alg: none`), HMAC secret brute-force resistance, non-scalar parameter injection, and SQL comment/stacked-query bypass attempts. |
 | [`internal/plugins/plugins_test.go`](internal/plugins/plugins_test.go) | Read-only SQL validation (`TestDBExposureReadOnlyValidationAndExecution`) and declarative parameter regex sanitization. |
 | [`internal/audit/audit_test.go`](internal/audit/audit_test.go) | Cryptographic SHA-256 hash chain verification (`GENESIS` linkage) and tamper detection when an SQLite audit row is altered. |
-| [`tests/e2e/tier2_boundaries_test.go`](tests/e2e/tier2_boundaries_test.go) & [`tier3_combinations_test.go`](tests/e2e/tier3_combinations_test.go) | Full-stack HTTPS/HTTP boundary tests covering unauthorized access, forbidden role actions, SQL injection blocking, and end-to-end audit trail verification. |
+| [`internal/approval/approval_test.go`](internal/approval/approval_test.go) & [`internal/api/approval_gate_test.go`](internal/api/approval_gate_test.go) | HITL policy matching, canonical SHA-256 payload digests, distinct-approver enforcement, TOCTOU tamper rejection (`403`), atomic single-use consumption (`409` on replay), and SQLite reload persistence. |
+| [`internal/gatekeeper/gatekeeper_test.go`](internal/gatekeeper/gatekeeper_test.go) & [`internal/api/gatekeeper_integration_test.go`](internal/api/gatekeeper_integration_test.go) | `microllm.guard.v1` HTTP/CLI contract validation, loopback SSRF rejection, `hijack_suspected` fail-closed override, `< 5 ms` localhost benchmark, `0 allocs/op` bounded Prometheus metrics, and `x_abstain` -> HITL escalation. |
+| [`internal/mcp/trace_integrity_test.go`](internal/mcp/trace_integrity_test.go) & [`internal/mcp/replay_test.go`](internal/mcp/replay_test.go) | MCP trace SHA-256 hash chaining, audit cross-link verification, tamper detection, `dry_run` verification, and `admin`-only deterministic `live` replay with `parent_trace_id` lineage. |
+| [`internal/plugins/cis_preset_test.go`](internal/plugins/cis_preset_test.go) & [`internal/api/cis_preset_test.go`](internal/api/cis_preset_test.go) | Read-only `CISBenchmarks` (`cis.mcp.contract.v1`) declarative loading, pre-compiled regex enforcement, forbidden remediation/credential flag smuggling rejection, UID `10001` sandbox validation, and scoped service-account RBAC isolation. |
+| [`tests/e2e/tier2_boundary_test.go`](tests/e2e/tier2_boundary_test.go), [`tier3_cross_feature_test.go`](tests/e2e/tier3_cross_feature_test.go) & [`tier4_bastion_test.go`](tests/e2e/tier4_bastion_test.go) | Full-stack real HTTPS **TLS 1.3** boundary and Zero-Trust MCP Bastion E2E suites chaining `MicroLLM` -> `x_abstain` -> HITL approve -> single-use execute -> SHA-256 audit & trace verify -> deterministic replay -> read-only `CISBenchmarks` preset -> `/metrics` zero-ID-leak audit. |
 
 ---
 
@@ -159,8 +186,11 @@ go test -v ./internal/plugins -run "TestM2Adversarial|TestDBExposure|TestJWTToke
 # 3. Run the SHA-256 Tamper-Evident Audit Hash-Chain suite
 go test -v -race ./internal/audit/...
 
-# 4. Run the End-to-End Security Boundary & Cross-Feature suite
-go test -v ./tests/e2e -run "TestTier2_Boundary|TestTier3_Combination"
+# 4. Run the End-to-End Security Boundary, Cross-Feature & TLS 1.3 Zero-Trust Bastion suite
+go test -v ./tests/e2e -run "TestTier2_Boundary|TestTier3_Combination|TestTier4_ZeroTrustMCPBastion"
+
+# 5. Run the Zero-Trust Bastion HITL, Gatekeeper, MCP Replay & CIS Preset suites (with race detector)
+go test -v -race ./internal/approval/... ./internal/gatekeeper/... ./internal/mcp/... ./internal/plugins/... -run "Test|TestCIS"
 ```
 
 ### Continuous Integration (`.github/workflows/security.yml`)

@@ -666,6 +666,15 @@ Response (`200 OK`):
 
 > **Note**: Asynchronous job completions also automatically feed the unified mode telemetry vectors `action_mode_calls_total{action, mode="async", status}` and `action_mode_call_duration_seconds{action, mode="async"}` alongside legacy job metrics.
 
+### Zero-Trust MCP Bastion Architecture
+
+API Executor acts as a **Zero-Trust MCP Bastion** combining four composable defense layers (certified end-to-end under HTTPS **TLS 1.3** in [`tests/e2e/tier4_bastion_test.go`](tests/e2e/tier4_bastion_test.go) and [`SECURITY.md`](SECURITY.md)):
+
+1. **Human-in-the-Loop (HITL) Pre-Execution Gate (`internal/approval/`)**: Intercepts critical commands, plugins, async jobs, and MCP `tools/call` operations with a canonical SHA-256 payload digest, enforces distinct-admin separation (`RequireDistinctApprover`), blocks TOCTOU payload tampering (`403`), and consumes approvals atomically once (`409` on replay).
+2. **Pluggable `MicroLLM` (`microllm.guard.v1`) System-1 Gatekeeper (`internal/gatekeeper/`)**: Supports local loopback HTTP (`POST /v1/guard/evaluate`, `< 5 ms` target) and UID `10001` CLI (`microllm-guard`) adapters; escalates `x_abstain`, timeouts, and errors fail-closed to HITL (or `403` when HITL is disabled) with zero-allocation bounded Prometheus metrics (`gatekeeper_decisions_total`, `gatekeeper_latency_seconds`).
+3. **SHA-256 MCP Trace Chain & Deterministic Replay (`internal/mcp/`)**: Cryptographically chains every MCP trace (`PrevTraceHash -> TraceHash`), cross-links to `audit_entry_hash`, and supports `dry_run` verification plus `admin`-only `live` replay with `parent_trace_id` lineage.
+4. **Read-Only `CISBenchmarks` (`cis.mcp.contract.v1`) MCP Audit Preset (`plugins/secops/cis-benchmarks-audit.yaml`, `configs/cis-benchmarks-audit.yaml`)**: Exposes 4 strictly read-only `audit-cis` presets (`cis_list_targets`, `cis_audit_json`, `cis_audit_sarif`, `cis_remediate_dry_run`), 18 canonical targets, MCP resource `executor://cis-benchmarks/preset`, and prompt `cis-benchmark-audit` under non-root UID `10001` (`keep-id`) confinement.
+
 ---
 
 ## Complete REST API Summary
@@ -697,9 +706,16 @@ Response (`200 OK`):
 | `POST` | `/api/v1/plugins/declarative` | Dynamically register a declarative command plugin manifest |
 | `GET` | `/api/v1/db/tables` | Inspect SQLite tables and column schemas via `db-exposure` |
 | `POST` | `/api/v1/db/query` | Execute a guarded read-only `SELECT` query |
-| `POST` | `/api/v1/mcp` | Model Context Protocol (MCP) JSON-RPC 2.0 endpoint |
+| `POST` | `/api/v1/mcp` | Model Context Protocol (MCP) JSON-RPC 2.0 endpoint (tools, resources including `executor://cis-benchmarks/preset`, and prompts including `cis-benchmark-audit`) |
 | `GET` | `/api/v1/mcp/tools` | Inspect exposed MCP tools, resources, and prompt templates |
-| `GET` | `/api/v1/mcp/traces` | Query retained MCP interaction traces (`mcp_tr_<hex>`) |
+| `GET` | `/api/v1/mcp/traces` | Query retained SHA-256 hash-chained MCP interaction traces (`mcp_tr_<hex>`) |
+| `GET` | `/api/v1/mcp/traces/verify` | Cryptographically verify SHA-256 hash-chain continuity across retained MCP traces |
+| `GET` | `/api/v1/mcp/traces/{trace_id}/verify` | Verify a single MCP trace's SHA-256 request/response digests and cross-link to `audit_entry_hash` |
+| `POST` | `/api/v1/mcp/traces/{trace_id}/replay` | Deterministic MCP trace replay (`dry_run` default; `admin`-only `live` replay with `parent_trace_id` lineage) |
+| `GET` | `/api/v1/approvals` | List Human-in-the-Loop (HITL) pre-execution approval requests (`approvals:read`) |
+| `GET` | `/api/v1/approvals/{id}` | Inspect a specific HITL approval request and its canonical `payload_sha256` digest |
+| `POST` | `/api/v1/approvals/{id}/approve` | Distinct-`admin` approval granting atomic single-use execution authorization |
+| `POST` | `/api/v1/approvals/{id}/reject` | Distinct-`admin` rejection permanently blocking the pending approval request |
 | `GET` | `/api/v1/audit/logs` | Query tamper-evident SHA-256 hash-chained audit events |
 | `GET` | `/api/v1/audit/verify` | Cryptographically verify the entire SHA-256 audit hash chain |
 | `GET` | `/api/v1/logs` | Query structured application logs from the in-memory ring buffer |
