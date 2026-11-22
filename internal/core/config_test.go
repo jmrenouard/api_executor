@@ -556,7 +556,7 @@ multi_config:
 		t.Errorf("expected ../../config.yaml version path '/api/v1/config/version', got %q", repoCfg.EffectiveVersionPath())
 	}
 
-	for _, profileFile := range []string{"../../configs/ubuntu-tasks.yaml", "../../configs/redhat-tasks.yaml"} {
+	for _, profileFile := range []string{"../../configs/ubuntu-tasks.yaml", "../../configs/redhat-tasks.yaml", "../../configs/cis-benchmarks-audit.yaml"} {
 		pCfg, err := core.LoadConfig(profileFile)
 		if err != nil {
 			t.Fatalf("failed to load %s: %v", profileFile, err)

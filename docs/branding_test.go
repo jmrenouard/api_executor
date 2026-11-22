@@ -517,7 +517,7 @@ func TestRootlessContainerSandboxManifestsAndDockerfiles(t *testing.T) {
 	}
 
 	// 3. Verify configuration files declare sandbox isolation block with UID 10001
-	configFiles := []string{"../config.yaml", "../configs/ubuntu-tasks.yaml", "../configs/redhat-tasks.yaml"}
+	configFiles := []string{"../config.yaml", "../configs/ubuntu-tasks.yaml", "../configs/redhat-tasks.yaml", "../configs/cis-benchmarks-audit.yaml"}
 	requiredConfigMarkers := []string{
 		"sandbox:",
 		"enforce_non_root: true",
@@ -540,8 +540,8 @@ func TestRootlessContainerSandboxManifestsAndDockerfiles(t *testing.T) {
 }
 
 func TestConfigVersionDeclarationsAndAPIDocumentation(t *testing.T) {
-	// 1. Verify config.yaml, configs/ubuntu-tasks.yaml, and configs/redhat-tasks.yaml declare version: "2.2.0"
-	configFiles := []string{"../config.yaml", "../configs/ubuntu-tasks.yaml", "../configs/redhat-tasks.yaml"}
+	// 1. Verify config.yaml, configs/ubuntu-tasks.yaml, configs/redhat-tasks.yaml, and configs/cis-benchmarks-audit.yaml declare version: "2.2.0"
+	configFiles := []string{"../config.yaml", "../configs/ubuntu-tasks.yaml", "../configs/redhat-tasks.yaml", "../configs/cis-benchmarks-audit.yaml"}
 	for _, cfgPath := range configFiles {
 		content, err := os.ReadFile(cfgPath)
 		if err != nil {

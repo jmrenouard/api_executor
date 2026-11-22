@@ -56,6 +56,9 @@ multi_config:
     - name: "redhat"
       path: "configs/redhat-tasks.yaml"
       description: "RedHat Enterprise Linux / UBI9 administration tasks"
+    - name: "cis-benchmarks"
+      path: "configs/cis-benchmarks-audit.yaml"
+      description: "Read-only CIS Benchmarks compliance audit presets (cis.mcp.contract.v1)"
 
 otlp_export:
   enabled: true

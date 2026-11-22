@@ -1,0 +1,103 @@
+version: "2.2.0"
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+  tls:
+    enabled: true
+    auto_generate: true
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    organization: "API Executor CIS Benchmarks Audit Node"
+    validity_days: 365
+    min_version: "1.3"
+    hosts:
+      - "localhost"
+      - "127.0.0.1"
+      - "cis-audit-node"
+
+logging:
+  level: "info"
+  path: ""
+
+database:
+  path: "history.db"
+
+file_server:
+  enabled: false
+  secure_dir: "/var/log/secure_files"
+
+command_executor:
+  enabled: true
+  default_timeout: "120s"
+  default_timeout_seconds: 120
+  max_timeout_seconds: 300
+  enable_os_presets: false
+  commands:
+    - name: "cis-list-targets"
+      description: "List all 18 canonical CIS benchmark targets and 887 compliance controls (read-only)"
+      os_family: "linux"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--list-targets"]
+      timeout: "30s"
+    - name: "cis-audit-rhel9-json"
+      description: "Execute read-only CIS Red Hat Enterprise Linux 9 compliance audit (JSON report)"
+      os_family: "redhat"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--target", "rhel9", "--format", "json", "--lang", "en", "--mode", "local", "--output", "/tmp/cis-rhel9.json"]
+      timeout: "120s"
+    - name: "cis-audit-rhel9-sarif"
+      description: "Execute read-only CIS Red Hat Enterprise Linux 9 compliance audit (SARIF v2.1.0 report)"
+      os_family: "redhat"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--target", "rhel9", "--format", "sarif", "--lang", "en", "--mode", "local", "--output", "/tmp/cis-rhel9.sarif"]
+      timeout: "120s"
+    - name: "cis-audit-postgresql17-json"
+      description: "Execute read-only CIS PostgreSQL 17 compliance audit (JSON report; pass DB password via CIS_DB_PASSWORD env var only)"
+      os_family: "linux"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--target", "postgresql17", "--format", "json", "--lang", "en", "--mode", "local", "--output", "/tmp/cis-postgresql17.json"]
+      timeout: "120s"
+    - name: "cis-audit-mysql80-json"
+      description: "Execute read-only CIS MySQL 8.0 compliance audit (JSON report; pass DB password via CIS_DB_PASSWORD env var only)"
+      os_family: "linux"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--target", "mysql80", "--format", "json", "--lang", "en", "--mode", "local", "--output", "/tmp/cis-mysql80.json"]
+      timeout: "120s"
+    - name: "cis-audit-mariadb1011-json"
+      description: "Execute read-only CIS MariaDB 10.11 compliance audit (JSON report; pass DB password via CIS_DB_PASSWORD env var only)"
+      os_family: "linux"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--target", "mariadb1011", "--format", "json", "--lang", "en", "--mode", "local", "--output", "/tmp/cis-mariadb1011.json"]
+      timeout: "120s"
+    - name: "cis-audit-mongodb8-json"
+      description: "Execute read-only CIS MongoDB 8 compliance audit (JSON report; pass DB password via CIS_DB_PASSWORD env var only)"
+      os_family: "linux"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--target", "mongodb8", "--format", "json", "--lang", "en", "--mode", "local", "--output", "/tmp/cis-mongodb8.json"]
+      timeout: "120s"
+    - name: "cis-audit-cassandra50-json"
+      description: "Execute read-only CIS Apache Cassandra 5.0 compliance audit (JSON report; pass DB password via CIS_DB_PASSWORD env var only)"
+      os_family: "linux"
+      category: "secops"
+      command: "audit-cis"
+      args: ["--target", "cassandra50", "--format", "json", "--lang", "en", "--mode", "local", "--output", "/tmp/cis-cassandra50.json"]
+      timeout: "120s"
+
+sandbox:
+  enabled: true
+  enforce_non_root: true
+  uid: 10001
+  gid: 10001
+  userns: "keep-id"
+  userns_mode: "keep-id"
+  drop_privileges: true
+  no_new_privileges: true
+  drop_caps: true

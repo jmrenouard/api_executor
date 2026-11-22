@@ -382,6 +382,12 @@ func (s *Server) Resources() []MCPResource {
 			Description: "Live cryptographic verification of the SHA-256 audit log chain",
 			MimeType:    "application/json",
 		},
+		{
+			URI:         CISResourceURI,
+			Name:        "CIS Benchmarks Read-Only Audit Preset",
+			Description: "Read-only cis.mcp.contract.v1 compliance audit preset metadata, 18 canonical targets, allowed/forbidden flags, and loaded plugin schema",
+			MimeType:    "application/json",
+		},
 	}
 }
 
@@ -402,6 +408,14 @@ func (s *Server) Prompts() []MCPPrompt {
 		{
 			Name:        "database-inspection",
 			Description: "Inspect exposed database tables and summarize recent command execution outcomes",
+		},
+		{
+			Name:        CISPromptName,
+			Description: "Run a strictly read-only CIS compliance audit (JSON or SARIF v2.1.0) and optional dry-run remediation preview",
+			Arguments: []map[string]any{
+				{"name": "target", "description": "Canonical CIS target (e.g. 'rhel9', 'postgresql17', 'mysql80', 'mariadb1011', 'mongodb8', 'cassandra50')", "required": false},
+				{"name": "format", "description": "Report output format ('json' or 'sarif', default 'json')", "required": false},
+			},
 		},
 	}
 }
@@ -1245,6 +1259,8 @@ func (s *Server) handleResourceRead(rawParams json.RawMessage) (any, *JSONRPCErr
 		if s.auditLogger != nil {
 			payload = s.auditLogger.VerifyChain()
 		}
+	case CISResourceURI:
+		payload = BuildCISBenchmarksPresetResource(s.pluginRegistry)
 	default:
 		return nil, &JSONRPCError{Code: -32002, Message: fmt.Sprintf("Resource not found: %s", req.URI)}
 	}
@@ -1310,6 +1326,52 @@ func (s *Server) handlePromptGet(rawParams json.RawMessage) (any, *JSONRPCError)
 					"content": map[string]any{
 						"type": "text",
 						"text": "Call db_list_tables and db_query with SELECT * FROM action_history ORDER BY id DESC LIMIT 10.",
+					},
+				},
+			},
+		}, nil
+	case CISPromptName:
+		target := strings.TrimSpace(req.Arguments["target"])
+		if target == "" {
+			target = "rhel9"
+		}
+		if !IsValidCISTarget(target) {
+			return nil, &JSONRPCError{
+				Code:    -32602,
+				Message: fmt.Sprintf("Unsupported CIS benchmark target %q (must match one of the 18 canonical cis.mcp.contract.v1 targets)", target),
+			}
+		}
+		format := strings.ToLower(strings.TrimSpace(req.Arguments["format"]))
+		if format == "" {
+			format = "json"
+		}
+		actionName := "cis_audit_json"
+		switch format {
+		case "json":
+			actionName = "cis_audit_json"
+		case "sarif":
+			actionName = "cis_audit_sarif"
+		default:
+			return nil, &JSONRPCError{
+				Code:    -32602,
+				Message: fmt.Sprintf("Unsupported CIS audit format %q (allowed: 'json' or 'sarif')", format),
+			}
+		}
+		return map[string]any{
+			"description": "Guided strictly read-only CIS compliance audit workflow (cis.mcp.contract.v1)",
+			"messages": []map[string]any{
+				{
+					"role": "user",
+					"content": map[string]any{
+						"type": "text",
+						"text": fmt.Sprintf(
+							"Perform a strictly read-only CIS compliance audit for target %q (%s format): "+
+								"1) Read MCP resource %s to verify the 18-target allowlist, forbidden mutation/credential flags, and CIS_DB_PASSWORD env-only boundary; "+
+								"2) Call execute_plugin with plugin_id=%q and action=%q for target=%q (never pass remediation apply flags or passwords on argv); "+
+								"3) Summarize findings across the 5-state compliance taxonomy (Pass, Fail, Error, Manual, Not Applicable) and optionally call action=\"cis_remediate_dry_run\" for a zero-execution preview; "+
+								"4) Verify trace and audit chain integrity via mcp_trace_verify and audit_verify.",
+							target, format, CISResourceURI, CISPluginID, actionName, target,
+						),
 					},
 				},
 			},

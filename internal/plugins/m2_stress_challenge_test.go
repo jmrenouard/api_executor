@@ -152,7 +152,7 @@ func TestM2Challenger_CategoryMapping(t *testing.T) {
 	}{
 		"sysadmin":     {"SysAdmin", 28},
 		"netops":       {"NetOps", 28},
-		"secops":       {"SecOps", 28},
+		"secops":       {"SecOps", 29},
 		"containerops": {"ContainerOps", 28},
 		"kubernetes":   {"Kubernetes", 28},
 	}
@@ -221,8 +221,8 @@ func TestM2Challenger_CategoryMapping(t *testing.T) {
 	if catCounts["NetOps"] != 28 {
 		t.Logf("NetOps count is %d (worker claimed 29)", catCounts["NetOps"])
 	}
-	if catCounts["SecOps"] != 28 {
-		t.Errorf("SecOps: expected 28, got %d", catCounts["SecOps"])
+	if catCounts["SecOps"] != 29 {
+		t.Errorf("SecOps: expected 29, got %d", catCounts["SecOps"])
 	}
 	if catCounts["ContainerOps"] != 28 {
 		t.Errorf("ContainerOps: expected 28, got %d", catCounts["ContainerOps"])

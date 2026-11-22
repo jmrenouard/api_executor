@@ -1404,7 +1404,7 @@ func TestJWTTokenInspector_ValidationAndMalformedPayloads(t *testing.T) {
 	}
 }
 
-// TestLoadDeclarativeDirectory_AllDeclarativePlugins verifies that LoadDeclarativeDirectory loads all 281 declarative plugins
+// TestLoadDeclarativeDirectory_AllDeclarativePlugins verifies that LoadDeclarativeDirectory loads all 282 declarative plugins
 // across 10 operational domains with 0 duplicate IDs and valid metadata.
 func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
 	pluginsDir := "plugins"
@@ -1417,13 +1417,13 @@ func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDeclarativeDirectory failed on %s: %v", pluginsDir, err)
 	}
-	if loaded != 281 {
-		t.Fatalf("expected exactly 281 declarative plugins loaded, got %d", loaded)
+	if loaded != 282 {
+		t.Fatalf("expected exactly 282 declarative plugins loaded, got %d", loaded)
 	}
 
 	list := reg.ListFiltered("", "", "declarative")
-	if len(list) != 281 {
-		t.Fatalf("expected 281 declarative plugins in registry, got %d", len(list))
+	if len(list) != 282 {
+		t.Fatalf("expected 282 declarative plugins in registry, got %d", len(list))
 	}
 
 	seen := make(map[string]bool)
@@ -1451,7 +1451,7 @@ func TestLoadDeclarativeDirectory_AllDeclarativePlugins(t *testing.T) {
 	expectedCategories := map[string]int{
 		"SysAdmin":     28,
 		"NetOps":       28,
-		"SecOps":       28,
+		"SecOps":       29,
 		"ContainerOps": 28,
 		"Kubernetes":   28,
 		"DataOps":      28,
