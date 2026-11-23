@@ -1,0 +1,178 @@
+name: Publish Documentation (MkDocs Material)
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "SECURITY.md"
+      - "PROJECT.md"
+      - "requirements-docs.txt"
+      - ".vale.ini"
+      - ".markdownlint.json"
+      - "scripts/mkdocs_hooks.py"
+      - "scripts/build_versioned_docs.py"
+      - ".github/workflows/docs-ci.yml"
+      - ".github/workflows/docs-publish.yml"
+      - "tests/test_diataxis_documentation.py"
+      - "tests/test_mkdocs_publishing.py"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "SECURITY.md"
+      - "PROJECT.md"
+      - "requirements-docs.txt"
+      - ".vale.ini"
+      - ".markdownlint.json"
+      - "scripts/mkdocs_hooks.py"
+      - "scripts/build_versioned_docs.py"
+      - ".github/workflows/docs-ci.yml"
+      - ".github/workflows/docs-publish.yml"
+      - "tests/test_diataxis_documentation.py"
+      - "tests/test_mkdocs_publishing.py"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy built documentation to IONOS"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-publish-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify-and-build:
+    name: Verify and Build Versioned Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository with full Git history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements-docs.txt"
+
+      - name: Install documentation and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-docs.txt pytest pyyaml
+
+      - name: Run Diataxis and MkDocs publishing test suites
+        run: |
+          pytest tests/test_diataxis_documentation.py tests/test_mkdocs_publishing.py -v
+
+      - name: Build versioned MkDocs Material documentation site
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            MAIN_REF="origin/main"
+          else
+            MAIN_REF="WORKTREE"
+          fi
+          python scripts/build_versioned_docs.py \
+            --output site_dist \
+            --base-url https://api-executor.lightpath.fr \
+            --main-ref "$MAIN_REF"
+
+      - name: Verify generated site files and privacy exclusions
+        run: |
+          for required_file in \
+            site_dist/versions.json \
+            site_dist/index.html \
+            site_dist/.htaccess \
+            site_dist/main/index.html \
+            site_dist/latest/index.html; do
+            if [ ! -f "$required_file" ]; then
+              echo "Missing required built documentation file: $required_file" >&2
+              exit 1
+            fi
+          done
+          PRIVATE_FILES=$(find site_dist \( -iname "*.kdbx" -o -iname "*.keyx" -o -iname "*.go" -o -iname "*.db" -o -iname "*.sqlite*" -o -iname "*.log" -o -iname "*.key" -o -iname "*.exe" -o -iname ".env*" -o -iname "*.fr.md" \) -print)
+          if [ -n "$PRIVATE_FILES" ]; then
+            echo "Forbidden private files detected in site_dist:" >&2
+            echo "$PRIVATE_FILES" >&2
+            exit 1
+          fi
+
+      - name: Upload built documentation artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mkdocs-site-dist
+          path: site_dist/
+          include-hidden-files: true
+          retention-days: 7
+
+  deploy-ionos:
+    name: Deploy Documentation to IONOS
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.deploy == true)
+
+    steps:
+      - name: Download built documentation artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: mkdocs-site-dist
+          path: .
+
+      - name: Verify .htaccess and versions.json before SFTP deploy
+        run: |
+          if [ ! -f .htaccess ]; then
+            echo "Missing .htaccess in downloaded artifact" >&2
+            exit 1
+          fi
+          if [ ! -f versions.json ]; then
+            echo "Missing versions.json in downloaded artifact" >&2
+            exit 1
+          fi
+
+      - name: Upload built documentation site via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@a5ccb9c6211a94cc59404f0fdb2a9936a6dfee64 # v1.2.6
+        with:
+          server: ${{ secrets.IONOS_FTP_SERVER }}
+          username: ${{ secrets.IONOS_FTP_USERNAME }}
+          password: ${{ secrets.IONOS_FTP_PASSWORD }}
+          sftp_only: true
+          port: ${{ secrets.IONOS_FTP_PORT || '22' }}
+          local_path: ./
+          remote_path: ${{ secrets.IONOS_REMOTE_PATH }}/
+          sftpArgs: '-o ConnectTimeout=10'
+
+      - name: Explicitly upload .htaccess via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@a5ccb9c6211a94cc59404f0fdb2a9936a6dfee64 # v1.2.6
+        with:
+          server: ${{ secrets.IONOS_FTP_SERVER }}
+          username: ${{ secrets.IONOS_FTP_USERNAME }}
+          password: ${{ secrets.IONOS_FTP_PASSWORD }}
+          sftp_only: true
+          port: ${{ secrets.IONOS_FTP_PORT || '22' }}
+          local_path: .htaccess
+          remote_path: ${{ secrets.IONOS_REMOTE_PATH }}/
+          sftpArgs: '-o ConnectTimeout=10'
+
+      - name: Run live HTTPS smoke checks on api-executor.lightpath.fr
+        run: |
+          curl -fsSL https://api-executor.lightpath.fr/versions.json | grep -q '"version"'
+          curl -fsSLI https://api-executor.lightpath.fr/latest/
+          curl -fsSLI https://api-executor.lightpath.fr/main/

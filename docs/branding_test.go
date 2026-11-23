@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -581,6 +582,159 @@ func TestConfigVersionDeclarationsAndAPIDocumentation(t *testing.T) {
 	for _, marker := range []string{"config_version", "config_version_path", "config_file", "/api/v1/config/version", "/api/v1/configs/{profile}/version"} {
 		if !strings.Contains(project, marker) {
 			t.Errorf("expected ../PROJECT.md to document %q", marker)
+		}
+	}
+}
+
+func TestMkDocsDiataxisToolchainAndWorkflowSecurity(t *testing.T) {
+	// 1. Verify Docs-as-Code toolchain configuration files exist and include required settings.
+	toolchainChecks := []struct {
+		path    string
+		markers []string
+	}{
+		{
+			path: "../mkdocs.yml",
+			markers: []string{
+				"site_name: API Executor Documentation",
+				"site_url: https://api-executor.lightpath.fr/",
+				"repo_name: jmrenouard/api_executor",
+				"scripts/mkdocs_hooks.py",
+				"provider: mike",
+			},
+		},
+		{
+			path: "../.vale.ini",
+			markers: []string{
+				"StylesPath = .vale/styles",
+				"[docs/02-how-to-guides/**/*.md]",
+				"MinAlertLevel = error",
+			},
+		},
+		{
+			path: "../.markdownlint.json",
+			markers: []string{
+				`"MD013"`,
+				`"MD024"`,
+				`"MD046"`,
+			},
+		},
+		{
+			path: "../requirements-docs.txt",
+			markers: []string{
+				"mkdocs>=",
+				"mkdocs-material>=",
+				"pymdown-extensions>=",
+			},
+		},
+	}
+
+	for _, tc := range toolchainChecks {
+		raw, err := os.ReadFile(tc.path)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", tc.path, err)
+		}
+		text := string(raw)
+		for _, marker := range tc.markers {
+			if !strings.Contains(text, marker) {
+				t.Errorf("expected %s to contain %q", tc.path, marker)
+			}
+		}
+	}
+
+	// 2. Verify Diataxis portal and all four quadrant index pages exist.
+	portalBytes, err := os.ReadFile("index.md")
+	if err != nil {
+		t.Fatalf("failed to read index.md: %v", err)
+	}
+	portal := string(portalBytes)
+	for _, marker := range []string{
+		"https://api-executor.lightpath.fr",
+		"01-tutorials/index.md",
+		"02-how-to-guides/index.md",
+		"03-reference/index.md",
+		"04-explanation/index.md",
+	} {
+		if !strings.Contains(portal, marker) {
+			t.Errorf("expected docs/index.md to contain %q", marker)
+		}
+	}
+
+	for _, quadrantIndex := range []string{
+		"01-tutorials/index.md",
+		"02-how-to-guides/index.md",
+		"03-reference/index.md",
+		"04-explanation/index.md",
+	} {
+		if _, err := os.Stat(quadrantIndex); err != nil {
+			t.Errorf("expected Diataxis quadrant index %s to exist: %v", quadrantIndex, err)
+		}
+	}
+
+	// 3. Verify GitHub Actions documentation workflows enforce least privilege, SHA pinning, and no script injection.
+	usesRE := regexp.MustCompile(`^\s*(?:-\s+)?uses:\s*([^\s#]+)`)
+	sha40RE := regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+	runLineRE := regexp.MustCompile(`^\s*(?:-\s+)?run:\s*(.*)$`)
+
+	workflowPaths := []string{
+		"../.github/workflows/docs-ci.yml",
+		"../.github/workflows/docs-publish.yml",
+	}
+	for _, wfPath := range workflowPaths {
+		raw, err := os.ReadFile(wfPath)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", wfPath, err)
+		}
+		wf := strings.ReplaceAll(string(raw), "\r\n", "\n")
+
+		if !strings.Contains(wf, "permissions:\n  contents: read") {
+			t.Errorf("expected %s to declare top-level 'permissions:\\n  contents: read'", wfPath)
+		}
+
+		inRunBlock := false
+		runKeyIndent := 0
+		lines := strings.Split(wf, "\n")
+		for idx, line := range lines {
+			if inRunBlock {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				indent := len(line) - len(strings.TrimLeft(line, " "))
+				if indent > runKeyIndent {
+					if strings.Contains(line, "${{") {
+						t.Errorf("%s:%d must not embed '${{' inside run: block", wfPath, idx+1)
+					}
+					continue
+				}
+				inRunBlock = false
+			}
+
+			if match := usesRE.FindStringSubmatch(line); match != nil {
+				parts := strings.SplitN(match[1], "@", 2)
+				if len(parts) != 2 || !sha40RE.MatchString(parts[1]) {
+					t.Errorf("%s:%d uses unpinned or non-SHA action %q", wfPath, idx+1, match[1])
+				}
+			}
+
+			if match := runLineRE.FindStringSubmatch(line); match != nil {
+				val := strings.TrimSpace(match[1])
+				if val == "|" || val == "|-" || val == "|+" || val == ">" || val == ">-" || val == ">+" {
+					inRunBlock = true
+					runKeyIndent = strings.Index(line, "run:")
+				} else if strings.Contains(val, "${{") {
+					t.Errorf("%s:%d must not embed '${{' inside inline run: command", wfPath, idx+1)
+				}
+			}
+		}
+	}
+
+	publishRaw, err := os.ReadFile("../.github/workflows/docs-publish.yml")
+	if err != nil {
+		t.Fatalf("failed to read ../.github/workflows/docs-publish.yml: %v", err)
+	}
+	publishWF := string(publishRaw)
+	for _, marker := range []string{"IONOS_REMOTE_PATH", "https://api-executor.lightpath.fr"} {
+		if !strings.Contains(publishWF, marker) {
+			t.Errorf("expected docs-publish.yml to contain %q", marker)
 		}
 	}
 }

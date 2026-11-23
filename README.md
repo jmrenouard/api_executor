@@ -19,7 +19,20 @@
 [![Prometheus Per-Action Telemetry](https://img.shields.io/badge/Prometheus-Per--Action_Telemetry-38bdf8?style=flat-square)](internal/api/router.go)
 [![MCP Server](https://img.shields.io/badge/MCP-2024--11--05_JSON--RPC_2.0-a78bfa?style=flat-square)](internal/mcp/server.go)
 [![Atomic Governance](https://img.shields.io/badge/Governance-Atomic_PR_Workflow-fbbf24?style=flat-square)](docs/ACTION_LOGBOOK.md)
+[![Docs Portal](https://img.shields.io/badge/Docs-MkDocs_Material_%7C_Di%C3%A1taxis-0ea5e9?style=flat-square)](https://api-executor.lightpath.fr/)
 
+
+---
+
+## Documentation Portal (Diátaxis & MkDocs Material)
+
+Browse the versioned live documentation portal at **[`https://api-executor.lightpath.fr/`](https://api-executor.lightpath.fr/)** or explore the source tree organized by the four **Diátaxis** quadrants:
+
+- **Portal Home**: [`docs/index.md`](docs/index.md)
+- **Tutorials (Learn)**: [`docs/01-tutorials/index.md`](docs/01-tutorials/index.md) — Local HTTPS quickstart, plugins & MCP sandbox, Zero-Trust bastion & async jobs lab
+- **How-To Guides (Operate & Remediate)**: [`docs/02-how-to-guides/index.md`](docs/02-how-to-guides/index.md) — Rootless Docker & TLS deployment, async jobs & presets, HITL & MicroLLM gatekeeper, audit/trace tamper remediation, key rotation
+- **Reference (Look Up)**: [`docs/03-reference/index.md`](docs/03-reference/index.md) — Complete `config.yaml` schema & profiles, REST/MCP JSON-RPC 2.0 & env/metrics reference, error & alert matrix
+- **Explanation (Understand)**: [`docs/04-explanation/index.md`](docs/04-explanation/index.md) — Zero-Trust MCP bastion topology, ADRs, 4-tier timeouts, pooled concurrency & SHA-256 hash-chain equations
 
 ---
 

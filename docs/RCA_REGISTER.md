@@ -795,6 +795,20 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified by `CGO_ENABLED=1 go test -race -count=1 ./internal/api/...` under WSL2 Linux passing 100% with 0 data races.
 
+### `RCA-055` — Legacy Broken Relative Links in `docs/ACTION_LOGBOOK.md` and `docs/*.go` Resolution in `mkdocs --strict` (`Issue #162`)
+
+- **Observed Symptom**:
+  Running `diataxis_check.py` flagged 16 broken relative Markdown links inside historical entries of `docs/ACTION_LOGBOOK.md` (lines 1576–1580, 1596–1600, 1806, 1817–1818, and 1829), and static MkDocs Material compilation fails in `--strict` mode on relative links pointing to uncopied Go source files (`docs/docs.go`).
+- **Root Cause Analysis (5 Whys)**:
+  1. Early action logbook entries formatted plugin category directories (`../plugins/<category>/`) as Markdown links instead of file links.
+  2. Subsequent architectural refactors renamed or consolidated internal source and rule files (`internal/api/middleware.go` -> `security_middleware.go`, `internal/api/metrics.go` -> `gatekeeper_metrics.go` / `job_metrics.go`, `internal/core/process_*.go` -> `executor_*.go`, superseded `.agents/rules/git-workflow.md` / `github-workflow.md`) without updating old log entries.
+  3. MkDocs copies only documentation assets and ignores Go packages excluded from `docs_dir`, leaving `[docs/docs.go](docs.go)` unresolved during static portal builds.
+  4. No automated Diátaxis or `--strict` MkDocs link check ran before Issue `#162`.
+- **Applied Change / Fix**:
+  Converted the 16 non-existent file and directory Markdown links in `docs/ACTION_LOGBOOK.md` into inline code spans while preserving historical change descriptions verbatim, and handled `docs/*.go` relative link rewriting in `scripts/mkdocs_hooks.py`.
+- **Result & Non-Regression Test**:
+  `diataxis_check.py` reports zero broken relative links in `docs/ACTION_LOGBOOK.md`, and `tests/test_mkdocs_publishing.py` validates strict link resolution across generated static outputs.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -892,6 +906,7 @@ This living governance register records all errors encountered, technical dead-e
 | `APP-020` | `internal/core`, `Deployment` | Non-root process credential assignment on non-root hosts and Windows emulation: On Windows, native POSIX UID/GID credential switching does not exist (`syscall.Credential` is unsupported), so process tree isolation is enforced via Job Objects and taskkill. On Linux/macOS, if the daemon is already started by an unprivileged user (UID 10001), `setuid(10001)` is a no-op; switching to a different non-root UID requires `CAP_SETUID`. | Containerized deployment adheres to the image's configured UID 10001; host processes run within their native unprivileged security context. | For multi-tenant process isolation on bare-metal Linux without Docker/Podman, integrate Linux cgroups v2, user namespaces via `clone(CLONE_NEWUSER)`, and seccomp-BPF profiles (`IDEA-021`). |
 | `APP-021` | `internal/version`, `internal/core`, `internal/api` | Pure-Go `.git/HEAD` fallback (`resolveGitCommitFromDotGit`) probes up to 3 parent levels (`".git"` through `"../../../.git"`) inside `resolveInfo()` only when `info.GitCommit` is empty or `"unknown"`, without parsing packed-refs beyond 40/64-char hex SHAs or resolving git object packs; additionally, conditional custom `EffectiveVersionPath()` routes are mounted at `NewRouter` initialization while runtime-registered profiles expose version probes via `/api/v1/configs/{profile}/version` and `?profile=`. | Provides zero-subprocess commit SHA restitution in local builds and worktrees when `-buildvcs=false` is active, and cleanly hides/returns `404` for unversioned configurations while allowing custom path overrides for statically loaded profiles. | Inject `-ldflags` at CI build time for container images built without `.git`, and restart/rebuild `NewRouter` if post-startup dynamically registered profiles require custom non-standard top-level `ConfigVersionPath` routes. |
 | `APP-022` | `internal/approval` | HITL `approval.Store` synchronizes bounded in-memory approval state with local SQLite (`approval_requests` table) and falls back to pure-Go in-memory storage when compiled with `CGO_ENABLED=0` (`db.IsInMemory()`). | Single-node atomic single-use approval consumption with zero external dependencies and bounded memory (`max_pending` + terminal history pruning); in-memory mode resets on process restart and does not replicate across horizontal replicas. | Use a shared PostgreSQL/Redis distributed lock & approval store for multi-replica HA deployments. |
+| `APP-023` | `docs/`, `scripts/build_versioned_docs.py`, `scripts/mkdocs_hooks.py` | Immutable historical Git release tags (`v2.0.0`, `v2.1.0`) predate the Diátaxis 4-quadrant documentation tree; `scripts/build_versioned_docs.py` extracts each tag via `git archive` and relies on `scripts/mkdocs_hooks.py` fallback quadrant index overlays and link rewriting rather than rewriting release history. | Preserves cryptographic and historical tag immutability while serving unified versioned navigation on `https://api-executor.lightpath.fr/`; legacy tags present release-era documentation plus synthesized quadrant entry points instead of retroactive `v2.2.0` runbooks. | Retiring fallback quadrant overlays applies once all published tags are `v2.2.0+` releases that include the native Diátaxis directory layout. |
 
 ---
 
