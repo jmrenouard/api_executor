@@ -41,3 +41,10 @@ server.log
 
 # Agent teamwork metadata
 .agents/teamwork/
+
+# Documentation build and Python cache artifacts
+site/
+site_dist/
+.pytest_cache/
+__pycache__/
+*.pyc

@@ -1,0 +1,74 @@
+name: Documentation CI
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "SECURITY.md"
+      - "PROJECT.md"
+      - "requirements-docs.txt"
+      - ".vale.ini"
+      - ".markdownlint.json"
+      - "scripts/mkdocs_hooks.py"
+      - "scripts/build_versioned_docs.py"
+      - ".github/workflows/docs-ci.yml"
+      - "tests/test_diataxis_documentation.py"
+      - "tests/test_mkdocs_publishing.py"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "SECURITY.md"
+      - "PROJECT.md"
+      - "requirements-docs.txt"
+      - ".vale.ini"
+      - ".markdownlint.json"
+      - "scripts/mkdocs_hooks.py"
+      - "scripts/build_versioned_docs.py"
+      - ".github/workflows/docs-ci.yml"
+      - "tests/test_diataxis_documentation.py"
+      - "tests/test_mkdocs_publishing.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-quality:
+    name: Validate Diataxis, Links, Math, and MkDocs Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements-docs.txt"
+
+      - name: Install documentation and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-docs.txt pytest pyyaml
+
+      - name: Run Diataxis and MkDocs publishing test suites
+        run: |
+          pytest tests/test_diataxis_documentation.py tests/test_mkdocs_publishing.py -v
+
+      - name: Build MkDocs site in strict mode
+        run: mkdocs build --strict

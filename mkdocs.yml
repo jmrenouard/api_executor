@@ -1,0 +1,159 @@
+site_name: API Executor Documentation
+site_description: Zero-Trust Go remote command executor, 305+ plugins ecosystem, async priority jobs, and Model Context Protocol (MCP) bastion
+site_url: https://api-executor.lightpath.fr/
+repo_name: jmrenouard/api_executor
+repo_url: https://github.com/jmrenouard/api_executor
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Jean-Marie Renouard &middot; LightPath
+
+docs_dir: docs
+exclude_docs: |
+  *.go
+  *.kdbx
+  *.keyx
+  *.db
+  *.sqlite*
+  *.log
+  *.key
+  .env
+  .env.*
+  articles/*.fr.md
+
+hooks:
+  - scripts/mkdocs_hooks.py
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+
+extra:
+  version:
+    provider: mike
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jmrenouard/api_executor
+      name: API Executor on GitHub
+    - icon: fontawesome/brands/docker
+      link: https://hub.docker.com/r/jmrenouard/api_executor
+      name: API Executor on Docker Hub
+    - icon: fontawesome/solid/globe
+      link: https://www.lightpath.fr
+      name: LightPath
+
+extra_css:
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/katex.js
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - 01-tutorials/index.md
+      - Local HTTPS Quickstart: 01-tutorials/01-local-https-quickstart.md
+      - Plugins & MCP Sandbox: 01-tutorials/02-plugins-and-mcp-sandbox.md
+      - Zero-Trust Bastion & Async Jobs Lab: 01-tutorials/03-zero-trust-bastion-and-async-jobs-lab.md
+  - How-To Guides:
+      - 02-how-to-guides/index.md
+      - Deployment:
+          - Deploy Rootless Docker and TLS: 02-how-to-guides/deployment/deploy-rootless-docker-and-tls.md
+      - Operations:
+          - Manage Async Jobs and Presets: 02-how-to-guides/operations/manage-async-jobs-and-presets.md
+          - Configure HITL and MicroLLM Gatekeeper: 02-how-to-guides/operations/configure-hitl-and-microllm-gatekeeper.md
+      - Incident Response:
+          - Remediate Audit or MCP Trace Tamper: 02-how-to-guides/incident-response/remediate-audit-or-mcp-trace-tamper.md
+      - Security:
+          - Rotate TLS and Service Account Keys: 02-how-to-guides/security/rotate-tls-and-service-account-keys.md
+  - Reference:
+      - 03-reference/index.md
+      - Configuration:
+          - Config Schema and Profiles: 03-reference/configuration/config-schema-and-profiles.md
+      - API & CLI:
+          - REST, MCP Endpoints & Env: 03-reference/api-and-cli/rest-mcp-endpoints-and-env.md
+      - Troubleshooting Codes:
+          - Error & Alert Matrix: 03-reference/troubleshooting-codes/error-and-alert-matrix.md
+      - API Security Audit (SECURITY.md): security-audit.md
+      - Project Contracts (PROJECT.md): project-architecture.md
+  - Explanation:
+      - 04-explanation/index.md
+      - Architecture Overview:
+          - Zero-Trust MCP Bastion Topology: 04-explanation/architecture-overview/zero-trust-mcp-bastion-topology.md
+      - Design Decisions:
+          - ADR-001 Zero-Trust Execution and Bastion: 04-explanation/design-decisions/adr-001-zero-trust-execution-and-bastion.md
+          - ADR-002 Diataxis Versioned MkDocs Publishing: 04-explanation/design-decisions/adr-002-diataxis-versioned-mkdocs-publishing.md
+      - Deep Dives:
+          - Concurrency, Timeouts and Cryptographic Chains: 04-explanation/deep-dives/concurrency-timeouts-and-cryptographic-chains.md
+      - High-Throughput Go Optimizations: articles/2026-11-08-optimizing-api-executor-for-scale-and-mcp-workloads.en.md
+      - Security & Architecture Analysis: SECURITY_AND_ARCHITECTURE_ANALYSIS.md
+      - Overview (README): overview.md
+  - Releases & Governance:
+      - Release Notes v2.1.0: releases/v2.1.0.md
+      - Release Notes v2.0.0: release_notes_v2.0.0.md
+      - Action Logbook: ACTION_LOGBOOK.md
+      - RCA Register: RCA_REGISTER.md
