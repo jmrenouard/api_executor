@@ -13,7 +13,7 @@ Every control documented below is continuously verified by deterministic unit, a
 
 ## 1. Executive Summary & Audit Scope (`/repo-scan` + `/ponytail-audit`)
 
-An end-to-end security review was performed across all **48 documented HTTP/REST routes** (46 router handler mounts and JSON-RPC 2.0 MCP methods), authentication/authorization resolvers, the **Zero-Trust MCP Bastion** control plane (Human-in-the-Loop pre-execution approvals, pluggable `MicroLLM` System-1 gatekeeper, SHA-256 hash-chained & replayable MCP traces, read-only `CISBenchmarks` MCP audit preset), command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
+An end-to-end security review was performed across all **49 documented HTTP/REST routes** (46 router handler mounts and JSON-RPC 2.0 MCP methods), authentication/authorization resolvers, the **Zero-Trust MCP Bastion** control plane (Human-in-the-Loop pre-execution approvals, pluggable `MicroLLM` System-1 gatekeeper, SHA-256 hash-chained & replayable MCP traces, read-only `CISBenchmarks` MCP audit preset), command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
 
 ### Key Security Guarantees Verified by Automated Tests
 
@@ -42,7 +42,7 @@ An end-to-end security review was performed across all **48 documented HTTP/REST
 
 ---
 
-## 2. Complete API Surface & RBAC Security Matrix (33 Logical Endpoint Groups; 48 Routes)
+## 2. Complete API Surface & RBAC Security Matrix (33 Logical Endpoint Groups; 49 Routes)
 
 | # | Endpoint | Methods | Required Scope / Role | Anonymous (`require_auth: true`) | `viewer` | `operator` | `service_account` (Scoped) | `admin` | Security Controls & Confinement |
 | :- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -60,7 +60,7 @@ An end-to-end security review was performed across all **48 documented HTTP/REST
 | 12 | `/api/v1/auth/service-accounts` | `GET`, `POST` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200`/`201` | Only admins can provision machine-to-machine accounts |
 | 13 | `/api/v1/auth/service-accounts/{id}` | `DELETE`, `POST .../rotate` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200` | Atomic secret rotation invalidates previous `gat_svc_` key |
 | 14 | `/api/v1/commands` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Returns configured command allowlist |
-| 15 | `/api/v1/execute` | `POST` | `commands:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Direct argv execution (`exec.CommandContext`), timeout ceiling, `2 MiB` output cap |
+| 15 | `/api/v1/execute` | `POST` | `commands:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Direct argv execution (`exec.CommandContext`), timeout ceiling, `1 MiB` output cap |
 | 16 | `/api/v1/history` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Bounded to latest 100 execution records |
 | 17 | `/api/v1/files/{name}` | `GET` | `files:read` | `401` | `200` | `200` | `403` | `200` | `filepath.Base` + `SecureDir` boundary verification (`400`/`403` on traversal) |
 | 18 | `/api/v1/presets` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Lists predefined Ubuntu & RedHat OS task catalogs |
@@ -159,7 +159,7 @@ All security controls are validated by automated tests executed on every push an
 
 | Test Suite / File | Coverage Summary |
 | :--- | :--- |
-| [`internal/api/auth_test.go`](internal/api/auth_test.go) | Session login/logout, PAT lifecycle, Service Account glob matching (`ubuntu-*`), disabled principal rejection, and cross-user PAT revocation blocking. |
+| [`internal/api/auth_test.go`](internal/api/auth_test.go) | Session login, PAT lifecycle, Service Account glob matching (`ubuntu-*`), disabled principal rejection, and cross-user PAT revocation blocking. |
 | [`internal/api/endpoint_auth_test.go`](internal/api/endpoint_auth_test.go) | Endpoint-level RBAC matrix for `/api/v1/commands`, `/api/v1/history`, `/api/v1/presets`, `/api/v1/files/`, and anonymous privilege escalation prevention (`TestAnonymousPrivilegeEscalationBlockedOnTokenAndPresetEndpoints`). |
 | [`internal/plugins/m2_adversarial_test.go`](internal/plugins/m2_adversarial_test.go) | Adversarial security tests for JWT algorithm confusion (`alg: none`), HMAC secret brute-force resistance, non-scalar parameter injection, and SQL comment/stacked-query bypass attempts. |
 | [`internal/plugins/plugins_test.go`](internal/plugins/plugins_test.go) | Read-only SQL validation (`TestDBExposureReadOnlyValidationAndExecution`) and declarative parameter regex sanitization. |

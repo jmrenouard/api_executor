@@ -34,7 +34,7 @@ Requests supporting multi-profile routing resolve the target profile in the foll
 
 ## HTTP REST Endpoint Catalog
 
-All `48` documented HTTP/REST routes mapped across the `46` `mux.Handle` patterns in [`internal/api/router.go`](../../../internal/api/router.go):
+All `49` documented HTTP/REST routes mapped across the `46` `mux.Handle` patterns in [`internal/api/router.go`](../../../internal/api/router.go):
 
 ### Core Console, Metrics, and Discovery
 
