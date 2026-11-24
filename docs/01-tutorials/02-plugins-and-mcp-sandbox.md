@@ -24,7 +24,7 @@ Make sure your environment meets these requirements:
 
 By the end of this tutorial, you will have:
 
-1. Launched an isolated server loading all 24 native Go plugins and 281+ declarative YAML plugins from `plugins/`.
+1. Launched an isolated server loading all 24 native Go plugins, 1 built-in declarative plugin (`ops-quick-tools`), and 282 declarative YAML plugins from `plugins/`.
 2. Filtered plugins by domain category (`SysAdmin`, `WebUtils`) and implementation type (`native`, `declarative`).
 3. Executed native (`sys-diagnostics`) and declarative (`crypto-sha256-file`) plugins safely via direct `argv`.
 4. Queried SQLite tables (`GET /api/v1/db/tables`), executed a read-only `SELECT` query, and verified DDL/DML blocking
@@ -288,7 +288,7 @@ rm -rf /tmp/apiexec-mcp-lab
 - Continue to [Tutorial 3: Zero-Trust Bastion & Async Jobs Lab](03-zero-trust-bastion-and-async-jobs-lab.md)
 - Activate OS task presets and manage async job queues in production:
   [Manage Async Jobs and Presets](../02-how-to-guides/operations/manage-async-jobs-and-presets.md)
-- Inspect all 33 REST/MCP endpoints and plugin parameters:
+- Inspect all 49 HTTP/REST and MCP endpoints and plugin parameters:
   [REST, MCP Endpoints & Environment](../03-reference/api-and-cli/rest-mcp-endpoints-and-env.md)
 - Understand why direct `argv` execution and the Meta-Tool pattern eliminate shell injection and context bloat:
   [ADR-001: Zero-Trust Execution & Bastion](../04-explanation/design-decisions/adr-001-zero-trust-execution-and-bastion.md)

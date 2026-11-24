@@ -59,8 +59,8 @@ Browse the versioned live documentation portal at **[`https://api-executor.light
    - **Tab 5 Master-Detail Catalog**: Instant client-side search, 10 domain category pills with live count badges, type filter toggles (`All`, `Native`, `Declarative`), client-side pagination, dynamic parameter form generation with typed controls (boolean toggles, numeric inputs, regex pattern hints), two-way JSON mode synchronization, and formatted execution telemetry.
 6. **RBAC User Management, Personal Access Tokens & Third-Party Service Accounts (`internal/auth/manager.go`)**:
    - Role-Based Access Control (`admin`, `operator`, `viewer`), Personal Access Tokens (`gat_pat_...`) for remote CLI/API calls, and machine-to-machine Third-Party Service Accounts (`gat_svc_...`) with wildcard action scoping (`allowed_actions`: e.g. `disk-usage`, `ubuntu-*`, `db-exposure`, `plugin:sys-diagnostics:*`) and instant key rotation.
-7. **300+ Plugins Enterprise Ecosystem & Guarded Read-Only Database Exposure (`internal/plugins/`)**:
-   - **305 Production-Ready Plugins Across 10 Domains**: 24 pure-Go native plugins (zero CGO) + 281 declarative YAML plugins spanning `SysAdmin`, `NetOps`, `SecOps`, `ContainerOps`, `Kubernetes`, `DataOps`, `DevOps`, `SRE`, `AIOps`, and `WebUtils`.
+7. **305+ Plugins Enterprise Ecosystem & Guarded Read-Only Database Exposure (`internal/plugins/`)**:
+   - **307 Registered Plugins Across 10 Domains**: 24 pure-Go native plugins (zero CGO), 1 built-in declarative module (`ops-quick-tools`), and 282 declarative YAML plugins spanning `SysAdmin`, `NetOps`, `SecOps`, `ContainerOps`, `Kubernetes`, `DataOps`, `DevOps`, `SRE`, `AIOps`, and `WebUtils`.
    - **Recursive Directory Discovery**: Automatic discovery via `filepath.WalkDir` traversing `plugins/<domain>/` subdirectories with domain fallback categorization.
    - **Multi-Attribute Query Filtering**: `GET /api/v1/plugins` supports case-insensitive `?category=...`, keyword search `?q=...`, and `?type=native|declarative`.
    - **Guarded Direct Subprocess Execution**: Strict parameter type validation, regex pattern enforcement (`^[a-zA-Z0-9._:/-]+$`), path-traversal prevention, and direct `exec.CommandContext` argv execution (zero shell interpolation).
@@ -114,10 +114,10 @@ Browse the versioned live documentation portal at **[`https://api-executor.light
 │   ├── jobs/                                    # Priority queue, worker pool, log buffer & persistent SQLite store
 │   ├── mcp/                                     # JSON-RPC 2.0 Model Context Protocol server & trace store
 │   └── plugins/                                 # Plugin registry, declarative runner, db-exposure & sys-diagnostics
-├── plugins/                                     # 280 declarative YAML plugin manifests across 10 operational domains
+├── plugins/                                     # 282 declarative YAML plugin manifests across 10 operational domains
 │   ├── sysadmin/                                # System, CPU, memory, storage & kernel inspection (28 plugins)
 │   ├── netops/                                  # Interfaces, routing, DNS, firewall & connectivity (28 plugins)
-│   ├── secops/                                  # Audit logs, sudo, SUID, permissions & compliance (28 plugins)
+│   ├── secops/                                  # Audit logs, sudo, SUID, permissions & compliance (29 plugins)
 │   ├── containerops/                            # Docker, containerd, crictl & Podman lifecycle (28 plugins)
 │   ├── kubernetes/                              # Nodes, pods, services, ingress & Helm releases (28 plugins)
 │   ├── dataops/                                 # SQLite, PostgreSQL, MySQL, Redis, MongoDB & backups (28 plugins)
@@ -125,7 +125,7 @@ Browse the versioned live documentation portal at **[`https://api-executor.light
 │   ├── sre/                                     # Prometheus, Loki, OpenTelemetry, SLO & FinOps (28 plugins)
 │   ├── aiops/                                   # NVIDIA GPU, CUDA, Ollama, vLLM, TGI, MCP & vectors (28 plugins)
 │   ├── webutils/                                # HTTP, TLS, X.509, JWT, base64 & archives (28 plugins)
-│   └── ops.yaml                                 # Quick operations declarative module
+│   └── network-audit.yaml                       # Root NetOps declarative manifest (plus built-in ops-quick-tools)
 └── web/static/
     └── index.html                               # Pure Web Administration Console (Tab 5 Master-Detail Catalog)
 ```
@@ -143,7 +143,7 @@ go test -v -cover ./...
 # Build the server binary
 go build -o bin/go-admin-tool ./cmd/server
 
-# Start the server (auto-generates ECDSA P-256 TLS certificate in ./certs if missing)
+# Start the server (auto-generates ECDSA P-256 TLS certificate in ./certs if missing; configured via CONFIG_PATH, default config.yaml)
 ./bin/go-admin-tool
 ```
 
@@ -155,11 +155,13 @@ Official multi-architecture production container images supporting **Linux AMD64
 
 #### Pull Container Image
 
-```bash
-# Pull the specific v2.2.0 release image
-docker pull jmrenouard/api_executor:v2.2.0
+> **Release Note**: `v2.1.0` is the latest published GitHub Release and Docker Hub release tag; `main` builds version `2.2.0` from source.
 
-# Or pull the latest stable image
+```bash
+# Pull the latest published release image
+docker pull jmrenouard/api_executor:v2.1.0
+
+# Or pull the latest floating tag
 docker pull jmrenouard/api_executor:latest
 ```
 
@@ -171,7 +173,7 @@ docker pull jmrenouard/api_executor:latest
 docker run -d \
   --name api-executor \
   -p 8080:8080 \
-  jmrenouard/api_executor:v2.2.0
+  jmrenouard/api_executor:v2.1.0
 ```
 
 #### Production Deployment with Persistent Volumes & Environment Configuration
@@ -197,7 +199,7 @@ docker run -d \
   -v $(pwd)/secure_files:/var/log/secure_files \
   --security-opt no-new-privileges:true \
   --cap-drop ALL \
-  jmrenouard/api_executor:v2.2.0
+  jmrenouard/api_executor:v2.1.0
 ```
 
 #### Container Healthcheck & Verification
@@ -217,7 +219,7 @@ curl -k https://localhost:8080/metrics
 ```yaml
 services:
   api-executor:
-    image: jmrenouard/api_executor:v2.2.0
+    image: jmrenouard/api_executor:v2.1.0
     container_name: api-executor
     restart: unless-stopped
     user: "10001:10001"
@@ -275,8 +277,8 @@ Release archives and their corresponding cryptographic checksums (`SHA256SUMS.tx
 ##### Linux & macOS (bash / zsh)
 
 ```bash
-# 1. Choose target version and platform
-VERSION="v2.2.0"
+# 1. Choose target published release version and platform (latest GitHub Release: v2.1.0)
+VERSION="v2.1.0"
 ARCHIVE="api_executor-${VERSION}-linux-amd64.tar.gz"
 
 # 2. Download binary package and cryptographic checksums
@@ -302,8 +304,8 @@ cd "api_executor-${VERSION}-linux-amd64"
 ##### Windows (PowerShell)
 
 ```powershell
-# 1. Choose target version and platform
-$VERSION = "v2.2.0"
+# 1. Choose target published release version and platform (latest GitHub Release: v2.1.0)
+$VERSION = "v2.1.0"
 $ARCHIVE = "api_executor-$VERSION-windows-amd64.zip"
 
 # 2. Download binary package and cryptographic checksums
@@ -419,37 +421,37 @@ The **API Executor** plugin engine (`internal/plugins/`) combines high-performan
 
 #### Operational Domains & Plugin Architecture
 
-The catalog contains **305 registered plugins** (24 pure-Go native plugins + 281 declarative YAML manifests):
+The catalog contains **307 registered plugins** (24 pure-Go native plugins + 1 built-in `ops-quick-tools` declarative module + 282 declarative YAML manifests):
 
 | Domain | Scope & Description | Native Plugins | Declarative Plugins | Total |
 |---|---|---|---|---|
-| **SysAdmin** | System health, CPU, memory, mount storage, process trees, and kernel telemetry | `sys-diagnostics`, `host-storage-stats`, `system-load-audit`, `kernel-module-audit` | 28 (`plugins/sysadmin/*.yaml`) + `ops-quick-tools` | 33 |
-| **NetOps** | Network interfaces, routing tables, ARP cache, DNS resolution, firewall rules & ping | `dns-resolver-audit`, `network-ping` | 28 (`plugins/netops/*.yaml`) | 30 |
-| **SecOps** | Authentication logs, sudoers, SUID/SGID binaries, file permissions & crypto hashes | `file-integrity-checker`, `password-policy-audit` | 28 (`plugins/secops/*.yaml`) | 30 |
-| **ContainerOps** | Docker, containerd, crictl, and Podman containers, dangling images & networks | `container-runtime-probe`, `container-image-analyzer` | 28 (`plugins/containerops/*.yaml`) | 30 |
-| **Kubernetes** | K8s nodes, pods, services, ingress, PVCs, events, and Helm release management | `helm-chart-inspector`, `k8s-resource-quota` | 28 (`plugins/kubernetes/*.yaml`) | 30 |
-| **DataOps** | SQLite, PostgreSQL, MySQL, Redis, MongoDB, Elasticsearch, and backup verification | `db-exposure`, `sqlite-analyzer`, `redis-info-probe` | 28 (`plugins/dataops/*.yaml`) | 31 |
-| **DevOps** | Git repository status, commits, tags, Go/Node/Python/Rust compilers & linters | `git-repo-inspector`, `semver-validator` | 28 (`plugins/devops/*.yaml`) | 30 |
-| **SRE** | Prometheus scraping, Loki log metrics, OpenTelemetry collector, SLO & FinOps | `prometheus-scrape-audit`, `slo-calculator` | 28 (`plugins/sre/*.yaml`) | 30 |
-| **AIOps** | NVIDIA GPU/CUDA, Ollama, vLLM, TGI, MCP client, vector databases & datasets | `llm-token-estimator`, `mcp-schema-validator` | 28 (`plugins/aiops/*.yaml`) | 30 |
-| **WebUtils** | HTTP latency, headers, SSL/TLS, X.509 certs, JWT headers, base64, JSON & archives | `tls-handshake-probe`, `jwt-inspector` | 28 (`plugins/webutils/*.yaml`) | 30 |
+| **SysAdmin** | System health, CPU, memory, mount storage, process trees, and kernel telemetry | `sys-diagnostics`, `host-storage-stats`, `process-tree-analyzer` | 28 (`plugins/sysadmin/*.yaml`) + `ops-quick-tools` | 32 |
+| **NetOps** | Network interfaces, routing tables, ARP cache, DNS resolution, firewall rules & port checks | `tcp-udp-port-probe`, `dns-resolver-audit` | 28 (`plugins/netops/*.yaml`) + `plugins/network-audit.yaml` | 31 |
+| **SecOps** | Authentication logs, sudoers, SUID/SGID binaries, file permissions, crypto hashes & CIS audit | `file-integrity-checker`, `password-policy-audit` | 29 (`plugins/secops/*.yaml`) | 31 |
+| **ContainerOps** | Docker, containerd, crictl, and Podman containers, dangling images & specs | `docker-socket-client`, `container-spec-validator` | 28 (`plugins/containerops/*.yaml`) | 30 |
+| **Kubernetes** | K8s nodes, pods, services, ingress, PVCs, events, and Helm release management | `k8s-manifest-linter`, `helm-chart-inspector` | 28 (`plugins/kubernetes/*.yaml`) | 30 |
+| **DataOps** | SQLite, PostgreSQL, MySQL, Redis, MongoDB, Elasticsearch, and backup verification | `db-exposure`, `sqlite-schema-analyzer`, `redis-protocol-probe` | 28 (`plugins/dataops/*.yaml`) | 31 |
+| **DevOps** | Git repository status, commits, tags, Go/Node/Python/Rust compilers & linters | `git-repo-inspector`, `semver-release-checker` | 28 (`plugins/devops/*.yaml`) | 30 |
+| **SRE** | Prometheus scraping, Loki log metrics, OpenTelemetry collector, SLO & FinOps | `prometheus-scraper`, `log-regex-analyzer` | 28 (`plugins/sre/*.yaml`) | 30 |
+| **AIOps** | NVIDIA GPU/CUDA, Ollama, vLLM, TGI, MCP client, vector databases & datasets | `mcp-endpoint-tester`, `model-artifact-verifier` | 28 (`plugins/aiops/*.yaml`) | 30 |
+| **WebUtils** | HTTP latency, headers, SSL/TLS, X.509 certs, JWT tokens, base64, JSON & archives | `tls-cert-inspector`, `http-latency-probe`, `crypto-hash-utility`, `jwt-token-inspector` | 28 (`plugins/webutils/*.yaml`) | 32 |
 
 #### Recursive Discovery & Domain Directory Structure
 
 The declarative plugin loader automatically discovers plugin manifests recursively across domain subdirectories using `filepath.WalkDir`:
 ```text
 plugins/
-├── sysadmin/      # 28 YAML manifests (sys-cpu-info, sys-memory-free, sys-uptime, ...)
-├── netops/        # 28 YAML manifests (net-interfaces, net-routes, net-dns-lookup, ...)
-├── secops/        # 28 YAML manifests (sec-auth-failures, sec-sudo-users, sec-suid-bins, ...)
-├── containerops/  # 28 YAML manifests (docker-ps-active, containerd-tasks, podman-pods, ...)
-├── kubernetes/    # 28 YAML manifests (k8s-nodes-list, k8s-pods-status, k8s-events-warn, ...)
-├── dataops/       # 28 YAML manifests (sqlite-integrity, postgres-ping, redis-ping, ...)
-├── devops/        # 28 YAML manifests (git-status, golang-version, rust-cargo-version, ...)
-├── sre/           # 28 YAML manifests (prom-scrape-endpoint, loki-query, otel-collector, ...)
-├── aiops/         # 28 YAML manifests (nvidia-smi-summary, ollama-list-models, milvus-health, ...)
-├── webutils/      # 28 YAML manifests (http-status-code, crypto-sha256-file, archive-tar-list, ...)
-└── ops.yaml       # Root declarative quick operations module
+├── sysadmin/          # 28 YAML manifests (sys-cpu-info, sys-memory-free, sys-uptime, ...)
+├── netops/            # 28 YAML manifests (net-interfaces, net-routes, net-dns-lookup, ...)
+├── secops/            # 29 YAML manifests (sec-auth-failures, sec-sudo-users, cis-benchmarks-audit.yaml, ...)
+├── containerops/      # 28 YAML manifests (docker-ps-active, containerd-tasks, podman-pods, ...)
+├── kubernetes/        # 28 YAML manifests (k8s-nodes-list, k8s-pods-status, k8s-events-warn, ...)
+├── dataops/           # 28 YAML manifests (sqlite-integrity, postgres-ping, redis-ping, ...)
+├── devops/            # 28 YAML manifests (git-status, golang-version, rust-cargo-version, ...)
+├── sre/               # 28 YAML manifests (prom-scrape-endpoint, loki-query, otel-collector, ...)
+├── aiops/             # 28 YAML manifests (nvidia-smi-summary, ollama-list-models, milvus-health, ...)
+├── webutils/          # 28 YAML manifests (http-status-code, crypto-sha256-file, archive-tar-list, ...)
+└── network-audit.yaml # Root NetOps declarative manifest (built-in ops-quick-tools loads in Go)
 ```
 If a declarative YAML manifest omits the `category` attribute, the loader automatically infers its category from the parent directory name (e.g. `plugins/netops/` -> `NetOps`).
 
