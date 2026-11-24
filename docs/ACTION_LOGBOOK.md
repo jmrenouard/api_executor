@@ -7,28 +7,53 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 1. Ongoing Actions (`IN PROGRESS`)
 
-*(None — all requested atomic actions completed and merged)*
+_None._
 
 ---
 
 ## 2. Completed Actions (`COMPLETED`)
 
-### `ACT-082` — Dedicated Health & Readiness Probe Endpoints (`/health`, `/healthz`, `/readyz`) (`Issue #170`)
+### `ACT-085` — Dedicated Health & Readiness Probe Endpoints (`/health`, `/healthz`, `/readyz`) (`Issue #170`)
 
 - **Date**: 2026-11-24
 - **GitHub Issue / Branch**: `#170` — `feat/issue-170-health-readiness-probes`
-- **Request**: Implement dedicated unauthenticated liveness (`/health`, `/healthz`) and subsystem readiness (`/readyz`) probe endpoints, mount them in `internal/api/router.go`, update `Dockerfile` `HEALTHCHECK` from `/metrics` to `/health`, add unit and router metric normalization tests, and record `RCA-056` in `docs/RCA_REGISTER.md`.
+- **Request**: Implement dedicated unauthenticated liveness (`/health`, `/healthz`) and subsystem readiness (`/readyz`) probe endpoints, mount them in `internal/api/router.go`, update `Dockerfile` `HEALTHCHECK` from `/metrics` to `/health`, add unit and router metric normalization tests, and record `RCA-058` in `docs/RCA_REGISTER.md`.
 - **Changes**:
   - Created [`internal/api/health_handlers.go`](../internal/api/health_handlers.go): Implemented `HealthHandler` (`GET /health`, `GET /healthz`) returning `200 OK` JSON (`status`, `uptime_seconds`, `version`, `tls_enabled`) without exposing secrets or file paths, and `ReadinessHandler` (`GET /readyz`) checking active subsystems (`database`, `tls`, `jobs`) and returning `200 OK` (`ready`) or `503 Service Unavailable` (`not_ready`), both enforcing `405 Method Not Allowed` with `Allow: GET`.
   - Modified [`internal/api/router.go`](../internal/api/router.go): Mounted `/health`, `/healthz`, and `/readyz` on `mux` and added `"/healthz"` and `"/readyz"` to `knownStaticPaths` and `registeredVersionPaths`.
   - Modified [`Dockerfile`](../Dockerfile): Updated `HEALTHCHECK` URL from `https://127.0.0.1:8080/metrics` to `https://127.0.0.1:8080/health` while preserving `wget --no-check-certificate -qO-` and UID `10001` hardening.
-  - Created [`internal/api/health_handlers_test.go`](../internal/api/health_handlers_test.go) and updated [`internal/api/router_test.go`](../internal/api/router_test.go): Added coverage for liveness/readiness `200 OK`, `405` + `Allow: GET`, `503` degraded readiness (closed SQL DB and full job queue), public access with `RequireAuth: true`, secret/path redaction, and `normalizeMetricPath`.
-  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-082`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (`RCA-056`).
+  - Created [`internal/api/health_handlers_test.go`](../internal/api/health_handlers_test.go) and updated [`internal/api/router_test.go`](../internal/api/router_test.go): Added coverage for liveness/readiness `200 OK`, `405` + `Allow: GET`, `503` degraded readiness (closed SQL DB, expired TLS cert, and full job queue), public access with `RequireAuth: true`, secret/path redaction, and `normalizeMetricPath`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-085`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (`RCA-058`).
 - **Result**:
   - `go vet ./...`: passed (`exit 0`).
   - `go test -count=1 -p 1 -cover ./...`: all 14 packages passed (`cmd/server` `85.0%`, `docs` `100.0%`, `internal/api` `85.7%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.0%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `86.4%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `11.092s`).
   - `go test -count=1 ./tests/e2e/...`: passed (`11.957s`).
   - Pending `/ponytail-review` and PR merge.
+
+### `ACT-083` — Executable Go E2E Verification Suite for Tutorials & How-To Runbooks (`Issue #166`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: [`#166`](https://github.com/jmrenouard/api_executor/issues/166) / [`PR #167`](https://github.com/jmrenouard/api_executor/pull/167) — `test/issue-166-tutorial-howto-exec`
+- **Request**: Add executable Go E2E tests in `tests/e2e/` that extract and validate YAML configurations from `docs/01-tutorials/` and `docs/02-how-to-guides/`, compile and start `./cmd/server` (`go-admin-tool`) over real HTTPS TLS 1.3 (`CONFIG_PATH`), and execute end-to-end tutorial and how-to API workflows (`version`, `auth/login`, `auth/tokens`, `execute`, `/metrics`, `plugins`, `db/query`, `mcp`, `MicroLLM` `x_abstain` + distinct-admin HITL approvals, `jobs` logs/queue, `presets/activate`, `tls/renew`, and `service-accounts/rotate`).
+- **Changes**: Added `tests/e2e/tutorial_howto_exec_test.go` (`TestTutorialsAndHowTos_ExecutableSuite`) implementing five cross-platform (Linux/WSL + Windows) live verification subtests compiling `./cmd/server` and exercising documented configs and HTTPS TLS 1.3 flows: `HowTo_DeployRootlessConfigParsesAndValidates`, `Tutorial1_LocalHTTPSQuickstart`, `Tutorial2_PluginsAndMCPSandbox`, `Tutorial3AndHowTos_BastionAsyncPresetsAndKeyRotation`, and `TutorialCleanupAndShellBlockSanity`.
+- **Result**: `gofmt -l`, `go vet ./...`, all `13` Go unit/coverage packages (`cmd/server` `84.4%`, `internal/api` `85.5%`, `docs` `100.0%`, etc.), full WSL `go test -count=1 ./tests/e2e/...` (`139.611s`), Windows native `TestTutorialsAndHowTos_ExecutableSuite` (`3.625s`, 5/5), `pytest tests -v` (`25 passed`), `diataxis_check.py --strict --check-ste --lang en` (`0` errors across `27` files), and `audit_helpers.py` (`34` files, `6/6` `mmdc`, `0` errors) all passed; pending PR #167 merge targeting `main`.
+
+### `ACT-082` — Mermaid Standardization, ASD-STE100 Compliance, Factual Doc Alignment & Validation Gates (`Issue #164`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: [`#164`](https://github.com/jmrenouard/api_executor/issues/164) — `docs/issue-164-mermaid-ste-facts-gates`
+- **Request**: Convert remaining ASCII box-arrow diagrams to valid Mermaid flowcharts, remediate the `docs/02-how-to-guides/index.md` ASD-STE100 Rule 5.1 sentence length error, align factual discrepancies across `SECURITY.md`, `README.md`, `docs/index.md`, tutorials, how-to guides, and reference docs against Go source and releases, and enforce Mermaid/ASCII/i18n/STE gates in `tests/test_diataxis_documentation.py` and `tests/test_mkdocs_publishing.py`.
+- **Changes**:
+  - Replaced all `4` ASCII/Unicode box-arrow diagrams with column-0 `mermaid` flowcharts in [`docs/SECURITY_AND_ARCHITECTURE_ANALYSIS.md`](SECURITY_AND_ARCHITECTURE_ANALYSIS.md), [`docs/releases/v2.1.0.md`](releases/v2.1.0.md), [`docs/articles/2026-11-08-optimizing-api-executor-for-scale-and-mcp-workloads.en.md`](articles/2026-11-08-optimizing-api-executor-for-scale-and-mcp-workloads.en.md), and [`docs/articles/2026-11-08-optimisation-api-executor-haute-performance-mcp.fr.md`](articles/2026-11-08-optimisation-api-executor-haute-performance-mcp.fr.md).
+  - Rewrote [`docs/02-how-to-guides/index.md`](02-how-to-guides/index.md) intro prose into short ASD-STE100 compliant sentences and fixed the semicolon violation in [`docs/02-how-to-guides/deployment/deploy-rootless-docker-and-tls.md`](02-how-to-guides/deployment/deploy-rootless-docker-and-tls.md) (`v2.1.0` container release note).
+  - Reconciled `SECURITY.md` against `internal/api/router.go`, `internal/auth/manager.go`, `internal/core/executor.go`, and `cmd/server/main.go` (`49` documented routes across `46` mux mounts, `1 MiB` sync output cap on `L63` & `L126`, `Session login, PAT lifecycle` on `L162`, `5s/15s/30s/60s` timeouts, `"unknown"` overflow label); reconciled endpoint counts across `docs/index.md`, `docs/01-tutorials/index.md`, `docs/01-tutorials/02-plugins-and-mcp-sandbox.md`, and `docs/03-reference/api-and-cli/rest-mcp-endpoints-and-env.md` (`49` routes / `CONFIG_PATH`-only note); aligned `README.md` plugin totals (`307`), native IDs from `internal/plugins/builtin.go`, and `v2.1.0` release image/archive examples; removed 4 French parenthetical comment phrases from `internal/core/executor.go` (`L226`, `L239`) and `internal/core/executor_test.go` (`L291`, `L304`).
+  - Extended [`tests/test_diataxis_documentation.py`](../tests/test_diataxis_documentation.py) (`test_howto_guides_asd_ste100_structural_compliance` covering `index.md`, and `test_markdown_no_ascii_diagrams_and_valid_mermaid`) and [`tests/test_mkdocs_publishing.py`](../tests/test_mkdocs_publishing.py) (`test_mkdocs_english_only_nav_and_fr_exclusion` plus built `lang="en"` and zero FR page assertions), and logged `RCA-056` in [`docs/RCA_REGISTER.md`](RCA_REGISTER.md).
+- **Result**:
+  - `diataxis_check.py docs --strict --check-ste --lang en`: passed (`0 error(s), 0 warning(s) across 27 markdown file(s)`).
+  - `ste_check.py --mode procedural --lang en` (all `6` files under `docs/02-how-to-guides/`, including `index.md`): passed (`0 errors, 0 warnings`).
+  - `audit_helpers.py` + Playwright Chromium crawl across `site_dist/main`: passed (`34` files scanned, `6` Mermaid blocks, `mmdc` `6/6` passed, `0` ASCII diagrams, `0` `language_mix`, Playwright `58` pages / `10` diagrams / `0` failed).
+  - `pytest tests/ -v`: `25 passed in 8.78s` (`0` failed, `0` skipped).
+  - `go vet ./...` and `go test -count=1 -p 1 -cover ./cmd/... ./internal/... ./docs/...`: all `13` packages passed (`cmd/server` `84.4%`, `internal/api` `85.5%`, `internal/approval` `73.3%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `81.8%`, `internal/database` `79.2%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `86.5%`, `internal/mcp` `83.5%`, `internal/plugins` `81.9%`, `internal/version` `89.8%`, `docs` `100.0%`).
 
 ### `ACT-081` — Diátaxis Documentation Portal, ASD-STE100 Runbooks & Versioned MkDocs Publishing (`Issue #162`)
 

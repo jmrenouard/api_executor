@@ -223,7 +223,7 @@ func IsCommandCancelled(err error) bool {
 	return errors.Is(err, ErrCommandCancelled) || errors.Is(err, context.Canceled)
 }
 
-// IsCommandFailure reports whether err represents a command execution failure ("appel en échec"),
+// IsCommandFailure reports whether err represents a command execution failure,
 // i.e., the command process ran and exited with a non-zero exit code, timed out, or was cancelled.
 func IsCommandFailure(err error) bool {
 	if err == nil {
@@ -236,7 +236,7 @@ func IsCommandFailure(err error) bool {
 	return errors.As(err, &exitErr)
 }
 
-// IsCommandSystemError reports whether err represents a technical/invocation error ("appel en erreur"),
+// IsCommandSystemError reports whether err represents a technical/invocation error,
 // such as the executable binary not existing on the host or failing to spawn.
 func IsCommandSystemError(err error) bool {
 	if err == nil {
