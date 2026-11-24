@@ -595,11 +595,11 @@ def test_quadrant_cross_linking_mesh() -> None:
 
 
 def test_howto_guides_asd_ste100_structural_compliance() -> None:
-    """Verify non-index files under docs/02-how-to-guides/ pass ASD-STE100 Issue 9 structural rules."""
+    """Verify all files under docs/02-how-to-guides/ pass ASD-STE100 Issue 9 structural rules."""
     howto_dir = DOCS_DIR / "02-how-to-guides"
     assert howto_dir.is_dir(), "Missing docs/02-how-to-guides/"
-    howto_files = sorted(p for p in howto_dir.rglob("*.md") if p.name.lower() != "index.md")
-    assert howto_files, "Expected non-index procedures under docs/02-how-to-guides/"
+    howto_files = sorted(howto_dir.rglob("*.md"))
+    assert howto_files, "Expected Markdown files under docs/02-how-to-guides/"
 
     all_violations: list[str] = []
     for md_file in howto_files:
@@ -798,3 +798,91 @@ def test_ste_structural_checker_catches_violations_and_passes_valid_prose(tmp_pa
     assert "[Rule 4.2]" in joined
     assert "[Rule 3.6]" in joined
     assert "[Rule 5.1]" in joined
+
+
+_MERMAID_HEADER_RE = re.compile(
+    r"^\s*(?:flowchart|graph|sequenceDiagram|stateDiagram(?:-v2)?|classDiagram|erDiagram|gantt|journey|pie(?:\s+showData|\s+title)?|mindmap|timeline|gitGraph)\b"
+)
+_ASCII_BOX_RE = re.compile(r"[┌┐└┘├┤┬┴┼]|^\s*\+[-=+]{3,}\+", re.MULTILINE)
+_ASCII_ARROW_RE = re.compile(r"(?:──►|◄──|--->|-->|<--|==>|▼|▲)")
+_DIR_TREE_RE = re.compile(r"[├└]──")
+
+
+def test_markdown_no_ascii_diagrams_and_valid_mermaid() -> None:
+    """Verify all repo Markdown files ban ASCII architecture diagrams and use column-0 valid Mermaid."""
+    ignored_roots = {".git", "site", "site_dist", ".pytest_cache", "node_modules", ".worktrees"}
+    md_files = sorted(
+        p
+        for p in REPO_ROOT.rglob("*.md")
+        if not any(part in ignored_roots for part in p.relative_to(REPO_ROOT).parts)
+    )
+    assert md_files
+
+    violations: list[str] = []
+    mermaid_count = 0
+
+    for md_path in md_files:
+        rel = md_path.relative_to(REPO_ROOT).as_posix()
+        lines = md_path.read_text(encoding="utf-8").splitlines()
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+        fence_lang = ""
+        fence_indent = ""
+        fence_start = 0
+        fence_body: list[str] = []
+
+        for idx, line in enumerate(lines, start=1):
+            m = re.match(r"^([ \t]*)(`{3,}|~{3,})(.*)$", line)
+            if not in_fence and m:
+                in_fence = True
+                fence_indent = m.group(1)
+                fence_char = m.group(2)[0]
+                fence_len = len(m.group(2))
+                fence_lang = m.group(3).strip().lower()
+                fence_start = idx
+                fence_body = []
+                continue
+            if in_fence:
+                close_m = re.match(rf"^[ \t]*({re.escape(fence_char)}{{{fence_len},}})\s*$", line)
+                if close_m:
+                    body_text = "\n".join(fence_body)
+                    if fence_lang == "mermaid":
+                        mermaid_count += 1
+                        if fence_indent:
+                            violations.append(f"{rel}:{fence_start}: indented mermaid fence is forbidden")
+                        if not body_text.strip():
+                            violations.append(f"{rel}:{fence_start}: empty mermaid block")
+                        for b_idx, bline in enumerate(fence_body, start=fence_start + 1):
+                            # Check balanced unescaped double quotes per line
+                            if bline.count('"') % 2 != 0:
+                                violations.append(f"{rel}:{b_idx}: unbalanced double quotes in mermaid block")
+                    else:
+                        first_non_empty = next((ln for ln in fence_body if ln.strip()), "")
+                        if fence_lang not in {"markdown", "md"} and _MERMAID_HEADER_RE.match(first_non_empty):
+                            violations.append(
+                                f"{rel}:{fence_start}: Mermaid diagram must use ```mermaid fence (found {fence_lang or 'untagged'})"
+                            )
+                        if (
+                            fence_lang not in {"diff", "patch", "sql", "mysql", "psql"}
+                            and not _DIR_TREE_RE.search(body_text)
+                            and _ASCII_BOX_RE.search(body_text)
+                            and _ASCII_ARROW_RE.search(body_text)
+                        ):
+                            violations.append(
+                                f"{rel}:{fence_start}: ASCII/Unicode architecture diagram must be converted to Mermaid"
+                            )
+                    in_fence = False
+                    fence_body = []
+                    continue
+                fence_body.append(line)
+            else:
+                if _MERMAID_HEADER_RE.match(line):
+                    # Guard against unfenced bare Mermaid diagrams (requires diagram body on following lines)
+                    next_line = lines[idx] if idx < len(lines) else ""
+                    if "-->" in next_line or "->>" in next_line or next_line.startswith(("    ", "\t")):
+                        violations.append(f"{rel}:{idx}: bare unfenced Mermaid syntax")
+
+    assert mermaid_count >= 5, f"Expected >= 5 Mermaid blocks after diagram conversion, found {mermaid_count}"
+    assert not violations, "Mermaid / ASCII diagram hygiene violations found:\n" + "\n".join(violations)
+

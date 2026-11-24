@@ -13,7 +13,7 @@ Every control documented below is continuously verified by deterministic unit, a
 
 ## 1. Executive Summary & Audit Scope (`/repo-scan` + `/ponytail-audit`)
 
-An end-to-end security review was performed across all **33 REST and JSON-RPC 2.0 endpoints**, authentication/authorization resolvers, the **Zero-Trust MCP Bastion** control plane (Human-in-the-Loop pre-execution approvals, pluggable `MicroLLM` System-1 gatekeeper, SHA-256 hash-chained & replayable MCP traces, read-only `CISBenchmarks` MCP audit preset), command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
+An end-to-end security review was performed across all **49 documented HTTP/REST routes** (46 router handler mounts and JSON-RPC 2.0 MCP methods), authentication/authorization resolvers, the **Zero-Trust MCP Bastion** control plane (Human-in-the-Loop pre-execution approvals, pluggable `MicroLLM` System-1 gatekeeper, SHA-256 hash-chained & replayable MCP traces, read-only `CISBenchmarks` MCP audit preset), command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
 
 ### Key Security Guarantees Verified by Automated Tests
 
@@ -33,7 +33,7 @@ An end-to-end security review was performed across all **33 REST and JSON-RPC 2.
    - **Per-IP Token-Bucket Rate Limiting (`internal/api/security_middleware.go`)**: Throttles volumetric floods and credential brute-force attacks with `429 Too Many Requests`, `Retry-After: 1`, and `X-RateLimit-Limit` headers while bounding tracker memory (`MaxTrackedRateLimitIPs = 10000`) against spoofed-IP floods.
    - **Request Body Size Cap (`MaxRequestBodyBytes = 1 MiB`)**: Rejects oversized `Content-Length` and chunked request streams with `413 Request Entity Too Large` before JSON decoding can exhaust heap memory.
    - **Subprocess Timeout Ceilings & Process-Group Kill**: Enforces `executor.max_timeout_seconds` (`400 Bad Request` on excessive overrides) and kills entire process groups on timeout or job cancellation.
-   - **Prometheus Cardinality Protection**: Normalizes dynamic HTTP path segments (`:id`, `:trace_id`), enforces closed-set `gatekeeper_decisions_total` / `gatekeeper_latency_seconds` labels, and caps dynamic action labels at `MaxDynamicActionLabels = 64` (falling back to `_other`).
+   - **Prometheus Cardinality Protection**: Normalizes dynamic HTTP path segments (`:id`, `:trace_id`), enforces closed-set `gatekeeper_decisions_total` / `gatekeeper_latency_seconds` labels, and caps dynamic action labels at `MaxDynamicActionLabels = 64` (falling back to `"unknown"`).
 5. **Zero-Trust MCP Bastion Controls (HITL, System-1 Gatekeeper, Cryptographic Trace Replay & Read-Only CIS Audits)**:
    - **Human-in-the-Loop (HITL) Pre-Execution Gate (`internal/approval/`, `internal/api/approval_handlers.go`)**: Intercepts critical commands, plugins, async jobs, and MCP `tools/call` operations with a canonical SHA-256 payload digest (`PayloadSHA256`), enforces distinct-approver separation (`RequireDistinctApprover`), blocks TOCTOU payload tampering (`403 Forbidden`), and enforces atomic single-use approval consumption (`409 Conflict` on replay).
    - **Pluggable `MicroLLM` (`microllm.guard.v1`) System-1 Gatekeeper (`internal/gatekeeper/`)**: Evaluates requests in strict order (`Auth -> RBAC -> Pre-Approved approval_id -> Static HITL -> System-1 -> Execution`) over loopback-confined HTTP (`< 5 ms` target, `64 KiB` response cap, redirect-blocked) or non-root UID `10001` CLI subprocesses; escalates `x_abstain` / timeouts / invalid outputs fail-closed to HITL (or `403 Forbidden` when HITL is disabled) and forces fail-closed denial on `hijack_suspected: true`.
@@ -42,16 +42,16 @@ An end-to-end security review was performed across all **33 REST and JSON-RPC 2.
 
 ---
 
-## 2. Complete API Surface & RBAC Security Matrix (33 Endpoints)
+## 2. Complete API Surface & RBAC Security Matrix (33 Logical Endpoint Groups; 49 Routes)
 
 | # | Endpoint | Methods | Required Scope / Role | Anonymous (`require_auth: true`) | `viewer` | `operator` | `service_account` (Scoped) | `admin` | Security Controls & Confinement |
 | :- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| 1 | `/healthz` | `GET` | Public liveness probe | `200` | `200` | `200` | `200` | `200` | Read-only static JSON (`{"status":"ok"}`), rate-limited, security headers |
+| 1 | `/api/v1/version`, `/api/v1/config/version` | `GET` | Public probes | `200` | `200` | `200` | `200` | `200` | Read-only version & config-version metadata, rate-limited, security headers |
 | 2 | `/metrics` | `GET` | Public telemetry scrape | `200` | `200` | `200` | `200` | `200` | Bounded Prometheus label cardinality (`MaxDynamicActionLabels = 64`) |
 | 3 | `/swagger/*` | `GET` | Public OpenAPI UI | `200` | `200` | `200` | `200` | `200` | Read-only embedded OpenAPI specification |
-| 4 | `/` | `GET` | Public Web Console | `200` | `200` | `200` | `200` | `200` | Hardened headers (`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`) |
-| 5 | `/api/v1/auth/login` | `POST` | Public authentication | `200`/`401` | `200` | `200` | N/A | `200` | Per-IP rate-limited, `1 MiB` body cap, `bcrypt` verification, SHA-256 audit log |
-| 6 | `/api/v1/auth/logout` | `POST` | Authenticated session | `401` | `200` | `200` | `200` | `200` | Revokes active session token immediately |
+| 4 | `/` | `GET` | Public Web Console | `200` | `200` | `200` | `200` | `200` | Hardened headers (`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`) |
+| 5 | `/api/v1/auth/login` | `POST` | Public authentication | `200`/`401` | `200` | `200` | N/A | `200` | Per-IP rate-limited, `1 MiB` body cap, 10,000-round salted SHA-256 verification, SHA-256 audit log |
+| 6 | `/api/v1/config`, `/api/v1/configs/{profile}` | `GET` | Public sanitized view | `200` | `200` | `200` | `200` | `200` | Returns sanitized active/profile config with secrets masked as `[REDACTED]` |
 | 7 | `/api/v1/auth/me` | `GET` | Authenticated (`require_auth`) | `401` | `200` | `200` | `200` | `200` | Returns caller principal & effective scopes |
 | 8 | `/api/v1/auth/users` | `GET`, `POST` | `users:manage` (`admin`) | `401` | `403` | `403` | `403` | `200`/`201` | Blocks unauthorized user creation or enumeration |
 | 9 | `/api/v1/auth/users/{id}` | `PATCH`, `DELETE` | `users:manage` (`admin`) | `401` | `403` | `403` | `403` | `200` | Blocks horizontal/vertical role escalation & user deletion |
@@ -60,7 +60,7 @@ An end-to-end security review was performed across all **33 REST and JSON-RPC 2.
 | 12 | `/api/v1/auth/service-accounts` | `GET`, `POST` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200`/`201` | Only admins can provision machine-to-machine accounts |
 | 13 | `/api/v1/auth/service-accounts/{id}` | `DELETE`, `POST .../rotate` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200` | Atomic secret rotation invalidates previous `gat_svc_` key |
 | 14 | `/api/v1/commands` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Returns configured command allowlist |
-| 15 | `/api/v1/execute` | `POST` | `commands:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Direct argv execution (`exec.CommandContext`), timeout ceiling, `2 MiB` output cap |
+| 15 | `/api/v1/execute` | `POST` | `commands:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Direct argv execution (`exec.CommandContext`), timeout ceiling, `1 MiB` output cap |
 | 16 | `/api/v1/history` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Bounded to latest 100 execution records |
 | 17 | `/api/v1/files/{name}` | `GET` | `files:read` | `401` | `200` | `200` | `403` | `200` | `filepath.Base` + `SecureDir` boundary verification (`400`/`403` on traversal) |
 | 18 | `/api/v1/presets` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Lists predefined Ubuntu & RedHat OS task catalogs |
@@ -70,8 +70,8 @@ An end-to-end security review was performed across all **33 REST and JSON-RPC 2.
 | 22 | `/api/v1/plugins/declarative` | `POST` | `admin` role required | `401` | `403` | `403` | `403` | `201` | Blocks arbitrary command registration by non-admin principals |
 | 23 | `/api/v1/db/tables` | `GET` | `db:read` | `401` | `200` | `200` | Allowlist only | `200` | Read-only SQLite table & schema metadata |
 | 24 | `/api/v1/db/query` | `POST` | `db:read` | `401` | `200` | `200` | Allowlist only | `200` | `ValidateReadOnlySQL` (`SELECT`/`WITH`/`EXPLAIN` only; `403` on DDL/DML/stacked SQL) |
-| 25 | `/api/v1/audit/events`, `/stats`, `/verify` | `GET` | `audit:read` | `401` | `200` | `200` | `403` | `200` | Cryptographic SHA-256 hash-chain verification (`GENESIS` -> head) |
-| 26 | `/api/v1/tls/status` (`GET`), `/api/v1/tls/renew` (`POST`) | `GET`, `POST` | `tls:read` (`GET`), `tls:manage` / `admin` (`POST`) | `401` | `200` (`GET`) / `403` (`POST`) | `200` (`GET`) / `403` (`POST`) | `403` | `200` | Atomic ECDSA P-256 certificate regeneration restricted to `admin` |
+| 25 | `/api/v1/audit/logs`, `/api/v1/audit/verify` | `GET` | `audit:read` | `401` | `200` | `200` | `403` | `200` | Cryptographic SHA-256 hash-chain verification (`GENESIS` -> head) |
+| 26 | `/api/v1/tls/info`, `/api/v1/tls/certificate`, `/api/v1/tls/renew` | `GET`, `POST` | `tls:read` (`GET`), `tls:manage` / `admin` (`POST`) | `401` | `200` (`GET`) / `403` (`POST`) | `200` (`GET`) / `403` (`POST`) | `403` | `200` | Atomic ECDSA P-256 certificate inspection, public PEM download, and rotation restricted to `admin` |
 | 27 | `/api/v1/mcp` (`POST`), `/api/v1/mcp/traces*` (`GET`, `DELETE`) | `POST`, `GET`, `DELETE` | `mcp:access` (`POST`/`GET`), `admin` (`DELETE`) | `401` | `403` | `200` (`POST`/`GET`) / `403` (`DELETE`) | Allowlist only (`POST`) | `200` | Per-tool RBAC (`commands:execute`, `plugins:execute`, `db:read`, `tls:manage`), HITL & System-1 hooks |
 | 28 | `/api/v1/jobs` (`POST`, `GET`), `/api/v1/jobs/{id}` (`GET`), `/logs` (`GET`), `/cancel` (`POST`) | `POST`, `GET` | `jobs:submit` + underlying action RBAC, `jobs:read`, `jobs:cancel` | `401` | `403` (`POST`) / `200` (`GET`) | `202`/`200` | Allowlist only (`POST`) | `202`/`200` | Dual authorization (job scope + command/plugin allowlist), HITL & System-1 gates, `429` queue backpressure |
 | 29 | `/api/v1/approvals`, `/api/v1/approvals/{id}` | `GET` | `approvals:read` (`admin` / scoped) | `401` | `403` | `403` | `403` | `200` | Bounded pending approval queue (`MaxPending`), canonical SHA-256 payload digest inspection |
@@ -87,8 +87,8 @@ An end-to-end security review was performed across all **33 REST and JSON-RPC 2.
 ### 3.1 Authentication & Unauthorized Access Prevention (`401 Unauthorized`)
 
 - **Multi-Credential Resolution (`internal/api/auth_handlers.go`, `internal/auth/manager.go`)**:
-  - Supports Bearer tokens (`Authorization: Bearer <token>`), `X-API-Key: <token>`, and HTTP Basic Auth (`Authorization: Basic <base64>`).
-  - Passwords and API tokens are never stored in cleartext: user passwords use `bcrypt`, and PATs (`gat_pat_...`) / Service Account keys (`gat_svc_...`) are stored exclusively as constant-time-compared SHA-256 digests (`subtle.ConstantTimeCompare`).
+  - Supports Bearer tokens (`Authorization: Bearer <token>`), `X-API-Token: <token>`, `X-API-Key: <token>`, and `X-Service-Key: <key>` (`ExtractTokenFromRequest`; raw `Authorization: Basic <base64>` strings are not decoded as Basic auth and fail with `401`).
+  - Passwords and API tokens are never stored in cleartext: user passwords use `10,000-round` salted SHA-256 with `subtle.ConstantTimeCompare`, and PATs (`gat_pat_...`) / Service Account keys (`gat_svc_...`) are indexed by SHA-256 hash (`tokenByHash`, `serviceAccountByHash`) and compared in constant time.
 - **Fail-Closed Enforcement**:
   - When `auth.require_auth: true`, `resolvePrincipal` immediately rejects unauthenticated requests (`401 Unauthorized`) before any handler logic runs—even if `auth.enabled` was accidentally set to `false` or `AuthManager` is `nil`.
   - Revoking a session/PAT, disabling a user account (`enabled: false`), disabling a service account, or rotating a service account key immediately invalidates prior credentials with `401 Unauthorized`.
@@ -121,11 +121,11 @@ An end-to-end security review was performed across all **33 REST and JSON-RPC 2.
 | :--- | :--- | :--- | :--- | :--- |
 | **L1: Network / IP Flood** | Volumetric HTTP DDoS & credential brute-force | Per-IP Token-Bucket Rate Limiter (`IPRateLimiter`) with bounded IP map (`MaxTrackedRateLimitIPs = 10000`) and stale-entry eviction | `server.rate_limit.requests_per_second: 500`, `burst: 2000` | `429 Too Many Requests` (`Retry-After: 1`, `X-RateLimit-Limit`) |
 | **L2: HTTP Payload Bomb** | Multi-gigabyte JSON body / chunked stream OOM | `http.MaxBytesReader` + `maxBytesTrackingReader` in `securityMiddleware` | `server.max_request_body_bytes: 1048576` (`1 MiB`) | `413 Request Entity Too Large` |
-| **L3: Slowloris / Socket Exhaustion** | Slow headers, stalled request bodies, idle keep-alives | Hardened `http.Server` socket timeouts (`cmd/server/main.go`) | `ReadHeaderTimeout: 10s`, `ReadTimeout: 30s`, `WriteTimeout: 60s`, `IdleTimeout: 120s` | Socket termination |
+| **L3: Slowloris / Socket Exhaustion** | Slow headers, stalled request bodies, idle keep-alives | Hardened `http.Server` socket timeouts (`cmd/server/main.go`) | `ReadHeaderTimeout: 5s`, `ReadTimeout: 15s`, `WriteTimeout: 30s`, `IdleTimeout: 60s` | Socket termination |
 | **L4: Subprocess Hang / Fork Bomb** | Infinite command loops & orphan child processes | Hierarchical timeout ceiling + process-group kill (`Setpgid` / `taskkill /T /F`) | `executor.max_timeout_seconds: 300`, `default_timeout: 30s` | `400 Bad Request` (override > max) / `500` (`timed_out: true`) |
-| **L5: Output Flood** | Subprocess writing gigabytes to stdout/stderr | `limitedBuffer` (sync) & `JobLogBuffer` (async) truncation | `MaxCommandOutputBytes = 2 MiB`, `DefaultMaxLogBytes = 2 MiB` | Output safely truncated with flag |
+| **L5: Output Flood** | Subprocess writing gigabytes to stdout/stderr | `limitedOutputBuffer` (sync) & `JobLogBuffer` (async) truncation | `MaxCommandOutputBytes = 1 MiB`, `DefaultMaxLogBytes = 2 MiB` | Output safely truncated with flag |
 | **L6: Async Job Queue Flood** | Submitting thousands of concurrent background jobs | Bounded priority heap capacity check (`Engine.Submit`) | `QueueCapacity = 1000` | `429 Too Many Requests` |
-| **L7: Telemetry Cardinality DoS** | Fuzzing random URLs or action names to exhaust Prometheus RAM | Path segment normalization (`normalizeMetricsPath`) + action label cap | `MaxDynamicActionLabels = 64` (overflow -> `_other`) | Bounded time-series memory |
+| **L7: Telemetry Cardinality DoS** | Fuzzing random URLs or action names to exhaust Prometheus RAM | Path segment normalization (`normalizeMetricPath`) + action label cap | `MaxDynamicActionLabels = 64` (overflow -> `"unknown"`) | Bounded time-series memory |
 
 ### 3.5 Zero-Trust MCP Bastion Controls (HITL, `MicroLLM` System-1, Trace Replay & `CISBenchmarks`)
 
@@ -159,7 +159,7 @@ All security controls are validated by automated tests executed on every push an
 
 | Test Suite / File | Coverage Summary |
 | :--- | :--- |
-| [`internal/api/auth_test.go`](internal/api/auth_test.go) | Session login/logout, PAT lifecycle, Service Account glob matching (`ubuntu-*`), disabled principal rejection, and cross-user PAT revocation blocking. |
+| [`internal/api/auth_test.go`](internal/api/auth_test.go) | Session login, PAT lifecycle, Service Account glob matching (`ubuntu-*`), disabled principal rejection, and cross-user PAT revocation blocking. |
 | [`internal/api/endpoint_auth_test.go`](internal/api/endpoint_auth_test.go) | Endpoint-level RBAC matrix for `/api/v1/commands`, `/api/v1/history`, `/api/v1/presets`, `/api/v1/files/`, and anonymous privilege escalation prevention (`TestAnonymousPrivilegeEscalationBlockedOnTokenAndPresetEndpoints`). |
 | [`internal/plugins/m2_adversarial_test.go`](internal/plugins/m2_adversarial_test.go) | Adversarial security tests for JWT algorithm confusion (`alg: none`), HMAC secret brute-force resistance, non-scalar parameter injection, and SQL comment/stacked-query bypass attempts. |
 | [`internal/plugins/plugins_test.go`](internal/plugins/plugins_test.go) | Read-only SQL validation (`TestDBExposureReadOnlyValidationAndExecution`) and declarative parameter regex sanitization. |

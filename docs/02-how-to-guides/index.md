@@ -1,7 +1,7 @@
 # How-To Guides and Operational Runbooks
 
-This section provides goal-oriented operational procedures and incident runbooks for **API Executor (`go-admin-tool`)**
-written in **ASD-STE100 Issue 9** Simplified Technical English.
+Follow these procedural runbooks to deploy, operate, and secure **API Executor (`go-admin-tool`)**.
+All procedures follow **ASD-STE100 Issue 9** Simplified Technical English.
 
 ## Deployment
 

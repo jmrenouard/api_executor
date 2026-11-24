@@ -59,32 +59,18 @@ Serving hundreds of plugins over MCP to concurrent AI agents exposed subtle perf
 
 As API Executor expanded from a modest administrative utility into a comprehensive platform with 305+ plugins (24 pure-Go native plugins and 281 declarative YAML plugins), several architectural tensions surfaced:
 
-```
-+-----------------------------------------------------------------------+
-|                           AI Agent (LLM)                              |
-|                    (Claude / GPT-4 / Gemini / IDE)                     |
-+-----------------------------------------------------------------------+
-                                  |  JSON-RPC 2.0 over HTTPS
-                                  v
-+-----------------------------------------------------------------------+
-|                    API Executor v2.0 (Go Server)                      |
-|                                                                       |
-|  [ Auth Manager ]  ---> O(1) Hash Indexes (Tokens & Service Accounts) |
-|         |                                                             |
-|  [ MCP Gateway ]   ---> Meta-Tool Architecture (`execute_plugin`)    |
-|         |                                                             |
-|  [ Plugin Engine]  ---> Cached Sorted Catalog Snapshot                |
-|         |               Pre-compiled Parameter Validation Regexes     |
-|         v                                                             |
-|  [ Core Executor]  ---> Bounded Pipe Buffer (1 MiB MaxCommandOutput)  |
-|         |               cmd.WaitDelay Process Drain                   |
-|         v                                                             |
-|  [ Audit & DB ]    ---> Persistent File Descriptors (*os.File)        |
-|                         Decoupled In-Memory Lock from Disk/DB I/O     |
-+-----------------------------------------------------------------------+
-                                  |
-                                  v
-                    [ Linux Subprocesses / OS Nodes ]
+```mermaid
+flowchart TD
+    Agent["AI Agent (LLM)<br/>(Claude / GPT-4 / Gemini / IDE)"] -->|"JSON-RPC 2.0 over HTTPS"| Server
+    subgraph Server["API Executor v2.0 (Go Server)"]
+        Auth["Auth Manager: O(1) Hash Indexes (Tokens & Service Accounts)"]
+        MCP["MCP Gateway: Meta-Tool Architecture (execute_plugin)"]
+        Plugin["Plugin Engine: Cached Sorted Catalog Snapshot & Pre-compiled Validation Regexes"]
+        Exec["Core Executor: Bounded Pipe Buffer (1 MiB MaxCommandOutput) & cmd.WaitDelay Drain"]
+        Audit["Audit & DB: Persistent File Descriptors (*os.File) & Decoupled Lock from Disk/DB I/O"]
+        Auth --> MCP --> Plugin --> Exec --> Audit
+    end
+    Audit --> Nodes["Linux Subprocesses / OS Nodes"]
 ```
 
 ### The Meta-Tool Pattern vs. Context Window Bloat
