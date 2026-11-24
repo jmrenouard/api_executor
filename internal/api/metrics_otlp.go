@@ -1,13 +1,20 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -444,4 +451,258 @@ func (env *APIEnv) OTLPMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+const maxOTLPResponseDrainBytes = 4 * 1024
+
+// OTLPPusherStats summarizes outbound OTLP background push telemetry.
+type OTLPPusherStats struct {
+	Enabled    bool      `json:"enabled"`
+	Endpoint   string    `json:"endpoint,omitempty"`
+	PushCount  int64     `json:"push_count"`
+	ErrorCount int64     `json:"error_count"`
+	LastPushAt time.Time `json:"last_push_at,omitempty"`
+	LastError  string    `json:"last_error,omitempty"`
+}
+
+// OTLPPusher periodically exports Prometheus metrics to an OTLP/HTTP JSON collector endpoint.
+type OTLPPusher struct {
+	cfg       core.OTLPExportConfig
+	endpoint  string
+	headers   map[string]string
+	gatherer  prometheus.Gatherer
+	startTime time.Time
+	logger    *core.Logger
+	transport *http.Transport
+	client    *http.Client
+
+	mu         sync.Mutex
+	started    bool
+	closed     bool
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	pushCount  int64
+	errorCount int64
+	lastPushAt time.Time
+	lastError  string
+}
+
+// NewOTLPPusher validates OTLP export configuration and builds an outbound OTLP/HTTP background pusher.
+// When OTLP export is disabled or endpoint is empty, it returns (nil, nil) as a no-op.
+func NewOTLPPusher(cfg core.OTLPExportConfig, gatherer prometheus.Gatherer, startTime time.Time, logger *core.Logger) (*OTLPPusher, error) {
+	rawEndpoint := strings.TrimSpace(cfg.Endpoint)
+	if !cfg.Enabled || rawEndpoint == "" {
+		return nil, nil
+	}
+
+	parsed, err := url.Parse(rawEndpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || strings.TrimSpace(parsed.Host) == "" || parsed.Hostname() == "" {
+		return nil, fmt.Errorf("invalid OTLP export endpoint %q: scheme must be http or https with a non-empty host", rawEndpoint)
+	}
+
+	if gatherer == nil {
+		gatherer = prometheus.DefaultGatherer
+	}
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+
+	headersCopy := make(map[string]string, len(cfg.Headers))
+	for k, v := range cfg.Headers {
+		headersCopy[k] = v
+	}
+
+	resAttrsCopy := make(map[string]string, len(cfg.ResourceAttributes))
+	for k, v := range cfg.ResourceAttributes {
+		resAttrsCopy[k] = v
+	}
+	cfgCopy := cfg
+	cfgCopy.Endpoint = parsed.String()
+	cfgCopy.Headers = headersCopy
+	cfgCopy.ResourceAttributes = resAttrsCopy
+
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: cfg.InsecureSkipVerify,
+		},
+	}
+
+	client := &http.Client{
+		Timeout:   cfg.EffectiveTimeout(),
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL == nil || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
+				scheme := ""
+				if req.URL != nil {
+					scheme = req.URL.Scheme
+				}
+				return fmt.Errorf("refusing OTLP redirect to disallowed scheme %q", scheme)
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
+
+	return &OTLPPusher{
+		cfg:       cfgCopy,
+		endpoint:  parsed.String(),
+		headers:   headersCopy,
+		gatherer:  gatherer,
+		startTime: startTime,
+		logger:    logger,
+		transport: transport,
+		client:    client,
+	}, nil
+}
+
+// Start launches a single background goroutine that pushes OTLP metrics on EffectivePushInterval.
+func (p *OTLPPusher) Start() {
+	if p == nil {
+		return
+	}
+
+	p.mu.Lock()
+	if p.closed || p.started {
+		p.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+	p.started = true
+	p.wg.Add(1)
+	p.mu.Unlock()
+
+	interval := p.cfg.EffectivePushInterval()
+	go func() {
+		defer p.wg.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := p.PushOnce(ctx); err != nil && ctx.Err() == nil && p.logger != nil {
+					p.logger.Warn(fmt.Sprintf("OTLP background metrics push failed: %v", err))
+				}
+			}
+		}
+	}()
+}
+
+// PushOnce gathers Prometheus metrics, encodes them as OTLP JSON, and POSTs them to the configured collector.
+func (p *OTLPPusher) PushOnce(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	payload, err := BuildOTLPMetrics(p.cfg, p.gatherer, p.startTime)
+	if err != nil {
+		p.recordError(err)
+		return err
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		err = fmt.Errorf("failed to marshal OTLP metrics payload: %w", err)
+		p.recordError(err)
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
+	if err != nil {
+		err = fmt.Errorf("failed to build OTLP push request: %w", err)
+		p.recordError(err)
+		return err
+	}
+
+	for k, v := range p.headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		err = fmt.Errorf("OTLP push request failed: %w", err)
+		p.recordError(err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Drain and cap response body to preserve keep-alive connections while bounding memory.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxOTLPResponseDrainBytes))
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		err = fmt.Errorf("OTLP collector returned HTTP %d", resp.StatusCode)
+		p.recordError(err)
+		return err
+	}
+
+	p.recordSuccess()
+	return nil
+}
+
+// Close idempotently cancels the background push loop and waits for clean goroutine exit.
+func (p *OTLPPusher) Close() error {
+	if p == nil {
+		return nil
+	}
+
+	p.mu.Lock()
+	alreadyClosed := p.closed
+	p.closed = true
+	cancel := p.cancel
+	p.cancel = nil
+	p.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	p.wg.Wait()
+	if !alreadyClosed && p.transport != nil {
+		p.transport.CloseIdleConnections()
+	}
+	return nil
+}
+
+// Stats returns a thread-safe snapshot of OTLP pusher telemetry.
+func (p *OTLPPusher) Stats() OTLPPusherStats {
+	if p == nil {
+		return OTLPPusherStats{}
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return OTLPPusherStats{
+		Enabled:    p.cfg.Enabled,
+		Endpoint:   p.endpoint,
+		PushCount:  p.pushCount,
+		ErrorCount: p.errorCount,
+		LastPushAt: p.lastPushAt,
+		LastError:  p.lastError,
+	}
+}
+
+func (p *OTLPPusher) recordError(err error) {
+	p.mu.Lock()
+	p.errorCount++
+	if err != nil {
+		p.lastError = err.Error()
+	}
+	p.mu.Unlock()
+}
+
+func (p *OTLPPusher) recordSuccess() {
+	p.mu.Lock()
+	p.pushCount++
+	p.lastPushAt = time.Now().UTC()
+	p.lastError = ""
+	p.mu.Unlock()
 }

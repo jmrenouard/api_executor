@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"go-admin-tool/internal/api"
 	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
@@ -81,8 +83,12 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 	var mcpServer *mcp.Server
 	var jobEngine *jobs.Engine
 	var system1Gatekeeper gatekeeper.Gatekeeper
+	var otlpPusher *api.OTLPPusher
 
 	cleanup := func() {
+		if otlpPusher != nil {
+			_ = otlpPusher.Close()
+		}
 		if jobEngine != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = jobEngine.Shutdown(shutdownCtx)
@@ -227,6 +233,20 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		logger.Info(fmt.Sprintf("Multi-config manager initialized with %d profiles", len(multiConfigMgr.ListProfiles())))
 	}
 
+	startTime := time.Now()
+	if config.OTLPExport.Enabled && strings.TrimSpace(config.OTLPExport.Endpoint) != "" {
+		otlpPusher, err = api.NewOTLPPusher(config.OTLPExport, prometheus.DefaultGatherer, startTime, logger)
+		if err != nil {
+			cleanup()
+			return nil, nil, nil, fmt.Errorf("failed to initialize OTLP background pusher: %w", err)
+		}
+		if otlpPusher != nil {
+			otlpPusher.Start()
+			logger.Info(fmt.Sprintf("OTLP background metrics pusher started (endpoint=%s, interval=%s)",
+				config.OTLPExport.Endpoint, config.OTLPExport.EffectivePushInterval()))
+		}
+	}
+
 	apiEnv = &api.APIEnv{
 		Config:             config,
 		MultiConfigManager: multiConfigMgr,
@@ -240,7 +260,7 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		PluginRegistry:     pluginRegistry,
 		MCPServer:          mcpServer,
 		JobEngine:          jobEngine,
-		StartTime:          time.Now(),
+		StartTime:          startTime,
 	}
 	mcpServer.SetApprovalGate(apiEnv.NewMCPApprovalGate())
 

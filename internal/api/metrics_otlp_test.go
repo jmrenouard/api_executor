@@ -1,11 +1,14 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -307,5 +310,251 @@ func TestBuildOTLPMetrics_CustomGatherer(t *testing.T) {
 	metrics := payload.ResourceMetrics[0].ScopeMetrics[0].Metrics
 	if len(metrics) != 1 || metrics[0].Name != "custom_counter_total" {
 		t.Errorf("expected custom_counter_total metric, got %+v", metrics)
+	}
+}
+
+func TestNewOTLPPusher_NoOpAndValidation(t *testing.T) {
+	// 1. Disabled or empty endpoint returns (nil, nil) as a no-op
+	p, err := api.NewOTLPPusher(core.OTLPExportConfig{Enabled: false, Endpoint: "http://127.0.0.1:4318/v1/metrics"}, nil, time.Now(), nil)
+	if err != nil || p != nil {
+		t.Fatalf("expected (nil, nil) when disabled, got (%v, %v)", p, err)
+	}
+
+	p, err = api.NewOTLPPusher(core.OTLPExportConfig{Enabled: true, Endpoint: "   "}, nil, time.Now(), nil)
+	if err != nil || p != nil {
+		t.Fatalf("expected (nil, nil) when endpoint is empty, got (%v, %v)", p, err)
+	}
+
+	// 2. Disallowed URL schemes and missing hosts are rejected
+	invalidEndpoints := []string{
+		"file:///etc/passwd",
+		"ftp://collector.internal:4318/v1/metrics",
+		"gopher://127.0.0.1:4318",
+		"http:///v1/metrics",
+		"https://",
+		"http://:4318/v1/metrics",
+		"://bad-url",
+	}
+	for _, ep := range invalidEndpoints {
+		p, err := api.NewOTLPPusher(core.OTLPExportConfig{Enabled: true, Endpoint: ep}, nil, time.Now(), nil)
+		if err == nil || p != nil {
+			t.Errorf("expected error for invalid endpoint %q, got (%v, %v)", ep, p, err)
+		}
+	}
+}
+
+func TestOTLPPusher_PushOnce_SuccessAndHeaders(t *testing.T) {
+	customReg := prometheus.NewRegistry()
+	counter := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "otlp_push_test_total",
+		Help: "Counter for OTLP push test.",
+	})
+	customReg.MustRegister(counter)
+	counter.Add(7)
+
+	var gotMethod string
+	var gotContentType string
+	var gotAPIKey string
+	var gotAuth string
+	var gotBody []byte
+
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotContentType = r.Header.Get("Content-Type")
+		gotAPIKey = r.Header.Get("DD-API-KEY")
+		gotAuth = r.Header.Get("Authorization")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"partialSuccess":{}}`))
+	}))
+	defer collector.Close()
+
+	cfg := core.OTLPExportConfig{
+		Enabled:  true,
+		Endpoint: collector.URL + "/v1/metrics",
+		Timeout:  "5s",
+		Headers: map[string]string{
+			"DD-API-KEY":    "secret-key",
+			"Authorization": "Bearer token-123",
+		},
+		ResourceAttributes: map[string]string{
+			"service.name": "otlp-pusher-test",
+		},
+	}
+
+	pusher, err := api.NewOTLPPusher(cfg, customReg, time.Now().Add(-time.Minute), nil)
+	if err != nil {
+		t.Fatalf("NewOTLPPusher failed: %v", err)
+	}
+	defer func() { _ = pusher.Close() }()
+
+	if err := pusher.PushOnce(context.Background()); err != nil {
+		t.Fatalf("PushOnce failed: %v", err)
+	}
+
+	if gotMethod != http.MethodPost {
+		t.Errorf("expected POST method, got %q", gotMethod)
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", gotContentType)
+	}
+	if gotAPIKey != "secret-key" || gotAuth != "Bearer token-123" {
+		t.Errorf("custom headers not forwarded properly: DD-API-KEY=%q Authorization=%q", gotAPIKey, gotAuth)
+	}
+
+	var decoded api.OTLPExportMetricsRequest
+	if err := json.Unmarshal(gotBody, &decoded); err != nil {
+		t.Fatalf("collector received invalid OTLP JSON: %v", err)
+	}
+	if len(decoded.ResourceMetrics) == 0 || len(decoded.ResourceMetrics[0].ScopeMetrics) == 0 {
+		t.Fatalf("expected non-empty ResourceMetrics and ScopeMetrics")
+	}
+	metrics := decoded.ResourceMetrics[0].ScopeMetrics[0].Metrics
+	if len(metrics) != 1 || metrics[0].Name != "otlp_push_test_total" {
+		t.Errorf("expected otlp_push_test_total in pushed payload, got %+v", metrics)
+	}
+
+	stats := pusher.Stats()
+	if !stats.Enabled || stats.PushCount != 1 || stats.ErrorCount != 0 || stats.LastPushAt.IsZero() || stats.LastError != "" {
+		t.Errorf("unexpected pusher stats after success: %+v", stats)
+	}
+}
+
+func TestOTLPPusher_PushOnce_ErrorStatusRedirectAndTLS(t *testing.T) {
+	// 1. Non-2xx response with > 4 KiB body
+	errServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(strings.Repeat("X", 16*1024)))
+	}))
+	defer errServer.Close()
+
+	customReg := prometheus.NewRegistry()
+	pusher, err := api.NewOTLPPusher(core.OTLPExportConfig{
+		Enabled:  true,
+		Endpoint: errServer.URL,
+		Timeout:  "2s",
+	}, customReg, time.Now(), nil)
+	if err != nil {
+		t.Fatalf("NewOTLPPusher failed: %v", err)
+	}
+	defer func() { _ = pusher.Close() }()
+
+	if err := pusher.PushOnce(context.Background()); err == nil {
+		t.Fatalf("expected error on 503 response")
+	}
+	stats := pusher.Stats()
+	if stats.PushCount != 0 || stats.ErrorCount != 1 || !strings.Contains(stats.LastError, "503") {
+		t.Errorf("unexpected stats after 503 failure: %+v", stats)
+	}
+
+	// 2. Redirect to disallowed scheme (file://) must be refused
+	redirServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "file:///etc/passwd", http.StatusFound)
+	}))
+	defer redirServer.Close()
+
+	redirPusher, err := api.NewOTLPPusher(core.OTLPExportConfig{
+		Enabled:  true,
+		Endpoint: redirServer.URL,
+		Timeout:  "2s",
+	}, customReg, time.Now(), nil)
+	if err != nil {
+		t.Fatalf("NewOTLPPusher failed: %v", err)
+	}
+	defer func() { _ = redirPusher.Close() }()
+
+	if err := redirPusher.PushOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "disallowed scheme") {
+		t.Errorf("expected disallowed scheme redirect error, got %v", err)
+	}
+
+	// 3. HTTPS TLS verification vs InsecureSkipVerify
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer tlsServer.Close()
+
+	strictTLS, err := api.NewOTLPPusher(core.OTLPExportConfig{
+		Enabled:            true,
+		Endpoint:           tlsServer.URL,
+		InsecureSkipVerify: false,
+	}, customReg, time.Now(), nil)
+	if err != nil {
+		t.Fatalf("NewOTLPPusher failed: %v", err)
+	}
+	defer func() { _ = strictTLS.Close() }()
+	if err := strictTLS.PushOnce(context.Background()); err == nil {
+		t.Errorf("expected TLS verification failure against self-signed httptest TLS server")
+	}
+
+	insecureTLS, err := api.NewOTLPPusher(core.OTLPExportConfig{
+		Enabled:            true,
+		Endpoint:           tlsServer.URL,
+		InsecureSkipVerify: true,
+	}, customReg, time.Now(), nil)
+	if err != nil {
+		t.Fatalf("NewOTLPPusher failed: %v", err)
+	}
+	defer func() { _ = insecureTLS.Close() }()
+	if err := insecureTLS.PushOnce(context.Background()); err != nil {
+		t.Errorf("expected TLS push with InsecureSkipVerify=true to succeed, got %v", err)
+	}
+}
+
+func TestOTLPPusher_BackgroundTickerAndCleanClose(t *testing.T) {
+	var hits atomic.Int32
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer collector.Close()
+
+	logger, err := core.NewLogger(core.LoggingConfig{Level: "warn"})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer func() { _ = logger.Close() }()
+
+	customReg := prometheus.NewRegistry()
+	pusher, err := api.NewOTLPPusher(core.OTLPExportConfig{
+		Enabled:      true,
+		Endpoint:     collector.URL,
+		PushInterval: "20ms",
+		Timeout:      "1s",
+	}, customReg, time.Now(), logger)
+	if err != nil {
+		t.Fatalf("NewOTLPPusher failed: %v", err)
+	}
+
+	pusher.Start()
+	pusher.Start() // idempotent second Start
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st := pusher.Stats()
+		if st.ErrorCount >= 1 && st.PushCount >= 1 {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+
+	if err := pusher.Close(); err != nil {
+		t.Fatalf("first Close failed: %v", err)
+	}
+	if err := pusher.Close(); err != nil {
+		t.Fatalf("idempotent second Close failed: %v", err)
+	}
+
+	countAfterClose := hits.Load()
+	time.Sleep(80 * time.Millisecond)
+	if hits.Load() != countAfterClose {
+		t.Errorf("expected no pushes after Close(), had %d then %d", countAfterClose, hits.Load())
+	}
+
+	st := pusher.Stats()
+	if st.ErrorCount < 1 || st.PushCount < 1 {
+		t.Errorf("expected >=1 error and >=1 success from background ticker, got %+v", st)
 	}
 }
