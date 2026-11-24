@@ -288,7 +288,7 @@ func TestExecuteCommandGrandchildProcessGroupTimeout(t *testing.T) {
 }
 
 func TestExecuteCommandFailureVsSystemError(t *testing.T) {
-	// Non-zero exit code is a command failure (appel en échec)
+	// Non-zero exit code is a command execution failure
 	failCmd := helperExitCodeCommand("exit-fail", 1)
 	_, err := ExecuteCommand(failCmd)
 	if err == nil {
@@ -301,7 +301,7 @@ func TestExecuteCommandFailureVsSystemError(t *testing.T) {
 		t.Errorf("expected IsCommandSystemError(err)=false for exit code 1")
 	}
 
-	// Non-existent binary is a system/invocation error (appel en erreur)
+	// Non-existent binary is a system/invocation error
 	badBinCmd := CommandDefinition{
 		Name:    "missing-binary",
 		Command: "definitely_nonexistent_executable_xyz_98765",
