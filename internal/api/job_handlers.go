@@ -39,6 +39,7 @@ type SubmitJobResponse struct {
 	CreatedAt time.Time      `json:"created_at"`
 	PollURL   string         `json:"poll_url"`
 	LogsURL   string         `json:"logs_url"`
+	StreamURL string         `json:"stream_url,omitempty"`
 }
 
 // JobListResponse defines the response structure for GET /api/v1/jobs.
@@ -305,6 +306,7 @@ func (env *APIEnv) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: job.CreatedAt,
 		PollURL:   fmt.Sprintf("/api/v1/jobs/%s", job.ID),
 		LogsURL:   fmt.Sprintf("/api/v1/jobs/%s/logs", job.ID),
+		StreamURL: fmt.Sprintf("/api/v1/jobs/%s/stream", job.ID),
 	})
 }
 
@@ -428,7 +430,7 @@ func (env *APIEnv) JobQueueStatsHandler(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// JobSubroutesHandler handles dynamic parameterized routes under /api/v1/jobs/{id}[/logs|/cancel].
+// JobSubroutesHandler handles dynamic parameterized routes under /api/v1/jobs/{id}[/logs|/stream|/cancel].
 func (env *APIEnv) JobSubroutesHandler(w http.ResponseWriter, r *http.Request) {
 	subpath := strings.TrimPrefix(r.URL.Path, "/api/v1/jobs/")
 	subpath = strings.TrimSuffix(subpath, "/")
@@ -464,6 +466,15 @@ func (env *APIEnv) JobSubroutesHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			env.GetJobLogsHandler(w, r, jobID)
+			return
+		case "stream":
+			// GET /api/v1/jobs/{id}/stream
+			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", http.MethodGet)
+				writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			env.StreamJobLogsHandler(w, r, jobID)
 			return
 		case "cancel":
 			// POST /api/v1/jobs/{id}/cancel

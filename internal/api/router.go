@@ -434,6 +434,11 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap exposes the wrapped http.ResponseWriter to http.ResponseController and Flusher resolution.
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
 // knownStaticPaths contains recognized static endpoint paths whose cardinality is strictly bounded.
 var knownStaticPaths = map[string]struct{}{
 	"/":                                    {},
@@ -545,6 +550,9 @@ func normalizeMetricPath(path string) string {
 		if len(parts) == 2 {
 			if parts[1] == "logs" {
 				return "/api/v1/jobs/:id/logs"
+			}
+			if parts[1] == "stream" {
+				return "/api/v1/jobs/:id/stream"
 			}
 			if parts[1] == "cancel" {
 				return "/api/v1/jobs/:id/cancel"

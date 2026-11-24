@@ -128,6 +128,8 @@ func TestNormalizeMetricPath(t *testing.T) {
 		{"jobs dynamic id trailing slash", "/api/v1/jobs/job_123456/", "/api/v1/jobs/:id"},
 		{"jobs dynamic id logs", "/api/v1/jobs/job_123456/logs", "/api/v1/jobs/:id/logs"},
 		{"jobs dynamic id logs trailing slash", "/api/v1/jobs/job_123456/logs/", "/api/v1/jobs/:id/logs"},
+		{"jobs dynamic id stream", "/api/v1/jobs/job_123456/stream", "/api/v1/jobs/:id/stream"},
+		{"jobs dynamic id stream trailing slash", "/api/v1/jobs/job_123456/stream/", "/api/v1/jobs/:id/stream"},
 		{"jobs dynamic id cancel", "/api/v1/jobs/job_123456/cancel", "/api/v1/jobs/:id/cancel"},
 		{"jobs dynamic id cancel trailing slash", "/api/v1/jobs/job_123456/cancel/", "/api/v1/jobs/:id/cancel"},
 		{"jobs invalid deep subpath", "/api/v1/jobs/a/b/c", "other"},
@@ -202,6 +204,7 @@ func TestPrometheusMetricJobRouteNormalization(t *testing.T) {
 		"/api/v1/jobs/job_123",
 		"/api/v1/jobs/job_456",
 		"/api/v1/jobs/job_789/logs",
+		"/api/v1/jobs/job_789/stream",
 		"/api/v1/jobs/job_789/cancel",
 	}
 	for _, url := range jobUrls {
@@ -221,6 +224,9 @@ func TestPrometheusMetricJobRouteNormalization(t *testing.T) {
 	}
 	if _, found := pathLabels["/api/v1/jobs/:id/logs"]; !found {
 		t.Errorf("expected metric path label '/api/v1/jobs/:id/logs' to be present")
+	}
+	if _, found := pathLabels["/api/v1/jobs/:id/stream"]; !found {
+		t.Errorf("expected metric path label '/api/v1/jobs/:id/stream' to be present")
 	}
 	if _, found := pathLabels["/api/v1/jobs/:id/cancel"]; !found {
 		t.Errorf("expected metric path label '/api/v1/jobs/:id/cancel' to be present")
