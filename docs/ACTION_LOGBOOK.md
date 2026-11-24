@@ -26,9 +26,22 @@ _None._
   - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-085`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (`RCA-058`).
 - **Result**:
   - `go vet ./...`: passed (`exit 0`).
-  - `go test -count=1 -p 1 -cover ./...`: all 14 packages passed (`cmd/server` `85.0%`, `docs` `100.0%`, `internal/api` `85.7%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.0%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `86.4%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `11.092s`).
-  - `go test -count=1 ./tests/e2e/...`: passed (`11.957s`).
+  - `go test -count=1 -p 1 -cover ./...`: all 14 packages passed (`cmd/server` `85.0%`, `docs` `100.0%`, `internal/api` `85.7%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.0%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `85.5%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `12.702s`).
+  - `go test -count=1 ./tests/e2e/...`: passed (`12.345s`).
   - Pending `/ponytail-review` and PR merge.
+
+### `ACT-084` — Outbound OTLP/HTTP Background Metrics Pusher (`Issue #169`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#169` — `feat/issue-169-otlp-background-pusher`
+- **Request**: Implement the outbound OTLP/HTTP background metrics pusher (`OTLPPusher`) in `internal/api/metrics_otlp.go`, wire startup and graceful shutdown in `cmd/server/main.go`, preserve `GET /api/v1/metrics/otlp` `OTLPExportMetricsRequest` JSON compatibility, add unit and lifecycle tests, and record `RCA-057`.
+- **Changes**:
+  - Modified [`internal/api/metrics_otlp.go`](../internal/api/metrics_otlp.go): Added `OTLPPusher` and `OTLPPusherStats` (`NewOTLPPusher`, `Start`, `PushOnce`, `Close`, `Stats`) with strict `http`/`https` non-empty-host endpoint validation (returning `nil, nil` when disabled or empty), reusable `http.Client` with `EffectiveTimeout()`, TLS `MinVersion: tls.VersionTLS12` + `InsecureSkipVerify`, `CheckRedirect` blocking non-http(s) redirects, custom `Headers` + `Content-Type: application/json`, 4 KiB bounded response draining for keep-alive reuse, ticker loop on `EffectivePushInterval()`, and idempotent `Close()`.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go): Initialized and started `otlpPusher` in `initializeServerEnv` when `config.OTLPExport.Enabled && strings.TrimSpace(config.OTLPExport.Endpoint) != ""`, and stopped it in `cleanup()`.
+  - Modified [`internal/api/metrics_otlp_test.go`](../internal/api/metrics_otlp_test.go) and [`cmd/server/main_test.go`](../cmd/server/main_test.go): Added `TestNewOTLPPusher_NoOpAndValidation`, `TestOTLPPusher_PushOnce_SuccessAndHeaders`, `TestOTLPPusher_PushOnce_ErrorStatusRedirectAndTLS`, `TestOTLPPusher_BackgroundTickerAndCleanClose`, and `TestInitializeServerEnv_OTLPPusherLifecycleAndValidation`.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): Recorded `ACT-084` and `RCA-057`.
+- **Result**:
+  - `go vet ./...`, `go test -count=1 -p 1 -cover ./...` (`14` Go packages: `cmd/server` `85.9%`, `internal/api` `85.4%`), and `go test -count=1 ./tests/e2e/...` (`7.232s`) all passed 100%.
 
 ### `ACT-083` — Executable Go E2E Verification Suite for Tutorials & How-To Runbooks (`Issue #166`)
 
