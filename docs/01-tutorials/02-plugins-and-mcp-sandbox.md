@@ -288,7 +288,7 @@ rm -rf /tmp/apiexec-mcp-lab
 - Continue to [Tutorial 3: Zero-Trust Bastion & Async Jobs Lab](03-zero-trust-bastion-and-async-jobs-lab.md)
 - Activate OS task presets and manage async job queues in production:
   [Manage Async Jobs and Presets](../02-how-to-guides/operations/manage-async-jobs-and-presets.md)
-- Inspect all 49 HTTP/REST and MCP endpoints and plugin parameters:
+- Inspect all 53 HTTP/REST and MCP endpoints and plugin parameters:
   [REST, MCP Endpoints & Environment](../03-reference/api-and-cli/rest-mcp-endpoints-and-env.md)
 - Understand why direct `argv` execution and the Meta-Tool pattern eliminate shell injection and context bloat:
   [ADR-001: Zero-Trust Execution & Bastion](../04-explanation/design-decisions/adr-001-zero-trust-execution-and-bastion.md)

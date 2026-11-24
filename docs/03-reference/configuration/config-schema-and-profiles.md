@@ -22,6 +22,7 @@ Authoritative schema specification for `config.yaml`, runtime server limits, cry
 | `audit` | `object` | See `audit` below | SHA-256 hash-chained audit trail configuration |
 | `approval` | `object` | See `approval` below | Single-use HITL approval workflow policy |
 | `gatekeeper` | `object` | See `gatekeeper` below | System-1 `MicroLLM` pre-execution guard settings |
+| `jobs` | `object` | See `jobs` below | Async job engine worker pool, queue capacity, log buffer, and retention policy |
 | `multi_config` | `object` | See `multi_config` below | Multi-profile configuration switching settings |
 | `otlp_export` | `object` | See `otlp_export` below | OpenTelemetry OTLP metrics export settings |
 | `sandbox` | `object` | See `sandbox` below | Non-root execution UID/GID, user namespace, and capability drops |
@@ -148,7 +149,7 @@ Authentication cryptographic invariants in [`internal/auth/manager.go`](../../..
 | `plugins.enable_db_exposure` | `bool` | `true` | Enables read-only SQLite inspection endpoints and MCP tools |
 | `plugins.enable_sys_diagnostics` | `bool` | `true` | Enables built-in Go system diagnostic plugins |
 | `plugins.declarative_dir` | `string` | `"plugins"` | Root directory recursively scanned for YAML declarative plugins |
-| `plugins.allowed_db_paths` | `[]string` | `[]` | Whitelisted filesystem paths permitted for `POST /api/v1/db/query` and `GET /api/v1/db/tables` |
+| `plugins.allowed_db_paths` | `[]string` | `[]` | Reserved in single-DB mode; `db-exposure` queries the server's configured `database.path` SQLite store |
 | `plugins.max_query_rows` | `int` | `200` | Maximum SQLite query rows returned; clamped to `<= 1000` |
 
 Plugin inventory counts on the repository tree: `24` built-in Go native plugins + built-in `DefaultDeclarativeOpsPlugin()` (`ops-quick-tools`) loaded at startup + `282` declarative YAML plugin definitions under `plugins/` (`sysadmin`: 28, `netops`: 28, `secops`: 29 including `cis-benchmarks-audit.yaml`, `containerops`: 28, `kubernetes`: 28, `dataops`: 28, `devops`: 28, `sre`: 28, `aiops`: 28, `webutils`: 28, root `network-audit.yaml`: 1).
@@ -210,7 +211,20 @@ Wire contract limits in [`internal/gatekeeper/`](../../../internal/gatekeeper/ga
 
 ---
 
-## `multi_config`, `otlp_export`, and `sandbox`
+## `jobs`, `multi_config`, `otlp_export`, and `sandbox`
+
+### `jobs`
+
+| Path | Type | Default (`DefaultJobsConfig`) | Constraints & Behavior |
+| :--- | :--- | :--- | :--- |
+| `jobs.workers_count` | `int` | `4` | Fixed worker goroutine pool size; non-positive values fall back to `4` |
+| `jobs.queue_capacity` | `int` | `1000` | Bounded priority max-heap queue capacity; excess submissions return `429 Too Many Requests` |
+| `jobs.max_log_bytes` | `int` | `2097152` (`2 MiB`) | Per-job `JobLogBuffer` ring retention cap in bytes |
+| `jobs.prune_interval` | `string` | `"10m"` | Duration string between terminal job pruning sweeps (`ParseTimeoutDuration`) |
+| `jobs.max_job_age` | `string` | `"168h"` (`7d`) | Maximum retention age for terminal jobs before pruning |
+| `jobs.max_retained_jobs` | `int` | `10000` | Maximum number of terminal job records retained in the store |
+
+Sanitized values are exposed at runtime under `jobs` on `GET /api/v1/config` (`SanitizedJobsConfig`).
 
 ### `multi_config`
 
@@ -226,15 +240,17 @@ Wire contract limits in [`internal/gatekeeper/`](../../../internal/gatekeeper/ga
 
 | Path | Type | Default | Constraints & Behavior |
 | :--- | :--- | :--- | :--- |
-| `otlp_export.enabled` | `bool` | `true` | Enables OTLP exporter state and `/api/v1/metrics/otlp` snapshot endpoint |
-| `otlp_export.endpoint` | `string` | `""` | Target OTLP HTTP receiver URL; empty disables outbound pushes |
-| `otlp_export.push_interval` | `string` | `"30s"` | Periodic push interval duration string |
+| `otlp_export.enabled` | `bool` | `true` | Enables OTLP exporter state, `/api/v1/metrics/otlp` snapshot endpoint, and background `OTLPPusher` when `endpoint` is set |
+| `otlp_export.endpoint` | `string` | `""` | Target OTLP/HTTP JSON receiver URL (`http://` or `https://` with non-empty host); empty disables outbound background pushes |
+| `otlp_export.push_interval` | `string` | `"30s"` | Periodic outbound push interval duration string |
 | `otlp_export.push_interval_seconds` | `int` | Config dependent | Legacy integer fallback interval in seconds |
 | `otlp_export.headers` | `map[string]string` | `{}` | Outbound OTLP HTTP headers (masked as `"[REDACTED]"` in `/api/v1/config`) |
 | `otlp_export.resource_attributes` | `map[string]string` | `{"service.name": "api-executor"}` | Resource attributes attached to exported telemetry |
 | `otlp_export.timeout` | `string` | `"10s"` | HTTP push timeout duration string |
 | `otlp_export.timeout_seconds` | `int` | Config dependent | Legacy integer fallback timeout in seconds |
 | `otlp_export.insecure_skip_verify` | `bool` | `false` | Disables TLS verification for OTLP collector endpoint |
+
+When `otlp_export.enabled` is `true` and `otlp_export.endpoint` is non-empty, `cmd/server/main.go` starts an active background `OTLPPusher` (`internal/api/metrics_otlp.go`) that gathers `prometheus.DefaultGatherer` metrics, translates them to OTLP/HTTP JSON (`OTLPExportMetricsRequest`), and POSTs on `EffectivePushInterval()` with TLS `MinVersion: 1.2` and non-HTTP(S) redirect blocking. Invalid `endpoint` values fail server startup; runtime push errors log a warning (`OTLP background metrics push failed`) without crashing the server, and `Close()` drains cleanly on shutdown.
 
 ### `sandbox`
 
@@ -257,7 +273,7 @@ Valid `sandbox.userns` / `sandbox.userns_mode` values: `"keep-id"`, `"auto"`, `"
 
 ## Internal Async Job Engine Defaults
 
-Defaults defined in `DefaultEngineConfig()` ([`internal/jobs/engine.go`](../../../internal/jobs/engine.go)):
+Defaults defined in `DefaultEngineConfig()` ([`internal/jobs/engine.go`](../../../internal/jobs/engine.go)) and overridden via top-level `jobs:` in `config.yaml` (`DefaultJobsConfig()`):
 
 | Field | Default Value | Description |
 | :--- | :--- | :--- |

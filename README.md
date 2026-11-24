@@ -55,7 +55,7 @@ Browse the versioned live documentation portal at **[`https://api-executor.light
 4. **Predefined Ubuntu & RedHat / RHEL OS Tasks (`internal/core/os_presets.go`)**:
    - Ready-to-run, container-safe system administration catalogs for **Ubuntu / Debian** (`configs/ubuntu-tasks.yaml`, `docker/Dockerfile.ubuntu`) and **RedHat / RHEL / UBI9** (`configs/redhat-tasks.yaml`, `docker/Dockerfile.redhat`), orchestrated via `docker-compose.os-test.yml` and dynamically activatable at runtime (`POST /api/v1/presets/activate`).
 5. **Pure Web Administration Console (`web/static/index.html`)**:
-   - Single-page 9-tab dark enterprise console covering Command Execution, Ubuntu & RedHat Presets, RBAC Users & Personal Access Tokens, Third-Party Service Accounts, Extensible 300+ Plugins Catalog & Read-Only SQL Explorer, Interactive MCP Playground & Trace Inspector, SHA-256 Audit Trail, X.509 TLS Certificate Management, and Asynchronous Action Execution & Job Queue Management (Tab 9).
+   - Single-page 10-tab dark enterprise console with a live `/api/v1/version` header badge covering Command Execution, Ubuntu & RedHat Presets, RBAC Users & Personal Access Tokens, Third-Party Service Accounts, Extensible 300+ Plugins Catalog & Read-Only SQL Explorer, Interactive MCP Playground & Trace Inspector (Tab 6 with SHA-256 chain/per-trace verify and dry-run/live replay), SHA-256 Audit Trail, X.509 TLS Certificate Management, Asynchronous Action Execution & Job Queue Management (Tab 9 with SSE live log streaming and polling fallback), and HITL Approvals (Tab 10 with status filters and distinct-admin approve/reject controls).
    - **Tab 5 Master-Detail Catalog**: Instant client-side search, 10 domain category pills with live count badges, type filter toggles (`All`, `Native`, `Declarative`), client-side pagination, dynamic parameter form generation with typed controls (boolean toggles, numeric inputs, regex pattern hints), two-way JSON mode synchronization, and formatted execution telemetry.
 6. **RBAC User Management, Personal Access Tokens & Third-Party Service Accounts (`internal/auth/manager.go`)**:
    - Role-Based Access Control (`admin`, `operator`, `viewer`), Personal Access Tokens (`gat_pat_...`) for remote CLI/API calls, and machine-to-machine Third-Party Service Accounts (`gat_svc_...`) with wildcard action scoping (`allowed_actions`: e.g. `disk-usage`, `ubuntu-*`, `db-exposure`, `plugin:sys-diagnostics:*`) and instant key rotation.
@@ -72,13 +72,13 @@ Browse the versioned live documentation portal at **[`https://api-executor.light
 9. **Tamper-Evident SHA-256 Hash-Chained Audit Trail & Structured Logging (`internal/audit/audit.go`, `internal/core/logger.go`)**:
    - Every command execution, auth event, plugin call, TLS rotation, and MCP invocation is chained cryptographically (`prev_hash` -> `entry_hash` starting from `GENESIS`) and verifiable on demand via `GET /api/v1/audit/verify`.
 10. **Asynchronous Action Execution Engine & Priority Job Queue (`internal/jobs/`)**:
-    - **Non-Blocking Dispatch**: Decouples long-running system commands and plugin operations from synchronous HTTP request threads via `POST /api/v1/jobs`, returning `202 Accepted` with deterministic poll (`/api/v1/jobs/{id}`) and live log tailing (`/api/v1/jobs/{id}/logs`) URLs.
-    - **3-Tier Priority Heap Queue (`container/heap`)**: Jobs are prioritized across `High`, `Normal`, and `Low` tiers with monotonic sequence tie-breaking (FIFO within tiers) and bounded backpressure (`429 Too Many Requests` when queue capacity of 1,000 jobs is reached).
-    - **Graceful Worker Pool**: Bounded concurrent worker goroutines with graceful drain on server shutdown.
-    - **Concurrency-Safe Live Log Streaming**: In-memory ring buffer (`JobLogBuffer`) capturing stdout/stderr in real time up to `2 MiB` per job with chunked offset retrieval (`?offset=X`), truncation flags, and EOF detection.
+    - **Non-Blocking Dispatch**: Decouples long-running system commands and plugin operations from synchronous HTTP request threads via `POST /api/v1/jobs`, returning `202 Accepted` with deterministic poll (`/api/v1/jobs/{id}`), log polling (`/api/v1/jobs/{id}/logs`), and SSE streaming (`/api/v1/jobs/{id}/stream`) URLs.
+    - **3-Tier Priority Heap Queue (`container/heap`)**: Jobs are prioritized across `High`, `Normal`, and `Low` tiers with monotonic sequence tie-breaking (FIFO within tiers) and bounded backpressure (`429 Too Many Requests` when configured `jobs.queue_capacity` of 1,000 jobs is reached).
+    - **Configurable Worker Pool & Retention (`jobs:` in `config.yaml`)**: Tunes `workers_count` (default `4`), `queue_capacity` (`1000`), `max_log_bytes` (`2 MiB`), `prune_interval` (`10m`), `max_job_age` (`168h`), and `max_retained_jobs` (`10000`) with graceful drain on server shutdown.
+    - **Concurrency-Safe Live Log Streaming (SSE + Ring Buffer)**: In-memory ring buffer (`JobLogBuffer`) capturing stdout/stderr in real time up to `2 MiB` per job with chunked offset retrieval (`?offset=X`) and real-time Server-Sent Events (`GET /api/v1/jobs/{id}/stream`) supporting `Last-Event-ID` resume and `15s` keepalives.
     - **Immediate Subprocess Group Termination**: `POST /api/v1/jobs/{id}/cancel` instantly terminates running process groups (`taskkill /T /F` on Windows; negative-PID `SIGKILL` on Unix).
     - **Tamper-Evident SHA-256 Chaining**: Every job lifecycle transition (`job.enqueued`, `job.started`, `job.completed`, `job.failed`, `job.cancelled`) records a SHA-256 audit event verified via `/api/v1/audit/verify`.
-    - **Web Administration Console Tab 9**: Real-time queue telemetry (queued jobs, active workers, queue capacity), interactive submission form (commands or plugins), filtered execution history table, and live streaming log viewer modal with auto-refresh.
+    - **Web Administration Console Tab 9 & Tab 10**: Tab 9 provides real-time queue telemetry, job submission, filtered execution history, and an SSE live streaming log modal with polling fallback; Tab 10 (`10. HITL Approvals`) provides pending/resolved `apr_*` review and distinct-admin approve/reject controls.
 
 ---
 
@@ -204,13 +204,15 @@ docker run -d \
 
 #### Container Healthcheck & Verification
 
-The container defines a built-in Docker healthcheck probing `https://127.0.0.1:8080/metrics` every 30 seconds (`--interval=30s --timeout=5s --start-period=5s --retries=3`).
+The container defines a built-in Docker `HEALTHCHECK` probing `https://127.0.0.1:8080/health` every 30 seconds (`--interval=30s --timeout=5s --start-period=5s --retries=3`). Dedicated `/health`, `/healthz`, and `/readyz` (subsystem readiness) probes are also exposed publicly alongside `/metrics`.
 
 ```bash
 # Inspect container healthcheck status (expected: "healthy")
 docker inspect --format='{{json .State.Health.Status}}' api-executor
 
-# Verify API and Prometheus telemetry over HTTPS
+# Verify liveness, subsystem readiness, and Prometheus telemetry over HTTPS
+curl -k https://localhost:8080/health
+curl -k https://localhost:8080/readyz
 curl -k https://localhost:8080/metrics
 ```
 
@@ -239,7 +241,7 @@ services:
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1:8080/metrics"]
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1:8080/health"]
       interval: 30s
       timeout: 5s
       start_period: 5s
@@ -609,7 +611,8 @@ Response (`202 Accepted`):
   "type": "command",
   "created_at": "2026-11-09T10:45:00Z",
   "poll_url": "/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9",
-  "logs_url": "/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/logs"
+  "logs_url": "/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/logs",
+  "stream_url": "/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/stream"
 }
 ```
 
@@ -620,13 +623,17 @@ curl -k https://localhost:8080/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9 \
   -H "X-API-Token: gat_pat_<token>"
 ```
 
-#### Stream Live Chunked Output Logs (`GET /api/v1/jobs/{id}/logs`)
+#### Poll or Stream Live Output Logs (`GET /api/v1/jobs/{id}/logs` & `GET /api/v1/jobs/{id}/stream`)
 
-Stream logs incrementally starting from a byte offset until `eof: true`:
+Poll logs incrementally starting from a byte offset until `eof: true`, or subscribe to real-time Server-Sent Events (`status`, `log`, `done`, `15s` `: keepalive`) with `?offset=` / `Last-Event-ID` resume support:
 
 ```bash
 # Poll initial log chunk from byte offset 0
 curl -k "https://localhost:8080/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/logs?offset=0" \
+  -H "X-API-Token: gat_pat_<token>"
+
+# Stream live status and log events via SSE
+curl -kN "https://localhost:8080/api/v1/jobs/job_01j9a8b7c6d5e4f3a2b1c0d9/stream?offset=0" \
   -H "X-API-Token: gat_pat_<token>"
 ```
 
@@ -696,7 +703,10 @@ API Executor acts as a **Zero-Trust MCP Bastion** combining four composable defe
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/` | Pure 9-tab Web Administration Console (`web/static/index.html`) |
+| `GET` | `/` | Pure 10-tab Web Administration Console (`web/static/index.html`) |
+| `GET` | `/health` | Public liveness probe (`status`, `uptime_seconds`, `version`, `tls_enabled`) |
+| `GET` | `/healthz` | Kubernetes-compatible liveness probe alias for `/health` |
+| `GET` | `/readyz` | Public subsystem readiness probe (`database`, `tls`, `jobs`: `200 ready` / `503 not_ready`) |
 | `GET` | `/api/v1/version` | Public certified version & build metadata probe (enriched with optional `config_version`, `config_version_path`, and `config_file` when configured) |
 | `GET` | `/api/v1/config` | Inspect sanitized active configuration and available backward-compatible profiles (`?profile=`, `X-Config-Profile`, or `/api/v1/configs/{profile}`) |
 | `GET` | `/api/v1/config/version` | Conditional public config version probe (`200 OK` when config version is defined, `404` when absent; also supports `/api/v1/configs/{profile}/version` and custom `version_path`) |
@@ -705,7 +715,8 @@ API Executor acts as a **Zero-Trust MCP Bastion** combining four composable defe
 | `POST` | `/api/v1/jobs` | Submit a command or plugin action for asynchronous execution (`202 Accepted`) |
 | `GET` | `/api/v1/jobs` | List active and historical jobs with filtering (`status`, `action`, `actor`) and pagination |
 | `GET` | `/api/v1/jobs/{id}` | Inspect detailed metadata, duration, error, and status for a job |
-| `GET` | `/api/v1/jobs/{id}/logs` | Stream live chunked execution logs with byte offset tracking |
+| `GET` | `/api/v1/jobs/{id}/logs` | Poll chunked execution logs with byte offset tracking |
+| `GET` | `/api/v1/jobs/{id}/stream` | Stream real-time job status and logs via Server-Sent Events (SSE) |
 | `POST` | `/api/v1/jobs/{id}/cancel` | Abort a queued or running job with immediate subprocess termination |
 | `GET` | `/api/v1/jobs/queue` | Inspect queue depth, worker concurrency, and capacity telemetry |
 | `GET` | `/api/v1/presets` | List predefined Ubuntu and RedHat OS task catalogs |
@@ -721,7 +732,7 @@ API Executor acts as a **Zero-Trust MCP Bastion** combining four composable defe
 | `POST` | `/api/v1/plugins/declarative` | Dynamically register a declarative command plugin manifest |
 | `GET` | `/api/v1/db/tables` | Inspect SQLite tables and column schemas via `db-exposure` |
 | `POST` | `/api/v1/db/query` | Execute a guarded read-only `SELECT` query |
-| `POST` | `/api/v1/mcp` | Model Context Protocol (MCP) JSON-RPC 2.0 endpoint (tools, resources including `executor://cis-benchmarks/preset`, and prompts including `cis-benchmark-audit`) |
+| `GET`, `POST` | `/api/v1/mcp` | Model Context Protocol (MCP) JSON-RPC 2.0 `POST` endpoint and server capability metadata (`GET`) (tools, resources including `executor://cis-benchmarks/preset`, and prompts including `cis-benchmark-audit`) |
 | `GET` | `/api/v1/mcp/tools` | Inspect exposed MCP tools, resources, and prompt templates |
 | `GET` | `/api/v1/mcp/traces` | Query retained SHA-256 hash-chained MCP interaction traces (`mcp_tr_<hex>`) |
 | `GET` | `/api/v1/mcp/traces/verify` | Cryptographically verify SHA-256 hash-chain continuity across retained MCP traces |

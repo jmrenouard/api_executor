@@ -13,6 +13,24 @@ _None._
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-089` — Diataxis Documentation & Reference Sync for Health Probes, OTLP Pusher, SSE Stream, Jobs Config, and HITL Web UI (`Issue #178`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#178` — `docs/issue-178-diataxis-sync-new-features`
+- **Request**: Synchronize Diátaxis reference specs, ASD-STE100 Issue 9 how-to guides, tutorials, `README.md`, `SECURITY.md`, and `docs/index.md` with the five recently merged features (`ACT-084` through `ACT-088`: outbound OTLP pusher, `/health`/`/healthz`/`/readyz` probes and Docker `HEALTHCHECK`, configurable `jobs:` engine, `/api/v1/jobs/{id}/stream` SSE stream, and 10-tab Web Admin Console with Tab 10 HITL Approvals, Tab 6 MCP verify/replay, live `/api/v1/version`, and Tab 9 SSE).
+- **Changes**:
+  - Modified [`docs/03-reference/api-and-cli/rest-mcp-endpoints-and-env.md`](03-reference/api-and-cli/rest-mcp-endpoints-and-env.md): Added `GET /health`, `GET /healthz`, `GET /readyz`, and `GET /api/v1/jobs/{id}/stream`, updated route/mux counts to `53` HTTP/REST routes across `49` static `mux.Handle` mounts, fixed `GET/POST /api/v1/mcp` description, and clarified `db-exposure` single-DB scope (`database.path`).
+  - Modified [`docs/03-reference/configuration/config-schema-and-profiles.md`](03-reference/configuration/config-schema-and-profiles.md) and [`docs/03-reference/index.md`](03-reference/index.md): Added top-level `jobs:` schema table (`workers_count`, `queue_capacity`, `max_log_bytes`, `prune_interval`, `max_job_age`, `max_retained_jobs`), documented active outbound `OTLPPusher` behavior under `otlp_export`, and clarified `plugins.allowed_db_paths` as reserved in single-DB mode.
+  - Modified [`docs/03-reference/troubleshooting-codes/error-and-alert-matrix.md`](03-reference/troubleshooting-codes/error-and-alert-matrix.md): Added `503 Service Unavailable` readiness status row and alert matrix rows for degraded `GET /readyz` and OTLP outbound push failures.
+  - Modified [`docs/02-how-to-guides/deployment/deploy-rootless-docker-and-tls.md`](02-how-to-guides/deployment/deploy-rootless-docker-and-tls.md) and [`docs/02-how-to-guides/operations/manage-async-jobs-and-presets.md`](02-how-to-guides/operations/manage-async-jobs-and-presets.md): Added ASD-STE100 Issue 9 steps for `otlp_export` push config, `/health` & `/readyz` checks, `jobs:` tuning, and `GET /api/v1/jobs/{id}/stream` SSE streaming.
+  - Modified [`README.md`](../README.md), [`SECURITY.md`](../SECURITY.md), [`docs/index.md`](index.md), [`docs/01-tutorials/index.md`](01-tutorials/index.md), and [`docs/01-tutorials/02-plugins-and-mcp-sandbox.md`](01-tutorials/02-plugins-and-mcp-sandbox.md): Updated route/mux counts (`53`/`49`, `35` logical groups), 10-tab Web Admin Console summary, Docker `HEALTHCHECK` (`/health`), and RBAC matrix.
+  - Verified [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) marks `IDEA-008` implemented (`ACT-087` / Issue `#171`).
+- **Result**:
+  - `diataxis_check.py docs --strict --check-ste --lang en`: `0` errors, `0` warnings across `27` markdown files.
+  - `ste_check.py --mode procedural --lang en` on `docs/02-how-to-guides/`: `0` errors, `0` warnings.
+  - `pytest tests/ -v`: `25 passed`.
+  - `go test -count=1 ./docs/...` and `go test -count=1 ./tests/e2e/...`: all tests passed.
+
 ### `ACT-088` — Web Admin Console Zero-Trust Bastion UI (Tab 10 HITL Approvals, Tab 6 MCP Verify/Replay, Live Version Badge, Tab 9 SSE Stream) (`Issue #172`)
 
 - **Date**: 2026-11-24
