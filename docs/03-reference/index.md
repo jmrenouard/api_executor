@@ -6,7 +6,7 @@ Exhaustive technical specifications for **API Executor (`go-admin-tool`)** confi
 
 | Specification | Scope | File |
 | :--- | :--- | :--- |
-| **Configuration Schema & Profiles** | `config.yaml` schema (`server`, `tls`, `rate_limit`, `logging`, `database`, `file_server`, `command_executor`, `auth`, `plugins`, `mcp`, `audit`, `approval`, `gatekeeper`, `multi_config`, `otlp_export`, `sandbox`) and built-in profiles (`default`, `ubuntu`, `redhat`, `cis-benchmarks`) | [`config-schema-and-profiles.md`](configuration/config-schema-and-profiles.md) |
+| **Configuration Schema & Profiles** | `config.yaml` schema (`server`, `tls`, `rate_limit`, `logging`, `database`, `file_server`, `command_executor`, `auth`, `plugins`, `mcp`, `audit`, `approval`, `gatekeeper`, `jobs`, `multi_config`, `otlp_export`, `sandbox`) and built-in profiles (`default`, `ubuntu`, `redhat`, `cis-benchmarks`) | [`config-schema-and-profiles.md`](configuration/config-schema-and-profiles.md) |
 | **REST, MCP, CLI & Environment Reference** | Complete REST & MCP JSON-RPC 2.0 endpoint catalog, authentication headers, profile selectors, MCP tools/resources/prompts, environment variables, `scripts/build_versioned_docs.py` CLI options, and Prometheus/OTLP metrics | [`rest-mcp-endpoints-and-env.md`](api-and-cli/rest-mcp-endpoints-and-env.md) |
 | **Error & Alert Matrix** | HTTP status codes, `MicroLLM` exit codes (`0`–`3`), CIS benchmark exit codes, SHA-256 audit/MCP trace verification failures, and alert-to-runbook remediation matrix | [`error-and-alert-matrix.md`](troubleshooting-codes/error-and-alert-matrix.md) |
 

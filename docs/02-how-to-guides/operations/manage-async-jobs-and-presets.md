@@ -22,14 +22,26 @@ Excessive timeouts return HTTP `400` and stall worker pool slots until cancellat
 
 ## Procedure
 
-1. List available Ubuntu and RedHat OS preset catalogs with `GET /api/v1/presets`:
+1. Optional: Set worker pool, queue capacity, log buffer, and retention limits under `jobs` in `config.yaml`:
+
+   ```yaml
+   jobs:
+     workers_count: 4
+     queue_capacity: 1000
+     max_log_bytes: 2097152
+     prune_interval: "10m"
+     max_job_age: "168h"
+     max_retained_jobs: 10000
+   ```
+
+2. List available Ubuntu and RedHat OS preset catalogs with `GET /api/v1/presets`:
 
    ```bash
    curl -k https://localhost:8080/api/v1/presets \
      -H "Authorization: Bearer ${TOKEN}"
    ```
 
-2. Activate the `ubuntu` or `redhat` preset family as `admin` with `POST /api/v1/presets/activate`:
+3. Activate the `ubuntu` or `redhat` preset family as `admin` with `POST /api/v1/presets/activate`:
 
    ```bash
    curl -k -X POST https://localhost:8080/api/v1/presets/activate \
@@ -38,14 +50,14 @@ Excessive timeouts return HTTP `400` and stall worker pool slots until cancellat
      -d '{"families":["ubuntu"]}'
    ```
 
-3. Query commands for a named configuration profile with `?profile=` or `X-Config-Profile`:
+4. Query commands for a named configuration profile with `?profile=` or `X-Config-Profile`:
 
    ```bash
    curl -k "https://localhost:8080/api/v1/commands?profile=ubuntu" \
      -H "Authorization: Bearer ${TOKEN}"
    ```
 
-4. Submit a prioritized async command job with `POST /api/v1/jobs`:
+5. Submit a prioritized async command job with `POST /api/v1/jobs`:
 
    ```bash
    curl -k -X POST https://localhost:8080/api/v1/jobs \
@@ -54,21 +66,28 @@ Excessive timeouts return HTTP `400` and stall worker pool slots until cancellat
      -d '{"type":"command","action":"ubuntu-dpkg-packages","priority":"high","timeout":"30s"}'
    ```
 
-5. Record the returned `job_id`, then poll job status with `GET /api/v1/jobs/{id}`:
+6. Record the returned `job_id`, then poll job status with `GET /api/v1/jobs/{id}`:
 
    ```bash
    curl -k "https://localhost:8080/api/v1/jobs/${JOB_ID}" \
      -H "Authorization: Bearer ${TOKEN}"
    ```
 
-6. Stream chunked stdout and stderr logs from byte offset `0` until `"eof": true`:
+7. Poll chunked stdout and stderr logs from byte offset `0` until `"eof": true`:
 
    ```bash
    curl -k "https://localhost:8080/api/v1/jobs/${JOB_ID}/logs?offset=0" \
      -H "Authorization: Bearer ${TOKEN}"
    ```
 
-7. If you must abort an active or queued job, call `POST /api/v1/jobs/{id}/cancel`:
+8. Stream live status and log events with Server-Sent Events (SSE) on `GET /api/v1/jobs/{id}/stream`:
+
+   ```bash
+   curl -kN "https://localhost:8080/api/v1/jobs/${JOB_ID}/stream?offset=0" \
+     -H "Authorization: Bearer ${TOKEN}"
+   ```
+
+9. If you must abort an active or queued job, call `POST /api/v1/jobs/{id}/cancel`:
 
    ```bash
    curl -k -X POST "https://localhost:8080/api/v1/jobs/${JOB_ID}/cancel" \
@@ -77,6 +96,7 @@ Excessive timeouts return HTTP `400` and stall worker pool slots until cancellat
 
 **NOTE:** Each `JobLogBuffer` holds up to `2 MiB` of output per job.
 When output exceeds `2 MiB`, the response sets `"truncated": true`.
+The SSE endpoint emits `status`, `log`, and `done` events and accepts `Last-Event-ID` for stream resume.
 
 ## Verification
 

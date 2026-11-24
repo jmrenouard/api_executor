@@ -78,20 +78,30 @@ Unauthenticated HTTP mode exposes remote command execution and tokens in clearte
      drop_caps: true
    ```
 
-4. Restrict permissions on `/opt/api-executor/config.yaml` to owner read and write:
+4. Optional: Add an `otlp_export` block to `/opt/api-executor/config.yaml` to push OTLP/HTTP metrics:
+
+   ```yaml
+   otlp_export:
+     enabled: true
+     endpoint: "https://otel-collector.internal:4318/v1/metrics"
+     push_interval: "30s"
+     timeout: "10s"
+   ```
+
+5. Restrict permissions on `/opt/api-executor/config.yaml` to owner read and write:
 
    ```bash
    sudo chmod 0600 /opt/api-executor/config.yaml
    sudo chown 10001:10001 /opt/api-executor/config.yaml
    ```
 
-5. Pull the latest published multi-architecture image from Docker Hub:
+6. Pull the latest published multi-architecture image from Docker Hub:
 
    ```bash
    docker pull jmrenouard/api_executor:v2.1.0
    ```
 
-6. Start the `api-executor` container with dropped capabilities, `no-new-privileges`, and mounted volumes:
+7. Start the `api-executor` container with dropped capabilities, `no-new-privileges`, and mounted volumes:
 
    ```bash
    docker run -d \
@@ -124,13 +134,22 @@ Branch `main` builds version `2.2.0` from source.
    docker inspect --format='{{json .State.Health.Status}}' api-executor
    ```
 
-2. Query the public version endpoint through HTTPS:
+2. Query the public liveness probe `/health` and readiness probe `/readyz` through HTTPS:
+
+   ```bash
+   curl -sk https://localhost:8080/health
+   curl -sk https://localhost:8080/readyz
+   ```
+
+3. Confirm `"status": "ok"` on `/health` and `"status": "ready"` on `/readyz`.
+
+4. Query the public version endpoint through HTTPS:
 
    ```bash
    curl -k https://localhost:8080/api/v1/version
    ```
 
-3. Authenticate as `admin` and inspect `/api/v1/tls/info`:
+5. Authenticate as `admin` and inspect `/api/v1/tls/info`:
 
    ```bash
    TOKEN=$(curl -sk -X POST https://localhost:8080/api/v1/auth/login \
@@ -139,7 +158,7 @@ Branch `main` builds version `2.2.0` from source.
    curl -sk https://localhost:8080/api/v1/tls/info -H "Authorization: Bearer ${TOKEN}"
    ```
 
-4. Confirm `"enabled": true` and `"min_version": "1.3"` in the JSON response.
+6. Confirm `"enabled": true` and `"min_version": "1.3"` in the JSON response.
 
 ## Rollback
 

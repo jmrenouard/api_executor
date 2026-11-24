@@ -34,13 +34,16 @@ Requests supporting multi-profile routing resolve the target profile in the foll
 
 ## HTTP REST Endpoint Catalog
 
-All `49` documented HTTP/REST routes mapped across the `46` `mux.Handle` patterns in [`internal/api/router.go`](../../../internal/api/router.go):
+All `53` documented HTTP/REST routes mapped across the `49` static `mux.Handle` patterns in [`internal/api/router.go`](../../../internal/api/router.go) (plus dynamic `config_version_path` mounts):
 
-### Core Console, Metrics, and Discovery
+### Core Console, Probes, Metrics, and Discovery
 
 | Method(s) | Path | Auth / Role (`require_auth=true`) | Purpose |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/` | Public | Embedded Web Admin Console UI |
+| `GET` | `/` | Public | Embedded Web Admin Console UI (`10` tabs) |
+| `GET` | `/health` | Public | Liveness probe returning `status`, `uptime_seconds`, `version`, and `tls_enabled` |
+| `GET` | `/healthz` | Public | Kubernetes-compatible liveness probe alias for `/health` |
+| `GET` | `/readyz` | Public | Subsystem readiness probe (`database`, `tls`, `jobs`) returning `200 ready` or `503 not_ready` |
 | `GET` | `/metrics` | Public | Prometheus metrics exposition endpoint |
 | `GET` | `/swagger/*` | Public | Swagger / OpenAPI specification viewer |
 | `GET` | `/api/v1/version` | Public / Read | Binary version, build metadata, and Git commit SHA |
@@ -91,14 +94,14 @@ All `49` documented HTTP/REST routes mapped across the `46` `mux.Handle` pattern
 | `GET` | `/api/v1/plugins` | `viewer`+ | Catalog native, built-in declarative, and YAML plugins |
 | `POST` | `/api/v1/plugins/execute` | `operator`+ | Execute a named plugin with typed inputs |
 | `POST` | `/api/v1/plugins/declarative` | `admin` | Register a declarative plugin definition |
-| `GET` | `/api/v1/db/tables` | `viewer`+ | List tables/schemas for a whitelisted `allowed_db_paths` SQLite file |
+| `GET` | `/api/v1/db/tables` | `viewer`+ | List tables/schemas in the configured `database.path` SQLite store (`db-exposure`) |
 | `POST` | `/api/v1/db/query` | `operator`+ | Execute read-only SQLite `SELECT` query (`PRAGMA`/DDL/DML rejected with `403`; `max_query_rows <= 1000`) |
 
 ### MCP JSON-RPC `2.0` and Cryptographic Traces
 
 | Method(s) | Path | Auth / Role (`require_auth=true`) | Purpose |
 | :--- | :--- | :--- | :--- |
-| `GET`, `POST` | `/api/v1/mcp` | `service` / `operator`+ | MCP JSON-RPC `2.0` POST endpoint and SSE stream |
+| `GET`, `POST` | `/api/v1/mcp` | `service` / `operator`+ | MCP JSON-RPC `2.0` `POST` endpoint and server capability metadata (`GET`) |
 | `GET` | `/api/v1/mcp/tools` | Authenticated | List registered MCP tools and input schemas |
 | `GET`, `DELETE` | `/api/v1/mcp/traces` | Authenticated | Query or purge retained MCP trace ring entries |
 | `GET` | `/api/v1/mcp/traces/verify` | Authenticated | Verify full SHA-256 MCP trace chain integrity from `MCPTraceGenesisHash` |
@@ -110,10 +113,11 @@ All `49` documented HTTP/REST routes mapped across the `46` `mux.Handle` pattern
 
 | Method(s) | Path | Auth / Role (`require_auth=true`) | Purpose |
 | :--- | :--- | :--- | :--- |
-| `POST`, `GET` | `/api/v1/jobs` | `operator`+ / `viewer`+ | Submit prioritized async job or list job history |
+| `POST`, `GET` | `/api/v1/jobs` | `operator`+ / `viewer`+ | Submit prioritized async job (`poll_url`, `logs_url`, `stream_url`) or list job history |
 | `GET` | `/api/v1/jobs/queue` | `viewer`+ | Inspect pending queue depth and active workers |
 | `GET` | `/api/v1/jobs/{id}` | `viewer`+ | Inspect job state, exit code, duration, and timestamps |
-| `GET` | `/api/v1/jobs/{id}/logs` | `viewer`+ | Stream or poll bounded `2 MiB` ring log chunks |
+| `GET` | `/api/v1/jobs/{id}/logs` | `viewer`+ | Poll bounded `2 MiB` ring log chunks (`?offset=`) |
+| `GET` | `/api/v1/jobs/{id}/stream` | `viewer`+ | Real-time Server-Sent Events (SSE) job status and log stream (`?offset=` / `Last-Event-ID` resume, `15s` keepalive) |
 | `POST` | `/api/v1/jobs/{id}/cancel` | `operator`+ | Cancel pending or active job process group (`SIGKILL`) |
 | `GET` | `/api/v1/approvals` | Authenticated | List pending and resolved `apr_*` HITL approval requests |
 | `GET` | `/api/v1/approvals/{id}` | Authenticated | Inspect single HITL request and canonical target digest |
@@ -133,8 +137,8 @@ Catalog registered in [`internal/mcp/server.go`](../../../internal/mcp/server.go
 | `execute_command` | Execute a whitelisted command (subject to RBAC, HITL, `MicroLLM`, sandbox) |
 | `list_commands` | List available whitelisted commands and parameter metadata |
 | `execute_plugin` | Execute a registered native or declarative plugin |
-| `db_query` | Run read-only SQLite queries against `plugins.allowed_db_paths` |
-| `db_list_tables` | Enumerate tables in an allowed SQLite database |
+| `db_query` | Run read-only SQLite queries against the server's configured `database.path` store |
+| `db_list_tables` | Enumerate tables in the server's configured `database.path` SQLite database |
 | `tls_status` | Return active TLS listener status and certificate validity metadata |
 | `audit_query` | Query recent SHA-256 hash-chained audit events |
 | `audit_verify` | Verify SHA-256 integrity across the audit ledger |

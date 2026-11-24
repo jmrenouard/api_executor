@@ -13,7 +13,7 @@ Every control documented below is continuously verified by deterministic unit, a
 
 ## 1. Executive Summary & Audit Scope (`/repo-scan` + `/ponytail-audit`)
 
-An end-to-end security review was performed across all **49 documented HTTP/REST routes** (46 router handler mounts and JSON-RPC 2.0 MCP methods), authentication/authorization resolvers, the **Zero-Trust MCP Bastion** control plane (Human-in-the-Loop pre-execution approvals, pluggable `MicroLLM` System-1 gatekeeper, SHA-256 hash-chained & replayable MCP traces, read-only `CISBenchmarks` MCP audit preset), command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
+An end-to-end security review was performed across all **53 documented HTTP/REST routes** (49 static router handler mounts and JSON-RPC 2.0 MCP methods), authentication/authorization resolvers, the **Zero-Trust MCP Bastion** control plane (Human-in-the-Loop pre-execution approvals, pluggable `MicroLLM` System-1 gatekeeper, SHA-256 hash-chained & replayable MCP traces, read-only `CISBenchmarks` MCP audit preset), command and plugin execution engines, read-only SQLite exposure, and HTTP middleware layers.
 
 ### Key Security Guarantees Verified by Automated Tests
 
@@ -42,43 +42,45 @@ An end-to-end security review was performed across all **49 documented HTTP/REST
 
 ---
 
-## 2. Complete API Surface & RBAC Security Matrix (33 Logical Endpoint Groups; 49 Routes)
+## 2. Complete API Surface & RBAC Security Matrix (35 Logical Endpoint Groups; 53 Routes)
 
 | # | Endpoint | Methods | Required Scope / Role | Anonymous (`require_auth: true`) | `viewer` | `operator` | `service_account` (Scoped) | `admin` | Security Controls & Confinement |
 | :- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| 1 | `/api/v1/version`, `/api/v1/config/version` | `GET` | Public probes | `200` | `200` | `200` | `200` | `200` | Read-only version & config-version metadata, rate-limited, security headers |
-| 2 | `/metrics` | `GET` | Public telemetry scrape | `200` | `200` | `200` | `200` | `200` | Bounded Prometheus label cardinality (`MaxDynamicActionLabels = 64`) |
-| 3 | `/swagger/*` | `GET` | Public OpenAPI UI | `200` | `200` | `200` | `200` | `200` | Read-only embedded OpenAPI specification |
-| 4 | `/` | `GET` | Public Web Console | `200` | `200` | `200` | `200` | `200` | Hardened headers (`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`) |
-| 5 | `/api/v1/auth/login` | `POST` | Public authentication | `200`/`401` | `200` | `200` | N/A | `200` | Per-IP rate-limited, `1 MiB` body cap, 10,000-round salted SHA-256 verification, SHA-256 audit log |
-| 6 | `/api/v1/config`, `/api/v1/configs/{profile}` | `GET` | Public sanitized view | `200` | `200` | `200` | `200` | `200` | Returns sanitized active/profile config with secrets masked as `[REDACTED]` |
-| 7 | `/api/v1/auth/me` | `GET` | Authenticated (`require_auth`) | `401` | `200` | `200` | `200` | `200` | Returns caller principal & effective scopes |
-| 8 | `/api/v1/auth/users` | `GET`, `POST` | `users:manage` (`admin`) | `401` | `403` | `403` | `403` | `200`/`201` | Blocks unauthorized user creation or enumeration |
-| 9 | `/api/v1/auth/users/{id}` | `PATCH`, `DELETE` | `users:manage` (`admin`) | `401` | `403` | `403` | `403` | `200` | Blocks horizontal/vertical role escalation & user deletion |
-| 10 | `/api/v1/auth/tokens` | `GET`, `POST` | Authenticated + scope subset | `401` | Own scopes | Own scopes | `403` | All scopes | Rejects anonymous & service accounts; blocks scope elevation beyond caller |
-| 11 | `/api/v1/auth/tokens/{id}` | `DELETE` | Owner or `admin` | `401` | Own only | Own only | `403` | Any | Prevents cross-user token revocation by non-admins |
-| 12 | `/api/v1/auth/service-accounts` | `GET`, `POST` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200`/`201` | Only admins can provision machine-to-machine accounts |
-| 13 | `/api/v1/auth/service-accounts/{id}` | `DELETE`, `POST .../rotate` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200` | Atomic secret rotation invalidates previous `gat_svc_` key |
-| 14 | `/api/v1/commands` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Returns configured command allowlist |
-| 15 | `/api/v1/execute` | `POST` | `commands:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Direct argv execution (`exec.CommandContext`), timeout ceiling, `1 MiB` output cap |
-| 16 | `/api/v1/history` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Bounded to latest 100 execution records |
-| 17 | `/api/v1/files/{name}` | `GET` | `files:read` | `401` | `200` | `200` | `403` | `200` | `filepath.Base` + `SecureDir` boundary verification (`400`/`403` on traversal) |
-| 18 | `/api/v1/presets` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Lists predefined Ubuntu & RedHat OS task catalogs |
-| 19 | `/api/v1/presets/activate` | `POST` | `admin` role required | `401` | `403` | `403` | `403` | `200` | Prevents non-admins from mutating active runtime command catalog |
-| 20 | `/api/v1/plugins` | `GET` | `plugins:read` | `401` | `200` | `200` | `403` | `200` | Read-only catalog discovery & filtering |
-| 21 | `/api/v1/plugins/execute` | `POST` | `plugins:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Strict regex & metacharacter parameter validation, timeout ceiling |
-| 22 | `/api/v1/plugins/declarative` | `POST` | `admin` role required | `401` | `403` | `403` | `403` | `201` | Blocks arbitrary command registration by non-admin principals |
-| 23 | `/api/v1/db/tables` | `GET` | `db:read` | `401` | `200` | `200` | Allowlist only | `200` | Read-only SQLite table & schema metadata |
-| 24 | `/api/v1/db/query` | `POST` | `db:read` | `401` | `200` | `200` | Allowlist only | `200` | `ValidateReadOnlySQL` (`SELECT`/`WITH`/`EXPLAIN` only; `403` on DDL/DML/stacked SQL) |
-| 25 | `/api/v1/audit/logs`, `/api/v1/audit/verify` | `GET` | `audit:read` | `401` | `200` | `200` | `403` | `200` | Cryptographic SHA-256 hash-chain verification (`GENESIS` -> head) |
-| 26 | `/api/v1/tls/info`, `/api/v1/tls/certificate`, `/api/v1/tls/renew` | `GET`, `POST` | `tls:read` (`GET`), `tls:manage` / `admin` (`POST`) | `401` | `200` (`GET`) / `403` (`POST`) | `200` (`GET`) / `403` (`POST`) | `403` | `200` | Atomic ECDSA P-256 certificate inspection, public PEM download, and rotation restricted to `admin` |
-| 27 | `/api/v1/mcp` (`POST`), `/api/v1/mcp/traces*` (`GET`, `DELETE`) | `POST`, `GET`, `DELETE` | `mcp:access` (`POST`/`GET`), `admin` (`DELETE`) | `401` | `403` | `200` (`POST`/`GET`) / `403` (`DELETE`) | Allowlist only (`POST`) | `200` | Per-tool RBAC (`commands:execute`, `plugins:execute`, `db:read`, `tls:manage`), HITL & System-1 hooks |
-| 28 | `/api/v1/jobs` (`POST`, `GET`), `/api/v1/jobs/{id}` (`GET`), `/logs` (`GET`), `/cancel` (`POST`) | `POST`, `GET` | `jobs:submit` + underlying action RBAC, `jobs:read`, `jobs:cancel` | `401` | `403` (`POST`) / `200` (`GET`) | `202`/`200` | Allowlist only (`POST`) | `202`/`200` | Dual authorization (job scope + command/plugin allowlist), HITL & System-1 gates, `429` queue backpressure |
-| 29 | `/api/v1/approvals`, `/api/v1/approvals/{id}` | `GET` | `approvals:read` (`admin` / scoped) | `401` | `403` | `403` | `403` | `200` | Bounded pending approval queue (`MaxPending`), canonical SHA-256 payload digest inspection |
-| 30 | `/api/v1/approvals/{id}/approve`, `/api/v1/approvals/{id}/reject` | `POST` | `approvals:decide` (`admin`, distinct approver) | `401` | `403` | `403` | `403` | `200` (`403` self) | Distinct-approver enforcement (`RequireDistinctApprover`), atomic single-use consumption (`409` on replay) |
-| 31 | `/api/v1/mcp/traces/verify` | `GET` | `mcp:access` | `401` | `403` | `200` | `403` | `200` | Cryptographic SHA-256 chain continuity verification (`GENESIS` -> head) across retained MCP traces |
-| 32 | `/api/v1/mcp/traces/{trace_id}/verify` | `GET` | `mcp:access` | `401` | `403` | `200` | `403` | `200` | Recomputes request/response/trace SHA-256 digests and verifies cross-link to `audit_entry_hash` |
-| 33 | `/api/v1/mcp/traces/{trace_id}/replay` | `POST` | `mcp:access` (`dry_run`), `admin` (`live`) | `401` | `403` | `200` (`dry_run`) / `403` (`live`) | `403` (`live`) | `200` | Zero-side-effect `dry_run` default; `live` replay enforces `admin`, SHA-256 determinism & `parent_trace_id` lineage |
+| 1 | `/health`, `/healthz`, `/readyz` | `GET` | Public liveness & readiness probes | `200` (`503` degraded) | `200` | `200` | `200` | `200` | Read-only liveness & subsystem checks (`database`, `tls`, `jobs`), zero secret/path exposure, rate-limited |
+| 2 | `/api/v1/version`, `/api/v1/config/version` | `GET` | Public probes | `200` | `200` | `200` | `200` | `200` | Read-only version & config-version metadata, rate-limited, security headers |
+| 3 | `/metrics` | `GET` | Public telemetry scrape | `200` | `200` | `200` | `200` | `200` | Bounded Prometheus label cardinality (`MaxDynamicActionLabels = 64`) |
+| 4 | `/swagger/*` | `GET` | Public OpenAPI UI | `200` | `200` | `200` | `200` | `200` | Read-only embedded OpenAPI specification |
+| 5 | `/` | `GET` | Public Web Console | `200` | `200` | `200` | `200` | `200` | Hardened headers (`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`) |
+| 6 | `/api/v1/auth/login` | `POST` | Public authentication | `200`/`401` | `200` | `200` | N/A | `200` | Per-IP rate-limited, `1 MiB` body cap, 10,000-round salted SHA-256 verification, SHA-256 audit log |
+| 7 | `/api/v1/config`, `/api/v1/configs/{profile}` | `GET` | Public sanitized view | `200` | `200` | `200` | `200` | `200` | Returns sanitized active/profile config with secrets masked as `[REDACTED]` |
+| 8 | `/api/v1/auth/me` | `GET` | Authenticated (`require_auth`) | `401` | `200` | `200` | `200` | `200` | Returns caller principal & effective scopes |
+| 9 | `/api/v1/auth/users` | `GET`, `POST` | `users:manage` (`admin`) | `401` | `403` | `403` | `403` | `200`/`201` | Blocks unauthorized user creation or enumeration |
+| 10 | `/api/v1/auth/users/{id}` | `PATCH`, `DELETE` | `users:manage` (`admin`) | `401` | `403` | `403` | `403` | `200` | Blocks horizontal/vertical role escalation & user deletion |
+| 11 | `/api/v1/auth/tokens` | `GET`, `POST` | Authenticated + scope subset | `401` | Own scopes | Own scopes | `403` | All scopes | Rejects anonymous & service accounts; blocks scope elevation beyond caller |
+| 12 | `/api/v1/auth/tokens/{id}` | `DELETE` | Owner or `admin` | `401` | Own only | Own only | `403` | Any | Prevents cross-user token revocation by non-admins |
+| 13 | `/api/v1/auth/service-accounts` | `GET`, `POST` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200`/`201` | Only admins can provision machine-to-machine accounts |
+| 14 | `/api/v1/auth/service-accounts/{id}` | `DELETE`, `POST .../rotate` | `service_accounts:manage` (`admin`) | `401` | `403` | `403` | `403` | `200` | Atomic secret rotation invalidates previous `gat_svc_` key |
+| 15 | `/api/v1/commands` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Returns configured command allowlist |
+| 16 | `/api/v1/execute` | `POST` | `commands:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Direct argv execution (`exec.CommandContext`), timeout ceiling, `1 MiB` output cap |
+| 17 | `/api/v1/history` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Bounded to latest 100 execution records |
+| 18 | `/api/v1/files/{name}` | `GET` | `files:read` | `401` | `200` | `200` | `403` | `200` | `filepath.Base` + `SecureDir` boundary verification (`400`/`403` on traversal) |
+| 19 | `/api/v1/presets` | `GET` | `commands:read` | `401` | `200` | `200` | `403` | `200` | Lists predefined Ubuntu & RedHat OS task catalogs |
+| 20 | `/api/v1/presets/activate` | `POST` | `admin` role required | `401` | `403` | `403` | `403` | `200` | Prevents non-admins from mutating active runtime command catalog |
+| 21 | `/api/v1/plugins` | `GET` | `plugins:read` | `401` | `200` | `200` | `403` | `200` | Read-only catalog discovery & filtering |
+| 22 | `/api/v1/plugins/execute` | `POST` | `plugins:execute` + action allowlist | `401` | `403` | `200` | Allowlist only | `200` | Strict regex & metacharacter parameter validation, timeout ceiling |
+| 23 | `/api/v1/plugins/declarative` | `POST` | `admin` role required | `401` | `403` | `403` | `403` | `201` | Blocks arbitrary command registration by non-admin principals |
+| 24 | `/api/v1/db/tables` | `GET` | `db:read` | `401` | `200` | `200` | Allowlist only | `200` | Read-only SQLite table & schema metadata |
+| 25 | `/api/v1/db/query` | `POST` | `db:read` | `401` | `200` | `200` | Allowlist only | `200` | `ValidateReadOnlySQL` (`SELECT`/`WITH`/`EXPLAIN` only; `403` on DDL/DML/stacked SQL) |
+| 26 | `/api/v1/audit/logs`, `/api/v1/audit/verify` | `GET` | `audit:read` | `401` | `200` | `200` | `403` | `200` | Cryptographic SHA-256 hash-chain verification (`GENESIS` -> head) |
+| 27 | `/api/v1/tls/info`, `/api/v1/tls/certificate`, `/api/v1/tls/renew` | `GET`, `POST` | `tls:read` (`GET`), `tls:manage` / `admin` (`POST`) | `401` | `200` (`GET`) / `403` (`POST`) | `200` (`GET`) / `403` (`POST`) | `403` | `200` | Atomic ECDSA P-256 certificate inspection, public PEM download, and rotation restricted to `admin` |
+| 28 | `/api/v1/mcp` (`GET`, `POST`), `/api/v1/mcp/traces*` (`GET`, `DELETE`) | `GET`, `POST`, `DELETE` | `mcp:access` (`GET`/`POST`), `admin` (`DELETE`) | `401` | `403` | `200` (`GET`/`POST`) / `403` (`DELETE`) | Allowlist only (`POST`) | `200` | Per-tool RBAC (`commands:execute`, `plugins:execute`, `db:read`, `tls:manage`), HITL & System-1 hooks |
+| 29 | `/api/v1/jobs` (`POST`, `GET`), `/api/v1/jobs/{id}` (`GET`), `/logs` (`GET`), `/cancel` (`POST`) | `POST`, `GET` | `jobs:submit` + underlying action RBAC, `jobs:read`, `jobs:cancel` | `401` | `403` (`POST`) / `200` (`GET`) | `202`/`200` | Allowlist only (`POST`) | `202`/`200` | Dual authorization (job scope + command/plugin allowlist), HITL & System-1 gates, `429` queue backpressure |
+| 30 | `/api/v1/jobs/{id}/stream` | `GET` | `jobs:read` (`viewer`+) | `401` | `200` | `200` | `403` | `200` | Real-time SSE job status & log stream, `?offset=` / `Last-Event-ID` resume, per-connection `WriteTimeout` clearing |
+| 31 | `/api/v1/approvals`, `/api/v1/approvals/{id}` | `GET` | `approvals:read` (`admin` / scoped) | `401` | `403` | `403` | `403` | `200` | Bounded pending approval queue (`MaxPending`), canonical SHA-256 payload digest inspection |
+| 32 | `/api/v1/approvals/{id}/approve`, `/api/v1/approvals/{id}/reject` | `POST` | `approvals:decide` (`admin`, distinct approver) | `401` | `403` | `403` | `403` | `200` (`403` self) | Distinct-approver enforcement (`RequireDistinctApprover`), atomic single-use consumption (`409` on replay) |
+| 33 | `/api/v1/mcp/traces/verify` | `GET` | `mcp:access` | `401` | `403` | `200` | `403` | `200` | Cryptographic SHA-256 chain continuity verification (`GENESIS` -> head) across retained MCP traces |
+| 34 | `/api/v1/mcp/traces/{trace_id}/verify` | `GET` | `mcp:access` | `401` | `403` | `200` | `403` | `200` | Recomputes request/response/trace SHA-256 digests and verifies cross-link to `audit_entry_hash` |
+| 35 | `/api/v1/mcp/traces/{trace_id}/replay` | `POST` | `mcp:access` (`dry_run`), `admin` (`live`) | `401` | `403` | `200` (`dry_run`) / `403` (`live`) | `403` (`live`) | `200` | Zero-side-effect `dry_run` default; `live` replay enforces `admin`, SHA-256 determinism & `parent_trace_id` lineage |
 
 ---
 
