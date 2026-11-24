@@ -439,6 +439,8 @@ var knownStaticPaths = map[string]struct{}{
 	"/":                                    {},
 	"/index.html":                          {},
 	"/health":                              {},
+	"/healthz":                             {},
+	"/readyz":                              {},
 	"/metrics":                             {},
 	"/api/v1/metrics/otlp":                 {},
 	"/swagger":                             {},
@@ -689,6 +691,11 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/approvals", http.HandlerFunc(env.ApprovalsHandler))
 	mux.Handle("/api/v1/approvals/", http.HandlerFunc(env.ApprovalSubroutesHandler))
 
+	// Health & Readiness Probes
+	mux.Handle("/health", http.HandlerFunc(env.HealthHandler))
+	mux.Handle("/healthz", http.HandlerFunc(env.HealthHandler))
+	mux.Handle("/readyz", http.HandlerFunc(env.ReadinessHandler))
+
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/api/v1/metrics/otlp", http.HandlerFunc(env.OTLPMetricsHandler))
@@ -707,6 +714,8 @@ func NewRouter(env *APIEnv) http.Handler {
 		"/":                                    {},
 		"/index.html":                          {},
 		"/health":                              {},
+		"/healthz":                             {},
+		"/readyz":                              {},
 		"/metrics":                             {},
 		"/api/v1/metrics/otlp":                 {},
 		"/api/v1/metrics/otlp/":                {},

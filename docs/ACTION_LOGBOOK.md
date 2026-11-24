@@ -13,6 +13,23 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-082` — Dedicated Health & Readiness Probe Endpoints (`/health`, `/healthz`, `/readyz`) (`Issue #170`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#170` — `feat/issue-170-health-readiness-probes`
+- **Request**: Implement dedicated unauthenticated liveness (`/health`, `/healthz`) and subsystem readiness (`/readyz`) probe endpoints, mount them in `internal/api/router.go`, update `Dockerfile` `HEALTHCHECK` from `/metrics` to `/health`, add unit and router metric normalization tests, and record `RCA-056` in `docs/RCA_REGISTER.md`.
+- **Changes**:
+  - Created [`internal/api/health_handlers.go`](../internal/api/health_handlers.go): Implemented `HealthHandler` (`GET /health`, `GET /healthz`) returning `200 OK` JSON (`status`, `uptime_seconds`, `version`, `tls_enabled`) without exposing secrets or file paths, and `ReadinessHandler` (`GET /readyz`) checking active subsystems (`database`, `tls`, `jobs`) and returning `200 OK` (`ready`) or `503 Service Unavailable` (`not_ready`), both enforcing `405 Method Not Allowed` with `Allow: GET`.
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Mounted `/health`, `/healthz`, and `/readyz` on `mux` and added `"/healthz"` and `"/readyz"` to `knownStaticPaths` and `registeredVersionPaths`.
+  - Modified [`Dockerfile`](../Dockerfile): Updated `HEALTHCHECK` URL from `https://127.0.0.1:8080/metrics` to `https://127.0.0.1:8080/health` while preserving `wget --no-check-certificate -qO-` and UID `10001` hardening.
+  - Created [`internal/api/health_handlers_test.go`](../internal/api/health_handlers_test.go) and updated [`internal/api/router_test.go`](../internal/api/router_test.go): Added coverage for liveness/readiness `200 OK`, `405` + `Allow: GET`, `503` degraded readiness (closed SQL DB and full job queue), public access with `RequireAuth: true`, secret/path redaction, and `normalizeMetricPath`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-082`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (`RCA-056`).
+- **Result**:
+  - `go vet ./...`: passed (`exit 0`).
+  - `go test -count=1 -p 1 -cover ./...`: all 14 packages passed (`cmd/server` `85.0%`, `docs` `100.0%`, `internal/api` `85.7%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.0%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `86.4%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `11.092s`).
+  - `go test -count=1 ./tests/e2e/...`: passed (`11.957s`).
+  - Pending `/ponytail-review` and PR merge.
+
 ### `ACT-081` — Diátaxis Documentation Portal, ASD-STE100 Runbooks & Versioned MkDocs Publishing (`Issue #162`)
 
 - **Date**: 2026-11-23
