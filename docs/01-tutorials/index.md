@@ -23,7 +23,7 @@ Each tutorial uses an isolated workspace (`/tmp/apiexec-lab` or `/tmp/apiexec-ba
 
 - Execute production deployment, operations, incident response, and security procedures:
   [How-To Guides](../02-how-to-guides/index.md)
-- Look up exhaustive YAML schemas, all 33 REST/MCP endpoints, and error codes:
+- Look up exhaustive YAML schemas, all 48 HTTP/REST and MCP endpoints, and error codes:
   [Reference](../03-reference/index.md)
 - Study the Zero-Trust MCP Bastion topology, 4-tier timeouts, cryptographic hash chains, and ADRs:
   [Explanation](../04-explanation/index.md)

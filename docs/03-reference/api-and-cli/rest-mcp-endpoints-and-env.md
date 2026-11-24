@@ -34,7 +34,7 @@ Requests supporting multi-profile routing resolve the target profile in the foll
 
 ## HTTP REST Endpoint Catalog
 
-All `49` HTTP route paths mounted in [`internal/api/router.go`](../../../internal/api/router.go):
+All `48` documented HTTP/REST routes mapped across the `46` `mux.Handle` patterns in [`internal/api/router.go`](../../../internal/api/router.go):
 
 ### Core Console, Metrics, and Discovery
 
@@ -165,6 +165,8 @@ Catalog registered in [`internal/mcp/server.go`](../../../internal/mcp/server.go
 ## Environment Variables and Documentation Build CLI
 
 ### Runtime and Publishing Environment Variables
+
+`go-admin-tool` accepts zero CLI flags in [`cmd/server/main.go`](../../../cmd/server/main.go) and reads `CONFIG_PATH` exclusively.
 
 | Variable | Default | Consumer | Purpose |
 | :--- | :--- | :--- | :--- |

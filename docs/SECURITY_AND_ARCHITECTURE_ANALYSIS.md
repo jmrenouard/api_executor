@@ -47,56 +47,16 @@ The **Asynchronous Execution Subsystem** (`internal/jobs/`) decouples long-runni
 
 ### 5.1 Subsystem Architecture & Components
 
-```text
-HTTP Client / Web Console (Tab 9)
-             │
-             ▼
-┌───────────────────────────────────────────────┐
-│              internal/api/                     │
-│  POST /api/v1/jobs ──► RBAC Scope & Action     │
-│  GET  /api/v1/jobs ──► List & Query Filter    │
-│  GET  /api/v1/jobs/{id}/logs ──► Chunked Log   │
-│  POST /api/v1/jobs/{id}/cancel ──► Cancel Job │
-└──────────────────────┬────────────────────────┘
-                       │
-                       ▼
-┌───────────────────────────────────────────────┐
-│              internal/jobs/                   │
-│                                               │
-│  ┌─────────────────────────────────────────┐  │
-│  │     JobQueue (container/heap Priority)  │  │
-│  │  High > Normal > Low (FIFO Tie-Breaker) │  │
-│  │  Capacity Bound: 1000 (ErrQueueFull)   │  │
-│  └────────────────────┬────────────────────┘  │
-│                       │                       │
-│                       ▼                       │
-│  ┌─────────────────────────────────────────┐  │
-│  │    WorkerPool (Bounded Goroutines)      │  │
-│  │  Consumes jobs, passes Context & Buffer │  │
-│  └────────────────────┬────────────────────┘  │
-│                       │                       │
-│        ┌──────────────┴──────────────┐        │
-│        ▼                             ▼        │
-│  ┌───────────┐                 ┌───────────┐  │
-│  │ Core Exec │                 │  Plugins  │  │
-│  │ (Process  │                 │ (Native / │  │
-│  │  Group)   │                 │ Declarat.)│  │
-│  └─────┬─────┘                 └─────┬─────┘  │
-│        └──────────────┬──────────────┘        │
-│                       ▼                       │
-│  ┌─────────────────────────────────────────┐  │
-│  │     JobLogBuffer (2 MiB Max, Thread-Safe)│  │
-│  │  Simultaneous Subprocess Write & Read   │  │
-│  └─────────────────────────────────────────┘  │
-└──────────────────────┬────────────────────────┘
-                       │
-                       ▼
-┌───────────────────────────────────────────────┐
-│              Persistence & Audit               │
-│  JobStore (SQLite / In-Memory Fallback)       │
-│  AuditLogger (SHA-256 Chained Hash Log)        │
-│  Prometheus Metrics (Gauges & Normalized Path)│
-└───────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Client["HTTP Client or Web Console (Tab 9)"] --> API["internal/api/<br/>POST /api/v1/jobs (RBAC Scope & Action)<br/>GET /api/v1/jobs (List & Query Filter)<br/>GET /api/v1/jobs/{id}/logs (Chunked Log)<br/>POST /api/v1/jobs/{id}/cancel (Cancel Job)"]
+    API --> Queue["internal/jobs/: JobQueue (container/heap Priority)<br/>High > Normal > Low (FIFO Tie-Breaker)<br/>Capacity Bound: 1000 (ErrQueueFull)"]
+    Queue --> Pool["WorkerPool (Bounded Goroutines)<br/>Consumes jobs, passes Context & Buffer"]
+    Pool --> Core["Core Exec (Process Group)"]
+    Pool --> Plugins["Plugins (Native / Declarative)"]
+    Core --> LogBuf["JobLogBuffer (2 MiB Max, Thread-Safe)<br/>Simultaneous Subprocess Write & Read"]
+    Plugins --> LogBuf
+    LogBuf --> Persist["Persistence & Audit<br/>JobStore (SQLite / In-Memory Fallback)<br/>AuditLogger (SHA-256 Chained Hash Log)<br/>Prometheus Metrics (Gauges & Normalized Path)"]
 ```
 
 1. **Job Data Model (`internal/jobs/job.go`)**:

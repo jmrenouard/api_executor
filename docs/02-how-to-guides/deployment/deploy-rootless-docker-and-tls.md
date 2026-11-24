@@ -85,10 +85,10 @@ Unauthenticated HTTP mode exposes remote command execution and tokens in clearte
    sudo chown 10001:10001 /opt/api-executor/config.yaml
    ```
 
-5. Pull the official multi-architecture image from Docker Hub:
+5. Pull the latest published multi-architecture image from Docker Hub:
 
    ```bash
-   docker pull jmrenouard/api_executor:v2.2.0
+   docker pull jmrenouard/api_executor:v2.1.0
    ```
 
 6. Start the `api-executor` container with dropped capabilities, `no-new-privileges`, and mounted volumes:
@@ -108,11 +108,13 @@ Unauthenticated HTTP mode exposes remote command execution and tokens in clearte
      -v /opt/api-executor/secure_files:/var/log/secure_files \
      --security-opt no-new-privileges:true \
      --cap-drop ALL \
-     jmrenouard/api_executor:v2.2.0
+     jmrenouard/api_executor:v2.1.0
    ```
 
-**NOTE:** The container automatically creates `/app/certs/server.crt` and `/app/certs/server.key` (`0600`) at startup.
-Supply your own PEM files inside `/opt/api-executor/certs` to disable self-signed certificate generation.
+**NOTE:** The container creates `/app/certs/server.crt` and `/app/certs/server.key` (`0600`) at startup.
+Use your own PEM files inside `/opt/api-executor/certs` to stop self-signed certificate generation.
+Release tag `v2.1.0` is the latest published container image.
+Branch `main` builds version `2.2.0` from source.
 
 ## Verification
 

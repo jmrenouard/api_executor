@@ -816,6 +816,28 @@ def test_build_versioned_docs_end_to_end_worktree_v210_and_v200(tmp_path: Path) 
         )
     ]
     assert not leaked_sensitive, f"Sensitive or source files leaked into built output: {leaked_sensitive}"
+    main_html = (out_dir / "main" / "index.html").read_text(encoding="utf-8")
+    assert '<html lang="en"' in main_html, "Built main/index.html must declare English language attribute"
+    fr_html = [
+        p.relative_to(out_dir).as_posix()
+        for p in (out_dir / "main").rglob("*.html")
+        if p.name.endswith(".fr.html") or "/fr/" in p.relative_to(out_dir).as_posix()
+    ]
+    assert not fr_html, f"French pages must remain excluded from English portal: {fr_html}"
+
+
+def test_mkdocs_english_only_nav_and_fr_exclusion() -> None:
+    """Verify mkdocs.yml declares English theme, excludes *.fr.md, and keeps nav strictly English."""
+    config = _load_mkdocs_config()
+    assert config.get("theme", {}).get("language") == "en"
+    raw_exclude = config.get("exclude_docs", "")
+    exclude_text = "\n".join(raw_exclude) if isinstance(raw_exclude, list) else str(raw_exclude)
+    assert "articles/*.fr.md" in exclude_text
+
+    nav_paths = _flatten_nav_paths(config.get("nav", []))
+    fr_nav = [p for p in nav_paths if p.startswith("fr/") or p.endswith((".fr.md", "_fr.md"))]
+    assert not fr_nav, f"mkdocs.yml nav must contain only English documents: {fr_nav}"
+
 
 
 # ==============================================================================

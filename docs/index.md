@@ -27,7 +27,7 @@ plugins catalog, and Model Context Protocol (MCP) bastion with Human-in-the-Loop
     <span class="apiexec-metric-label">Across 10 Domains · 24 Native + 281+ Declarative</span>
   </div>
   <div class="apiexec-metric">
-    <span class="apiexec-metric-value">33 Endpoints</span>
+    <span class="apiexec-metric-value">48 HTTP Routes</span>
     <span class="apiexec-metric-label">TLS 1.3 Default · ECDSA P-256 + Live Cert Rotation</span>
   </div>
   <div class="apiexec-metric">
@@ -53,7 +53,7 @@ without mixing hands-on labs, operational runbooks, reference tables, and archit
 | | **Practical (Action)** | **Theoretical (Cognition)** |
 | :--- | :--- | :--- |
 | **Acquisition (Study)** | [**1. Tutorials (`01-tutorials/`)**](01-tutorials/index.md)<br/>Guided isolated sandbox labs for HTTPS, plugins, MCP, HITL, and async jobs | [**4. Explanation (`04-explanation/`)**](04-explanation/index.md)<br/>Zero-Trust MCP bastion topology, cryptographic hash chains, and ADRs |
-| **Application (Work)** | [**2. How-To Guides (`02-how-to-guides/`)**](02-how-to-guides/index.md)<br/>Goal-oriented ASD-STE100 Issue 9 deployment, bastion, incident, and key-rotation SOPs | [**3. Reference (`03-reference/`)**](03-reference/index.md)<br/>Exhaustive YAML configuration schema, 33 REST/MCP endpoints, and alert matrices |
+| **Application (Work)** | [**2. How-To Guides (`02-how-to-guides/`)**](02-how-to-guides/index.md)<br/>Goal-oriented ASD-STE100 Issue 9 deployment, bastion, incident, and key-rotation SOPs | [**3. Reference (`03-reference/`)**](03-reference/index.md)<br/>Exhaustive YAML configuration schema, 48 HTTP/REST and MCP endpoints, and alert matrices |
 
 ---
 
@@ -92,7 +92,7 @@ without mixing hands-on labs, operational runbooks, reference tables, and archit
     ---
 
     *Theoretical · Work / Application* — Look up exhaustive YAML schema blocks, configuration profiles (`ubuntu`,
-    `redhat`, `cis-benchmarks`), 33 REST and MCP endpoints, environment variables, Prometheus metrics, and alert codes.
+    `redhat`, `cis-benchmarks`), 48 REST and MCP endpoints, environment variables, Prometheus metrics, and alert codes.
 
     - [Reference Quadrant Index](03-reference/index.md)
     - [Configuration Schema & Profiles](03-reference/configuration/config-schema-and-profiles.md)
