@@ -69,7 +69,7 @@ EXPOSE 8080
 
 # Healthcheck probe verifying API availability
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget --no-check-certificate -qO- https://127.0.0.1:8080/metrics > /dev/null || exit 1
+    CMD wget --no-check-certificate -qO- https://127.0.0.1:8080/health > /dev/null || exit 1
 
 # This is the command to run the application
 ENTRYPOINT ["./go-admin-tool"]
