@@ -56,7 +56,7 @@
                 <div>
                     <div class="flex items-center gap-2.5">
                         <h1 class="text-lg font-semibold text-white heading-tight">API Executor</h1>
-                        <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 kicker-caps">v2.0 Enterprise</span>
+                        <span id="app-version-badge" class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 kicker-caps" x-text="appVersionBadge()">v2.2.0</span>
                     </div>
                     <p class="text-xs text-slate-400">Zero-Trust Remote Command Execution, OS Presets, RBAC, Plugins, Read-Only SQL, MCP &amp; SHA-256 Audit</p>
                 </div>
@@ -814,26 +814,62 @@
 
             <!-- Retained MCP Traces -->
             <div class="surface-card rounded-xl p-6 space-y-4">
-                <div class="flex items-center justify-between">
+                <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
                         <span class="text-[11px] font-mono text-sky-400 kicker-caps">Full Lifecycle Traceability</span>
-                        <h3 class="text-base font-semibold text-white heading-tight">Retained MCP Interaction Traces</h3>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-base font-semibold text-white heading-tight">Retained MCP Interaction Traces</h3>
+                            <template x-if="mcpChainVerify">
+                                <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded border"
+                                      :class="mcpChainVerify.valid ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'"
+                                      x-text="mcpChainVerify.valid ? ('VALID (' + (mcpChainVerify.total_traces || 0) + ')') : 'TAMPERED'"></span>
+                            </template>
+                        </div>
                     </div>
-                    <button @click="loadMCPTraces()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Refresh Traces</button>
+                    <div class="flex items-center gap-2">
+                        <button @click="verifyMCPTraceChain()" class="tactile-btn px-3 py-1 rounded bg-emerald-600/20 border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-600/30">Verify Trace Chain</button>
+                        <button @click="loadMCPTraces()" class="tactile-btn px-3 py-1 rounded surface-inset text-xs text-slate-300">Refresh Traces</button>
+                    </div>
                 </div>
 
-                <div class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                <div x-show="mcpChainVerify && !mcpChainVerify.valid" class="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs font-mono text-rose-300">
+                    <span x-text="'Chain integrity failure' + (mcpChainVerify.broken_at_trace_id ? (' at ' + mcpChainVerify.broken_at_trace_id) : '') + ': ' + (mcpChainVerify.reason || 'tampered')"></span>
+                </div>
+
+                <div class="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                     <template x-for="tr in mcpTraces" :key="tr.trace_id">
-                        <div class="surface-inset rounded-lg p-3 text-xs font-mono space-y-1">
-                            <div class="flex items-center justify-between">
-                                <span class="text-emerald-300 font-semibold" x-text="tr.trace_id"></span>
+                        <div class="surface-inset rounded-lg p-3 text-xs font-mono space-y-2">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-emerald-300 font-semibold" x-text="tr.trace_id"></span>
+                                    <template x-if="mcpTraceVerifyResults[tr.trace_id]">
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded border font-semibold"
+                                              :class="mcpTraceVerifyResults[tr.trace_id].valid ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'"
+                                              x-text="mcpTraceVerifyResults[tr.trace_id].valid ? 'VALID' : 'TAMPERED'"></span>
+                                    </template>
+                                    <span x-show="tr.gatekeeper_decision" class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30" x-text="'gk:' + tr.gatekeeper_decision"></span>
+                                </div>
                                 <span class="text-slate-400 tabular-nums" x-text="tr.duration_ms + ' ms | ' + tr.status"></span>
                             </div>
-                            <div class="text-slate-200" x-text="'method=' + tr.method + (tr.tool_name ? (' tool=' + tr.tool_name) : '') + ' actor=' + tr.actor"></div>
+                            <div class="text-slate-200" x-text="'method=' + tr.method + (tr.tool_name ? (' tool=' + tr.tool_name) : '') + ' actor=' + tr.actor + (tr.parent_trace_id ? (' parent=' + tr.parent_trace_id) : '')"></div>
                             <div class="text-[11px] text-slate-500" x-text="'audit_event=' + (tr.audit_event_id || 'n/a') + ' | ' + tr.timestamp"></div>
+                            <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/5">
+                                <button @click="verifyMCPTrace(tr.trace_id)" class="tactile-btn px-2 py-0.5 rounded bg-sky-600/20 border border-sky-500/30 text-[11px] text-sky-300 hover:bg-sky-600/30">Verify</button>
+                                <button @click="replayMCPTrace(tr.trace_id, 'dry_run')" class="tactile-btn px-2 py-0.5 rounded bg-emerald-600/20 border border-emerald-500/30 text-[11px] text-emerald-300 hover:bg-emerald-600/30">Replay (Dry-Run)</button>
+                                <button @click="replayMCPTrace(tr.trace_id, 'live')" class="tactile-btn px-2 py-0.5 rounded bg-amber-600/20 border border-amber-500/30 text-[11px] text-amber-300 hover:bg-amber-600/30">Replay (Live)</button>
+                            </div>
                         </div>
                     </template>
                     <p x-show="mcpTraces.length === 0" class="text-xs text-slate-500 font-mono">No MCP traces recorded yet.</p>
+                </div>
+
+                <div x-show="mcpReplayReport" class="surface-inset rounded-lg p-3 text-xs font-mono space-y-1 border border-white/10">
+                    <div class="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>REPLAY VERIFICATION REPORT</span>
+                        <span :class="mcpReplayReport && mcpReplayReport.deterministic_match ? 'text-emerald-300' : 'text-amber-300'"
+                              x-text="mcpReplayReport ? ('mode=' + mcpReplayReport.mode + ' | match=' + (mcpReplayReport.deterministic_match ? 'YES' : 'NO')) : ''"></span>
+                    </div>
+                    <pre class="text-emerald-300 max-h-40 overflow-y-auto whitespace-pre-wrap" x-text="mcpReplayReport ? JSON.stringify(mcpReplayReport, null, 2) : ''"></pre>
                 </div>
             </div>
         </section>
@@ -1350,6 +1386,99 @@
 
         </section>
 
+        <!-- TAB 10: HUMAN-IN-THE-LOOP (HITL) APPROVALS -->
+        <section x-show="activeTab === 'approvals'" id="tab-approvals" class="space-y-6" data-tab="approvals">
+            <div class="surface-card rounded-xl p-6 space-y-5">
+                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-mono text-emerald-400 kicker-caps">Zero-Trust Bastion Gate</span>
+                            <span class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 tabular-nums"
+                                  x-text="pendingApprovalsCount() + ' Pending'"></span>
+                        </div>
+                        <h2 class="text-xl font-semibold text-white heading-tight">10. HITL Approvals Queue</h2>
+                        <p class="text-xs text-slate-400 mt-1">Review and decide pending Human-in-the-Loop approvals triggered by critical policies or System-1 gatekeeper <code class="text-slate-300">x_abstain</code> escalations.</p>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2">
+                        <template x-for="st in ['all', 'pending', 'approved', 'rejected', 'consumed', 'expired']" :key="st">
+                            <button @click="approvalFilterStatus = st; loadApprovals()"
+                                    class="tactile-btn px-2.5 py-1 rounded-md text-xs font-mono border capitalize"
+                                    :class="approvalFilterStatus === st ? 'bg-emerald-600/25 border-emerald-500/50 text-emerald-300 font-semibold' : 'surface-inset border-transparent text-slate-400 hover:text-white'"
+                                    x-text="st"></button>
+                        </template>
+                        <button @click="loadApprovals()" class="tactile-btn px-3 py-1.5 rounded-md surface-inset text-xs text-slate-300 hover:border-white/20">
+                            Refresh Approvals
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="approvalsError" class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono" x-text="approvalsError"></div>
+
+                <div class="space-y-3">
+                    <template x-for="ap in filteredApprovals()" :key="ap.id">
+                        <div class="surface-inset rounded-xl p-4 space-y-3 border border-white/5">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div class="flex flex-wrap items-center gap-2 font-mono text-xs">
+                                    <span class="text-emerald-300 font-semibold" x-text="ap.id"></span>
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase border"
+                                          :class="approvalStatusBadgeClass(ap.status)"
+                                          x-text="ap.status"></span>
+                                    <span class="px-2 py-0.5 rounded bg-white/5 text-slate-200 border border-white/10"
+                                          x-text="(ap.channel || 'command') + ':' + (ap.action || 'unknown')"></span>
+                                    <template x-if="ap.metadata && ap.metadata.gatekeeper_decision">
+                                        <span class="px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30"
+                                              x-text="'gatekeeper_decision=' + ap.metadata.gatekeeper_decision + (ap.metadata.risk_score !== undefined ? (' | risk_score=' + Number(ap.metadata.risk_score).toFixed(2)) : '')"></span>
+                                    </template>
+                                </div>
+                                <div class="text-[11px] font-mono text-slate-400 tabular-nums"
+                                     x-text="'expires_at: ' + formatDate(ap.expires_at)"></div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono text-slate-300">
+                                <div>
+                                    <span class="text-slate-500">requester_id:</span>
+                                    <span class="text-white" x-text="ap.requester_id + (ap.requester_type ? (' (' + ap.requester_type + ')') : '')"></span>
+                                </div>
+                                <div class="truncate" :title="ap.payload_sha256">
+                                    <span class="text-slate-500">payload_sha256:</span>
+                                    <span class="text-emerald-300" x-text="ap.payload_sha256 || 'n/a'"></span>
+                                </div>
+                            </div>
+
+                            <div x-show="ap.reason" class="text-xs text-slate-400" x-text="ap.reason"></div>
+
+                            <div x-show="ap.status === 'pending'" class="flex flex-wrap items-center gap-2 pt-2 border-t border-white/5">
+                                <input type="text"
+                                       x-model="approvalComments[ap.id]"
+                                       placeholder="Optional reviewer decision comment..."
+                                       class="flex-1 min-w-[220px] surface-card rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500/50">
+                                <button @click="approveApproval(ap.id)"
+                                        :disabled="decidingApprovalIds[ap.id]"
+                                        class="tactile-btn px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold">
+                                    Approve
+                                </button>
+                                <button @click="rejectApproval(ap.id)"
+                                        :disabled="decidingApprovalIds[ap.id]"
+                                        class="tactile-btn px-3.5 py-1.5 rounded-lg bg-rose-600/25 border border-rose-500/40 hover:bg-rose-600/40 disabled:opacity-40 text-rose-300 text-xs font-semibold">
+                                    Reject
+                                </button>
+                            </div>
+
+                            <div x-show="ap.approver_id || ap.decision_comment" class="text-[11px] font-mono text-slate-400 pt-1 border-t border-white/5">
+                                <span x-show="ap.approver_id" x-text="'approver=' + ap.approver_id"></span>
+                                <span x-show="ap.decision_comment" x-text="' | comment=' + ap.decision_comment"></span>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div x-show="filteredApprovals().length === 0" class="text-center py-10 surface-inset rounded-lg text-xs font-mono text-slate-500">
+                        No HITL approval requests found for status filter "<span x-text="approvalFilterStatus"></span>".
+                    </div>
+                </div>
+            </div>
+        </section>
+
     </main>
 
     <!-- LIVE LOG VIEWER MODAL DIALOG -->
@@ -1383,10 +1512,14 @@
                 </div>
 
                 <div class="flex items-center gap-2">
-                    <!-- Polling Status Indicator -->
+                    <label class="flex items-center gap-1.5 text-[11px] font-mono text-slate-400 cursor-pointer surface-inset px-2.5 py-1 rounded-md">
+                        <input id="log-sse-toggle" type="checkbox" x-model="logUseSSE" class="rounded bg-slate-800 border-white/10 text-emerald-500 focus:ring-0">
+                        <span x-text="logUseSSE ? 'SSE Stream' : 'Poll Fallback'"></span>
+                    </label>
+                    <!-- Polling / Streaming Status Indicator -->
                     <div class="surface-inset px-2.5 py-1 rounded-md text-[11px] font-mono flex items-center gap-1.5 tabular-nums">
                         <span class="w-2 h-2 rounded-full" :class="logPollingActive ? 'bg-sky-400 animate-ping' : (logEof ? 'bg-emerald-400' : 'bg-slate-500')"></span>
-                        <span class="text-slate-300" x-text="logPollingActive ? 'Tailing live...' : (logEof ? 'Stream Complete (EOF)' : 'Paused')"></span>
+                        <span class="text-slate-300" x-text="logPollingActive ? (logStreamMode === 'sse' ? 'Streaming SSE...' : 'Tailing live...') : (logEof ? 'Stream Complete (EOF)' : 'Paused')"></span>
                     </div>
 
                     <button @click="closeLogModal()" class="tactile-btn p-1.5 rounded-lg surface-inset text-slate-400 hover:text-white hover:border-white/20">
@@ -1459,6 +1592,8 @@
                 authToken: '',
                 statusBanner: '',
                 principal: null,
+                appVersion: 'v2.2.0',
+                versionInfo: null,
 
                 commands: [],
                 selectedCommand: '',
@@ -1510,6 +1645,16 @@
                 mcpRequestJSON: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, null, 2),
                 mcpResponseJSON: '',
                 mcpTraces: [],
+                mcpChainVerify: null,
+                mcpTraceVerifyResults: {},
+                mcpReplayReport: null,
+
+                // Tab 10: HITL Approvals state
+                approvals: [],
+                approvalFilterStatus: 'all',
+                approvalsError: '',
+                approvalComments: {},
+                decidingApprovalIds: {},
 
                 auditEvents: [],
                 auditVerify: { valid: true, total_events: 0 },
@@ -1551,6 +1696,9 @@
                 logPollTimer: null,
                 logAbortController: null,
                 logPollingActive: false,
+                logUseSSE: true,
+                logStreamMode: 'sse',
+                logHasContent: false,
                 cancellingJobIds: {},
 
                 get tabs() {
@@ -1563,8 +1711,27 @@
                         { id: 'mcp', label: '6. MCP Server & Traces', badge: this.mcpTraces.length },
                         { id: 'audit', label: '7. SHA-256 Audit & Logs', badge: this.auditEvents.length },
                         { id: 'tls', label: '8. HTTPS/TLS & Files', badge: null },
-                        { id: 'jobs', label: '9. Async Jobs & Queue', badge: (this.queueStats && this.queueStats.queued_jobs > 0) ? this.queueStats.queued_jobs : (this.jobs ? this.jobs.length : null) }
+                        { id: 'jobs', label: '9. Async Jobs & Queue', badge: (this.queueStats && this.queueStats.queued_jobs > 0) ? this.queueStats.queued_jobs : (this.jobs ? this.jobs.length : null) },
+                        { id: 'approvals', label: '10. HITL Approvals', badge: this.pendingApprovalsCount() }
                     ];
+                },
+
+                appVersionBadge() {
+                    const v = this.appVersion || 'v2.2.0';
+                    return v.startsWith('v') ? v : ('v' + v);
+                },
+
+                async loadVersion() {
+                    try {
+                        const r = await fetch('/api/v1/version', { headers: this.headers() });
+                        if (r.ok) {
+                            const d = await r.json();
+                            this.versionInfo = d;
+                            if (d.version) {
+                                this.appVersion = d.version.startsWith('v') ? d.version : ('v' + d.version);
+                            }
+                        }
+                    } catch (_) {}
                 },
 
                 headers(extra = {}) {
@@ -1588,6 +1755,9 @@
                         this.startQueuePolling();
                     } else if (prev === 'jobs') {
                         this.stopQueuePolling();
+                    }
+                    if (id === 'approvals') {
+                        this.loadApprovals();
                     }
                 },
 
@@ -2218,6 +2388,62 @@
                     } catch (_) {}
                 },
 
+                async verifyMCPTraceChain() {
+                    try {
+                        const r = await fetch('/api/v1/mcp/traces/verify', { headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.mcpChainVerify = d;
+                            this.statusBanner = d.valid
+                                ? `MCP Trace Chain VALID (${d.total_traces || 0} traces verified)`
+                                : `WARNING: MCP Trace Chain TAMPERED${d.broken_at_trace_id ? (' at ' + d.broken_at_trace_id) : ''}`;
+                        } else {
+                            this.statusBanner = d.error || 'Failed to verify MCP trace chain';
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to verify MCP trace chain: ' + e;
+                    }
+                },
+
+                async verifyMCPTrace(traceID) {
+                    if (!traceID) return;
+                    try {
+                        const r = await fetch(`/api/v1/mcp/traces/${encodeURIComponent(traceID)}/verify`, { headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.mcpTraceVerifyResults = { ...this.mcpTraceVerifyResults, [traceID]: d };
+                            this.statusBanner = d.valid
+                                ? `MCP trace ${traceID} is VALID`
+                                : `WARNING: MCP trace ${traceID} is TAMPERED (${d.reason || 'hash mismatch'})`;
+                        } else {
+                            this.statusBanner = d.error || ('Failed to verify MCP trace ' + traceID);
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to verify MCP trace: ' + e;
+                    }
+                },
+
+                async replayMCPTrace(traceID, mode = 'dry_run') {
+                    if (!traceID) return;
+                    try {
+                        const r = await fetch(`/api/v1/mcp/traces/${encodeURIComponent(traceID)}/replay`, {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify({ mode })
+                        });
+                        const d = await r.json();
+                        this.mcpReplayReport = d;
+                        if (r.ok) {
+                            this.statusBanner = `MCP trace ${traceID} ${mode} replay complete (match=${!!d.deterministic_match})`;
+                            await Promise.allSettled([this.loadMCPTraces(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || d.reason || (`MCP trace ${mode} replay failed (${r.status})`);
+                        }
+                    } catch (e) {
+                        this.statusBanner = 'Failed to replay MCP trace: ' + e;
+                    }
+                },
+
                 async loadAuditAndLogs() {
                     try {
                         const [aRes, vRes, lRes, hRes] = await Promise.all([
@@ -2672,11 +2898,174 @@
                     this.logCurrentOffset = 0;
                     this.logEof = false;
                     this.logTruncated = false;
+                    this.logHasContent = false;
                     this.logModalOpen = true;
                     this.logPollingActive = true;
                     this.logAbortController = new AbortController();
 
-                    this.pollJobLogs(jobId, 0);
+                    if (this.logUseSSE && typeof ReadableStream !== 'undefined') {
+                        this.logStreamMode = 'sse';
+                        this.streamJobLogsSSE(jobId, 0);
+                    } else {
+                        this.logStreamMode = 'poll';
+                        this.pollJobLogs(jobId, 0);
+                    }
+                },
+
+                async streamJobLogsSSE(jobId, offset = 0) {
+                    if (!this.logModalOpen || this.activeLogJobId !== jobId || !this.logPollingActive) {
+                        return;
+                    }
+                    const fallbackToPoll = () => {
+                        if (!this.logModalOpen || this.activeLogJobId !== jobId || !this.logPollingActive || this.logEof) {
+                            return;
+                        }
+                        this.logStreamMode = 'poll';
+                        this.pollJobLogs(jobId, this.logCurrentOffset || offset);
+                    };
+
+                    try {
+                        const url = `/api/v1/jobs/${encodeURIComponent(jobId)}/stream?offset=${encodeURIComponent(offset)}`;
+                        const r = await fetch(url, {
+                            headers: this.headers({ 'Accept': 'text/event-stream' }),
+                            signal: this.logAbortController ? this.logAbortController.signal : undefined
+                        });
+
+                        if (!this.logModalOpen || this.activeLogJobId !== jobId || !this.logPollingActive) {
+                            return;
+                        }
+
+                        if (!r.ok) {
+                            if (r.status === 404) {
+                                this.logTerminalText += '\n[Error: Job logs not found on server (job may have been purged)]\n';
+                                this.logPollingActive = false;
+                                return;
+                            }
+                            if (r.status === 401 || r.status === 403) {
+                                this.logTerminalText += '\n[Error: Unauthorized to access job logs]\n';
+                                this.logPollingActive = false;
+                                return;
+                            }
+                            fallbackToPoll();
+                            return;
+                        }
+
+                        const contentType = (r.headers.get('content-type') || '').toLowerCase();
+                        if (!contentType.includes('text/event-stream') || !r.body || typeof r.body.getReader !== 'function') {
+                            fallbackToPoll();
+                            return;
+                        }
+
+                        const reader = r.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+
+                        const handleSSEBlock = (rawBlock) => {
+                            const lines = rawBlock.split('\n');
+                            let eventType = 'message';
+                            const dataLines = [];
+                            for (const line of lines) {
+                                if (!line || line.startsWith(':')) continue;
+                                if (line.startsWith('event:')) {
+                                    eventType = line.slice(6).trim();
+                                } else if (line.startsWith('data:')) {
+                                    dataLines.push(line.slice(5).trimStart());
+                                }
+                            }
+                            if (dataLines.length === 0) return;
+
+                            let payload = {};
+                            try {
+                                payload = JSON.parse(dataLines.join('\n'));
+                            } catch (_) {
+                                return;
+                            }
+
+                            if (eventType === 'status' || payload.status) {
+                                if (payload.status) {
+                                    this.logModalStatus = payload.status;
+                                    if (this.activeLogJob) {
+                                        this.activeLogJob.status = payload.status;
+                                    }
+                                    const tableJob = this.jobs.find(j => j.id === jobId);
+                                    if (tableJob) {
+                                        tableJob.status = payload.status;
+                                    }
+                                }
+                            }
+
+                            if (eventType === 'log') {
+                                if (payload.logs) {
+                                    if (!this.logHasContent) {
+                                        this.logTerminalText = payload.logs;
+                                        this.logHasContent = true;
+                                    } else {
+                                        this.logTerminalText += payload.logs;
+                                    }
+                                }
+                                if (payload.next_offset !== undefined) {
+                                    this.logCurrentOffset = payload.next_offset;
+                                }
+                                if (payload.truncated !== undefined) {
+                                    this.logTruncated = !!payload.truncated;
+                                }
+                                if (this.logAutoScroll) {
+                                    this.$nextTick(() => {
+                                        const el = document.getElementById('log-terminal-output');
+                                        if (el) el.scrollTop = el.scrollHeight;
+                                    });
+                                }
+                            }
+
+                            if (eventType === 'done' || payload.eof) {
+                                if (payload.next_offset !== undefined) {
+                                    this.logCurrentOffset = payload.next_offset;
+                                }
+                                if (payload.truncated !== undefined) {
+                                    this.logTruncated = !!payload.truncated;
+                                }
+                                if (!this.logHasContent) {
+                                    this.logTerminalText = '[No output recorded for this job]\n';
+                                }
+                                if (this.logTruncated) {
+                                    this.logTerminalText += '\n[Log output truncated at 2 MiB memory limit]\n';
+                                }
+                                this.logEof = true;
+                                this.logPollingActive = false;
+                                this.loadJobsHistory();
+                                this.fetchQueueTelemetry();
+                            }
+                        };
+
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            if (!this.logModalOpen || this.activeLogJobId !== jobId || !this.logPollingActive) {
+                                try { await reader.cancel(); } catch (_) {}
+                                return;
+                            }
+                            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+                            let sepIdx;
+                            while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+                                const block = buffer.slice(0, sepIdx);
+                                buffer = buffer.slice(sepIdx + 2);
+                                handleSSEBlock(block);
+                                if (this.logEof) {
+                                    try { await reader.cancel(); } catch (_) {}
+                                    return;
+                                }
+                            }
+                        }
+
+                        if (!this.logEof) {
+                            fallbackToPoll();
+                        }
+                    } catch (err) {
+                        if (err && err.name === 'AbortError') {
+                            return;
+                        }
+                        fallbackToPoll();
+                    }
                 },
 
                 async pollJobLogs(jobId, offset = 0) {
@@ -2802,12 +3191,110 @@
                     }
                 },
 
+                // =========================================================
+                // Tab 10: HITL Approvals Queue Methods
+                // =========================================================
+
+                pendingApprovalsCount() {
+                    return (this.approvals || []).filter(a => a.status === 'pending').length;
+                },
+
+                filteredApprovals() {
+                    const list = this.approvals || [];
+                    if (!this.approvalFilterStatus || this.approvalFilterStatus === 'all') {
+                        return list;
+                    }
+                    return list.filter(a => a.status === this.approvalFilterStatus);
+                },
+
+                approvalStatusBadgeClass(status) {
+                    switch (status) {
+                        case 'pending':
+                            return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+                        case 'approved':
+                            return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+                        case 'rejected':
+                            return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+                        case 'consumed':
+                            return 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+                        case 'expired':
+                            return 'bg-slate-500/15 text-slate-400 border-slate-500/30';
+                        default:
+                            return 'bg-white/10 text-slate-300 border-white/20';
+                    }
+                },
+
+                async loadApprovals() {
+                    this.approvalsError = '';
+                    try {
+                        const r = await fetch('/api/v1/approvals?limit=200', { headers: this.headers() });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.approvals = d.approvals || [];
+                        } else {
+                            this.approvalsError = d.error || `Failed to load approvals (${r.status})`;
+                            if (this.authToken && r.status !== 503) {
+                                this.statusBanner = this.approvalsError;
+                            }
+                        }
+                    } catch (e) {
+                        this.approvalsError = 'Failed to load approvals: ' + e;
+                        this.statusBanner = this.approvalsError;
+                    }
+                },
+
+                async _postApprovalDecision(approvalId, url, actionLabel) {
+                    if (!approvalId) return;
+                    this.decidingApprovalIds = { ...this.decidingApprovalIds, [approvalId]: true };
+                    try {
+                        const comment = (this.approvalComments[approvalId] || '').trim();
+                        const r = await fetch(url, {
+                            method: 'POST',
+                            headers: this.headers(),
+                            body: JSON.stringify({ comment })
+                        });
+                        const d = await r.json();
+                        if (r.ok) {
+                            this.statusBanner = `HITL approval ${approvalId} ${d.status || actionLabel}`;
+                            this.showToast(this.statusBanner, 'success');
+                            delete this.approvalComments[approvalId];
+                            await Promise.allSettled([this.loadApprovals(), this.loadAuditAndLogs()]);
+                        } else {
+                            this.statusBanner = d.error || `Failed to ${actionLabel} request (HTTP ${r.status})`;
+                            this.approvalsError = this.statusBanner;
+                        }
+                    } finally {
+                        const copy = { ...this.decidingApprovalIds };
+                        delete copy[approvalId];
+                        this.decidingApprovalIds = copy;
+                    }
+                },
+
+                async approveApproval(approvalId) {
+                    try {
+                        await this._postApprovalDecision(approvalId, `/api/v1/approvals/${encodeURIComponent(approvalId)}/approve`, 'approved');
+                    } catch (e) {
+                        this.statusBanner = 'Failed to approve request: ' + e;
+                        this.approvalsError = this.statusBanner;
+                    }
+                },
+
+                async rejectApproval(approvalId) {
+                    try {
+                        await this._postApprovalDecision(approvalId, `/api/v1/approvals/${encodeURIComponent(approvalId)}/reject`, 'rejected');
+                    } catch (e) {
+                        this.statusBanner = 'Failed to reject request: ' + e;
+                        this.approvalsError = this.statusBanner;
+                    }
+                },
+
                 showToast(message, type = 'info') {
                     this.statusBanner = message;
                 },
 
                 async refreshAll() {
                     await Promise.allSettled([
+                        this.loadVersion(),
                         this.loadPrincipal(),
                         this.loadCommands(),
                         this.loadPresets(),
@@ -2818,7 +3305,8 @@
                         this.loadTLSInfo(),
                         this.loadFiles(),
                         this.fetchQueueTelemetry(),
-                        this.loadJobsHistory()
+                        this.loadJobsHistory(),
+                        this.loadApprovals()
                     ]);
                 },
 
