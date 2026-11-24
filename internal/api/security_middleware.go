@@ -161,6 +161,11 @@ func (w *maxBytesResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap exposes the wrapped http.ResponseWriter to http.ResponseController and Flusher resolution.
+func (w *maxBytesResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // securityMiddleware applies defensive HTTP response headers, per-IP token-bucket rate limiting,
 // and request body size bounding (http.MaxBytesReader) across all API routes.
 func securityMiddleware(env *APIEnv, next http.Handler) http.Handler {

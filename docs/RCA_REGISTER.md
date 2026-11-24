@@ -969,7 +969,7 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-005` | `P3` | `internal/mcp` | Streamable HTTP / SSE notification stream and stdio CLI bridge for local desktop MCP hosts. |
 | `IDEA-006` | `P3` | `web/static` | Virtualized catalog scrolling / infinite scroll for Web Console Tab 5 when plugin ecosystem scales beyond 1,000 plugins. |
 | `IDEA-007` | `P2` | `internal/jobs` | Distributed Redis / PostgreSQL queue backend and persistent S3/MinIO chunked log streaming for multi-node deployments. |
-| `IDEA-008` | `P2` | `internal/api` | WebSocket / Server-Sent Events (SSE) live push streaming endpoint (`/api/v1/jobs/{id}/stream`) for real-time output and status updates without client HTTP offset polling. |
+| `IDEA-008` | `P2` | `internal/api` | **(Implemented in `ACT-087` / Issue `#171`)** WebSocket / Server-Sent Events (SSE) live push streaming endpoint (`/api/v1/jobs/{id}/stream`) for real-time output and status updates without client HTTP offset polling. |
 | `IDEA-009` | `P3` | `internal/jobs` | Job Dependency DAG & Workflow Chaining: Allow defining multi-step workflow pipelines where downstream jobs execute only upon successful completion of prerequisite jobs (e.g., diagnostic run followed by automated remediation). |
 | `IDEA-010` | `P3` | `web/static` | Web Console Live Output Terminal via xterm.js: Upgrade Tab 9 log modal with ANSI color escape code rendering and interactive terminal controls. |
 | `IDEA-011` | `P3` | `packaging` | Native OS package manager distribution: Homebrew formula for macOS, Winget / Chocolatey manifests for Windows, and automated Debian (.deb) / RPM (.rpm) package generation via GoReleaser or nfpm. |

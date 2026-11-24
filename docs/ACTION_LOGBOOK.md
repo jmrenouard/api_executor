@@ -13,6 +13,20 @@ _None._
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-087` — Server-Sent Events (SSE) Job Log & Status Stream (`Issue #171`, `IDEA-008`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#171` — `feat/issue-171-sse-job-log-stream`
+- **Request**: Implement `GET /api/v1/jobs/{id}/stream` (SSE live push streaming for job logs and status transitions with `Last-Event-ID` / `?offset=` resume, `WriteTimeout` deadline clearing, RBAC, and bounded Prometheus route normalization) and expose `stream_url` in `SubmitJobResponse`.
+- **Changes**:
+  - Created [`internal/api/job_stream.go`](../internal/api/job_stream.go): Implemented `StreamJobLogsHandler` enforcing `JobEngine != nil` (`503`), `jobs:read` RBAC + audit denial (`401`/`403`), `GetJob` (`404`), `?offset=` and `Last-Event-ID` resume, `http.Flusher` verification (`500`), per-connection `http.NewResponseController(w).SetWriteDeadline(time.Time{})` deadline clearing, SSE headers (`text/event-stream`, `no-cache`, `keep-alive`, `X-Accel-Buffering: no`), `100ms` poll + `15s` `: keepalive` heartbeat + `r.Context().Done()` cancellation, emitting `status`, `log`, and terminal `done` (`eof: true`) events.
+  - Modified [`internal/api/job_handlers.go`](../internal/api/job_handlers.go): Dispatched `case "stream":` (`GET` only, `405` + `Allow: GET` otherwise) in `JobSubroutesHandler` and added `StreamURL` (`stream_url`) to `SubmitJobResponse`.
+  - Modified [`internal/api/router.go`](../internal/api/router.go) and [`internal/api/security_middleware.go`](../internal/api/security_middleware.go): Normalized `/api/v1/jobs/:id/stream` in `normalizeMetricPath` and added `Unwrap() http.ResponseWriter` to `responseWriter` and `maxBytesResponseWriter` for `http.ResponseController` and `http.Flusher` propagation.
+  - Created [`internal/api/job_stream_test.go`](../internal/api/job_stream_test.go) and updated [`internal/api/router_test.go`](../internal/api/router_test.go): Verified live SSE `status`/`log`/`done` streaming, incremental running updates, `?offset=` and `Last-Event-ID` resume, `401`/`403`/`404`/`405`/`500`/`503` enforcement, client cancel without goroutine leaks, `WriteTimeout` clearing with keepalives, and Prometheus route normalization.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-087`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (marked `IDEA-008` implemented).
+- **Result**:
+  - Verified `go vet ./...`, `go test -count=1 -p 1 -cover ./...`, and `go test -count=1 ./tests/e2e/...` pass 100% across all 14 Go packages.
+
 ### `ACT-086` — Configurable Async Job Engine via `config.yaml` (`Issue #168`)
 
 - **Date**: 2026-11-24
