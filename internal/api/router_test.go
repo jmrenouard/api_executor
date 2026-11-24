@@ -76,6 +76,8 @@ func TestNormalizeMetricPath(t *testing.T) {
 		{"root path", "/", "/"},
 		{"index html", "/index.html", "/index.html"},
 		{"health endpoint", "/health", "/health"},
+		{"healthz endpoint", "/healthz", "/healthz"},
+		{"readyz endpoint", "/readyz", "/readyz"},
 		{"metrics endpoint", "/metrics", "/metrics"},
 		{"otlp metrics endpoint", "/api/v1/metrics/otlp", "/api/v1/metrics/otlp"},
 		{"swagger base", "/swagger", "/swagger"},
@@ -117,6 +119,8 @@ func TestNormalizeMetricPath(t *testing.T) {
 
 		// 3. Static routes with trailing slashes
 		{"health with trailing slash", "/health/", "/health"},
+		{"healthz with trailing slash", "/healthz/", "/healthz"},
+		{"readyz with trailing slash", "/readyz/", "/readyz"},
 		{"commands with trailing slash", "/api/v1/commands/", "/api/v1/commands"},
 		{"metrics with trailing slash", "/metrics/", "/metrics"},
 		{"otlp metrics with trailing slash", "/api/v1/metrics/otlp/", "/api/v1/metrics/otlp"},
@@ -295,6 +299,9 @@ func TestPrometheusMetricStaticRoutesPreserved(t *testing.T) {
 	router := setupTestRouterForMetrics(t)
 
 	staticEndpoints := []string{
+		"/health",
+		"/healthz",
+		"/readyz",
 		"/api/v1/commands",
 		"/api/v1/history",
 		"/metrics",
