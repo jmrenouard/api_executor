@@ -422,3 +422,83 @@ func TestConfigHandler_DelegatesVersionRoutes(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigHandler_JobsConfig_MultiConfigAndFallback(t *testing.T) {
+	t.Run("multi-config includes sanitized jobs configuration", func(t *testing.T) {
+		masterCfg := core.DefaultConfig()
+		masterCfg.Jobs = core.JobsConfig{
+			WorkersCount:    6,
+			QueueCapacity:   500,
+			MaxLogBytes:     1048576,
+			PruneInterval:   "5m",
+			MaxJobAge:       "72h",
+			MaxRetainedJobs: 2000,
+		}
+		mgr, err := core.NewMultiConfigManager("config.yaml", masterCfg)
+		if err != nil {
+			t.Fatalf("NewMultiConfigManager failed: %v", err)
+		}
+		env := &APIEnv{
+			Config:             masterCfg,
+			MultiConfigManager: mgr,
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+		rec := httptest.NewRecorder()
+		env.ConfigHandler(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+
+		var view core.SanitizedConfigView
+		if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if view.Jobs.WorkersCount != 6 ||
+			view.Jobs.QueueCapacity != 500 ||
+			view.Jobs.MaxLogBytes != 1048576 ||
+			view.Jobs.PruneInterval != "5m0s" ||
+			view.Jobs.MaxJobAge != "72h0m0s" ||
+			view.Jobs.MaxRetainedJobs != 2000 {
+			t.Fatalf("unexpected view.Jobs in multi-config response: %+v", view.Jobs)
+		}
+	})
+
+	t.Run("fallback view includes jobs config with invalid duration fallback", func(t *testing.T) {
+		cfg := core.DefaultConfig()
+		cfg.Jobs = core.JobsConfig{
+			WorkersCount:    3,
+			QueueCapacity:   120,
+			MaxLogBytes:     0,
+			PruneInterval:   "invalid",
+			MaxJobAge:       "",
+			MaxRetainedJobs: 0,
+		}
+		env := &APIEnv{
+			Config:             cfg,
+			MultiConfigManager: nil,
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+		rec := httptest.NewRecorder()
+		env.ConfigHandler(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+
+		var view core.SanitizedConfigView
+		if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if view.Jobs.WorkersCount != 3 ||
+			view.Jobs.QueueCapacity != 120 ||
+			view.Jobs.MaxLogBytes != (2<<20) ||
+			view.Jobs.PruneInterval != "10m0s" ||
+			view.Jobs.MaxJobAge != "168h0m0s" ||
+			view.Jobs.MaxRetainedJobs != 10000 {
+			t.Fatalf("unexpected fallback view.Jobs: %+v", view.Jobs)
+		}
+	})
+}

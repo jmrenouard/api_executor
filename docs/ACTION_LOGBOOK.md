@@ -27,6 +27,22 @@ _None._
 - **Result**:
   - Verified `go vet ./...`, `go test -count=1 -p 1 -cover ./...`, and `go test -count=1 ./tests/e2e/...` pass 100% across all 14 Go packages.
 
+### `ACT-086` — Configurable Async Job Engine via `config.yaml` (`Issue #168`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#168` — `feat/issue-168-configurable-job-engine`
+- **Request**: Make the asynchronous job engine (`workers_count`, `queue_capacity`, `max_log_bytes`, `prune_interval`, `max_job_age`, `max_retained_jobs`) configurable via `config.yaml`, expose sanitized job engine configuration in `GET /api/v1/config`, wire effective values in `cmd/server/main.go`, and cover with unit tests.
+- **Changes**:
+  - Modified [`internal/core/config.go`](../internal/core/config.go): Added `JobsConfig`, `DefaultJobsConfig()`, safe effective getters (`EffectiveWorkersCount` default `4`, `EffectiveQueueCapacity` default `1000`, `EffectiveMaxLogBytes` default `2<<20`, `EffectivePruneInterval` default `10m`, `EffectiveMaxJobAge` default `168h`, `EffectiveMaxRetainedJobs` default `10000`), `SanitizedJobsConfig`, `JobsConfig.Sanitized()`, `Config.Jobs`, and `SanitizedConfigView.Jobs` populated in `DefaultConfig()` and `MultiConfigManager.SanitizedView`.
+  - Modified [`internal/api/config_handlers.go`](../internal/api/config_handlers.go): Included `Jobs: cfg.Jobs.Sanitized()` in `buildFallbackSanitizedView`.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go): Replaced `jobs.DefaultEngineConfig()` with `jobs.EngineConfig` populated from `config.Jobs.Effective*()`.
+  - Modified [`config.yaml`](../config.yaml): Added default `jobs:` configuration block while preserving all version and rootless UID/GID `10001` sandbox markers.
+  - Modified [`internal/core/config_test.go`](../internal/core/config_test.go), [`internal/api/config_handlers_test.go`](../internal/api/config_handlers_test.go), and [`cmd/server/main_test.go`](../cmd/server/main_test.go): Added unit tests for YAML parsing, default fallbacks, invalid duration fallbacks, `GET /api/v1/config` multi-config and fallback views, and `initializeServerEnv` applying custom `jobs` limits.
+- **Result**:
+  - `go vet ./...`: passed (`exit 0`).
+  - `go test -count=1 -p 1 -cover ./...`: all `14` Go packages passed (`cmd/server` `86.0%`, `docs` `100.0%`, `internal/api` `85.6%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.7%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `85.5%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `9.445s`).
+  - `go test -count=1 ./tests/e2e/...`: passed (`10.800s`).
+
 ### `ACT-085` — Dedicated Health & Readiness Probe Endpoints (`/health`, `/healthz`, `/readyz`) (`Issue #170`)
 
 - **Date**: 2026-11-24
