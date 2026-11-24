@@ -13,6 +13,22 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-086` — Web Admin Console Zero-Trust Bastion UI (Tab 10 HITL Approvals, Tab 6 MCP Verify/Replay, Live Version Badge, Tab 9 SSE Stream) (`Issue #172`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#172` — `feat/issue-172-webui-hitl-mcp-replay-version`
+- **Request**: Enhance `web/static/index.html` with live `/api/v1/version` header badge, Tab 6 MCP trace chain/per-trace SHA-256 verification and dry-run/live replay controls, Tab 9 `fetch()`-based SSE log streaming with `/logs?offset=` polling fallback, and Tab 10 (`10. HITL Approvals`) management UI; add `TestWebAdministrationConsole_Tab10_HITLApprovalsAndMCPReplay` in `internal/api/web_console_test.go`.
+- **Changes**:
+  - Modified [`web/static/index.html`](../web/static/index.html):
+    - Replaced static `v2.0 Enterprise` header badge with `#app-version-badge` populated via `loadVersion()` (`GET /api/v1/version`, defaulting to `v2.2.0`).
+    - Added Tab 6 (`mcp`) `Verify Trace Chain` (`GET /api/v1/mcp/traces/verify`) with `VALID`/`TAMPERED` badges, per-trace `Verify` (`GET /api/v1/mcp/traces/{id}/verify`), and `Replay (Dry-Run)` / `Replay (Live)` (`POST /api/v1/mcp/traces/{id}/replay`) with `try...catch` and `statusBanner` feedback.
+    - Added Tab 9 (`jobs`) live log modal `streamJobLogsSSE()` using `fetch()` with `this.headers()` + `response.body.getReader()` against `GET /api/v1/jobs/{id}/stream` and clean fallback to `/logs?offset=` polling.
+    - Added Tab 10 (`id: 'approvals'`, `10. HITL Approvals`, `data-tab="approvals"`, `id="tab-approvals"`) with status filters (`all`, `pending`, `approved`, `rejected`, `consumed`, `expired`), approval metadata display (`id`, `status`, `channel:action`, `requester_id`, `payload_sha256`, `gatekeeper_decision`, `risk_score`, `expires_at`), decision comment input, and `Approve` / `Reject` actions (`POST /api/v1/approvals/{id}/approve`, `/reject`), wired `loadVersion()` and `loadApprovals()` into `refreshAll()` `Promise.allSettled([...])`.
+  - Modified [`internal/api/web_console_test.go`](../internal/api/web_console_test.go): Added `TestWebAdministrationConsole_Tab10_HITLApprovalsAndMCPReplay` covering HTML/JS markers and live HTTP roundtrips for `/api/v1/version`, `/api/v1/approvals*`, and `/api/v1/mcp/traces*`.
+- **Result**:
+  - `node --check` on extracted `<script>` block: passed (`0` syntax errors).
+  - `go vet ./...`, `go test -count=1 -p 1 -cover ./...`, and `go test -count=1 ./tests/e2e/...`: all `14` Go packages passed (`cmd/server` `85.0%`, `docs` `100.0%`, `internal/api` `85.5%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.0%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `86.4%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `10.907s`).
+
 ### `ACT-081` — Diátaxis Documentation Portal, ASD-STE100 Runbooks & Versioned MkDocs Publishing (`Issue #162`)
 
 - **Date**: 2026-11-23

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go-admin-tool/internal/approval"
 	"go-admin-tool/internal/audit"
 	"go-admin-tool/internal/auth"
 	"go-admin-tool/internal/core"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -697,6 +699,275 @@ func TestWebAdministrationConsole_Tab9_FormControlsAndEndpoints(t *testing.T) {
 	router.ServeHTTP(badRec, badReq)
 	if badRec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request for invalid job submission, got %d", badRec.Code)
+	}
+}
+
+func TestWebAdministrationConsole_Tab10_HITLApprovalsAndMCPReplay(t *testing.T) {
+	logger, err := core.NewLogger(core.LoggingConfig{Level: "info"})
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	cfg := core.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+	cfg.Auth.Enabled = true
+	cfg.Auth.RequireAuth = true
+	cfg.Approval = core.ApprovalConfig{
+		Enabled:                 true,
+		DefaultTTL:              "10m",
+		MaxPending:              50,
+		RequireDistinctApprover: true,
+		CriticalCommands:        []string{"restart-*"},
+	}
+
+	cmdDef := core.CommandDefinition{Name: "mcp-ui-echo", Command: "sh", Args: []string{"-c", "echo mcp-ui-ok"}}
+	if runtime.GOOS == "windows" {
+		cmdDef = core.CommandDefinition{Name: "mcp-ui-echo", Command: "cmd", Args: []string{"/C", "echo mcp-ui-ok"}}
+	}
+	cfg.Executor.Commands = []core.CommandDefinition{cmdDef}
+
+	db, err := database.NewDB(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer db.Close()
+	if err := db.Init(); err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+
+	auditLogger, err := audit.NewAuditLogger(cfg.Audit, db, logger)
+	if err != nil {
+		t.Fatalf("failed to init audit logger: %v", err)
+	}
+	defer auditLogger.Close()
+
+	authMgr, err := auth.NewManager(cfg.Auth)
+	if err != nil {
+		t.Fatalf("failed to init auth manager: %v", err)
+	}
+	_, _, adminTok, err := authMgr.AuthenticateUser(cfg.Auth.BootstrapUsername, cfg.Auth.BootstrapPassword)
+	if err != nil {
+		t.Fatalf("failed to authenticate admin: %v", err)
+	}
+	admin2, err := authMgr.CreateUser("admin-reviewer", "secret123", "Reviewer Admin", "reviewer@local", auth.RoleAdmin)
+	if err != nil {
+		t.Fatalf("failed to create second admin: %v", err)
+	}
+	_, admin2Tok, err := authMgr.CreateToken(admin2.ID, "reviewer-pat", nil, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to issue reviewer token: %v", err)
+	}
+
+	approvalStore, err := approval.NewStore(cfg.Approval, db, auditLogger)
+	if err != nil {
+		t.Fatalf("failed to init approval store: %v", err)
+	}
+
+	reg := plugins.NewRegistry()
+	_ = reg.Register(plugins.NewSystemDiagnosticsPlugin())
+	mcpSrv, err := mcp.NewServer(cfg.MCP, cfg, db, nil, reg, auditLogger, logger, RecordActionCall)
+	if err != nil {
+		t.Fatalf("failed to init mcp server: %v", err)
+	}
+
+	env := &APIEnv{
+		Config:         cfg,
+		Logger:         logger,
+		DB:             db,
+		AuditLogger:    auditLogger,
+		AuthManager:    authMgr,
+		ApprovalStore:  approvalStore,
+		PluginRegistry: reg,
+		MCPServer:      mcpSrv,
+	}
+	router := NewRouter(env)
+
+	// 1. Verify HTML markers for live version badge, Tab 6 verify/replay, Tab 9 SSE, and Tab 10 HITL approvals
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+
+	requiredMarkers := []string{
+		// Live version badge
+		`id="app-version-badge"`,
+		`loadVersion()`,
+		`/api/v1/version`,
+		`v2.2.0`,
+
+		// Tab 6 MCP trace verify & replay
+		`Verify Trace Chain`,
+		`/api/v1/mcp/traces/verify`,
+		`/verify`,
+		`/replay`,
+		`Replay (Dry-Run)`,
+		`Replay (Live)`,
+		`VALID`,
+		`TAMPERED`,
+		`verifyMCPTraceChain`,
+		`verifyMCPTrace`,
+		`replayMCPTrace`,
+
+		// Tab 9 SSE stream with fetch() + headers() + getReader()
+		`/stream`,
+		`text/event-stream`,
+		`getReader()`,
+		`streamJobLogsSSE`,
+
+		// Tab 10 HITL Approvals
+		`id: 'approvals'`,
+		`10. HITL Approvals`,
+		`data-tab="approvals"`,
+		`id="tab-approvals"`,
+		`approvalFilterStatus`,
+		`'pending'`,
+		`'approved'`,
+		`'rejected'`,
+		`'consumed'`,
+		`'expired'`,
+		`payload_sha256`,
+		`gatekeeper_decision`,
+		`risk_score`,
+		`expires_at`,
+		`/api/v1/approvals`,
+		`/approve`,
+		`/reject`,
+		`loadApprovals()`,
+		`approveApproval`,
+		`rejectApproval`,
+
+		// Defensive error handling markers
+		`Failed to verify MCP trace chain: ' + e`,
+		`Failed to verify MCP trace: ' + e`,
+		`Failed to replay MCP trace: ' + e`,
+		`Failed to load approvals: ' + e`,
+		`Failed to approve request: ' + e`,
+		`Failed to reject request: ' + e`,
+	}
+	for _, marker := range requiredMarkers {
+		if !strings.Contains(body, marker) {
+			t.Errorf("expected web administration console HTML to contain marker %q", marker)
+		}
+	}
+
+	// 2. Live HTTP roundtrip: GET /api/v1/version
+	verReq := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	verRec := httptest.NewRecorder()
+	router.ServeHTTP(verRec, verReq)
+	if verRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /api/v1/version, got %d: %s", verRec.Code, verRec.Body.String())
+	}
+	var verResp struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(verRec.Body.Bytes(), &verResp); err != nil || verResp.Version == "" {
+		t.Fatalf("expected non-empty version from /api/v1/version, got %q (err=%v)", verResp.Version, err)
+	}
+
+	// 3. Live HTTP roundtrip: HITL approval creation, listing, approve & reject
+	pending1, err := approvalStore.Create(approval.CreateParams{
+		Target:        approval.Target{Channel: approval.ChannelCommand, Action: "restart-service"},
+		RequesterID:   "admin",
+		RequesterType: "user",
+		Reason:        "Test approval roundtrip",
+		Metadata: map[string]any{
+			"gatekeeper_decision": "x_abstain",
+			"risk_score":          0.72,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to seed pending approval 1: %v", err)
+	}
+	pending2, err := approvalStore.Create(approval.CreateParams{
+		Target:        approval.Target{Channel: approval.ChannelCommand, Action: "restart-db"},
+		RequesterID:   "admin",
+		RequesterType: "user",
+		Reason:        "Test rejection roundtrip",
+	})
+	if err != nil {
+		t.Fatalf("failed to seed pending approval 2: %v", err)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/approvals?status=pending", nil)
+	listReq.Header.Set("Authorization", "Bearer "+admin2Tok)
+	listRec := httptest.NewRecorder()
+	router.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /api/v1/approvals, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+	var listResp ApprovalListResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("failed to decode approvals list: %v", err)
+	}
+	if listResp.Total < 2 {
+		t.Fatalf("expected >= 2 pending approvals, got %d", listResp.Total)
+	}
+
+	approveBody, _ := json.Marshal(map[string]string{"comment": "Verified via WebUI test"})
+	appReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/approvals/%s/approve", pending1.ID), bytes.NewReader(approveBody))
+	appReq.Header.Set("Authorization", "Bearer "+admin2Tok)
+	appRec := httptest.NewRecorder()
+	router.ServeHTTP(appRec, appReq)
+	if appRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from approve endpoint, got %d: %s", appRec.Code, appRec.Body.String())
+	}
+
+	rejectBody, _ := json.Marshal(map[string]string{"comment": "Denied via WebUI test"})
+	rejReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/approvals/%s/reject", pending2.ID), bytes.NewReader(rejectBody))
+	rejReq.Header.Set("Authorization", "Bearer "+admin2Tok)
+	rejRec := httptest.NewRecorder()
+	router.ServeHTTP(rejRec, rejReq)
+	if rejRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from reject endpoint, got %d: %s", rejRec.Code, rejRec.Body.String())
+	}
+
+	// 4. Live HTTP roundtrip: MCP tool call + trace chain verify + per-trace verify + dry-run replay
+	mcpPayload := `{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"execute_command","arguments":{"name":"mcp-ui-echo"}}}`
+	mcpReq := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", strings.NewReader(mcpPayload))
+	mcpReq.Header.Set("Authorization", "Bearer "+adminTok)
+	mcpReq.Header.Set("X-MCP-Session-ID", "webui-tab10-test")
+	mcpRec := httptest.NewRecorder()
+	router.ServeHTTP(mcpRec, mcpReq)
+	if mcpRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from POST /api/v1/mcp, got %d: %s", mcpRec.Code, mcpRec.Body.String())
+	}
+	traceID := mcpRec.Header().Get("X-MCP-Trace-ID")
+	if traceID == "" {
+		t.Fatalf("expected X-MCP-Trace-ID header from POST /api/v1/mcp")
+	}
+
+	chainReq := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/traces/verify", nil)
+	chainReq.Header.Set("Authorization", "Bearer "+adminTok)
+	chainRec := httptest.NewRecorder()
+	router.ServeHTTP(chainRec, chainReq)
+	if chainRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /api/v1/mcp/traces/verify, got %d: %s", chainRec.Code, chainRec.Body.String())
+	}
+	var chainResp mcp.TraceChainVerificationResult
+	if err := json.Unmarshal(chainRec.Body.Bytes(), &chainResp); err != nil {
+		t.Fatalf("failed to decode trace chain verify response: %v", err)
+	}
+	if !chainResp.Valid || chainResp.TotalTraces < 1 {
+		t.Fatalf("expected valid trace chain with >=1 trace, got %+v", chainResp)
+	}
+
+	singleReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/mcp/traces/%s/verify", traceID), nil)
+	singleReq.Header.Set("Authorization", "Bearer "+adminTok)
+	singleRec := httptest.NewRecorder()
+	router.ServeHTTP(singleRec, singleReq)
+	if singleRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from single trace verify, got %d: %s", singleRec.Code, singleRec.Body.String())
+	}
+
+	replayBody, _ := json.Marshal(map[string]string{"mode": "dry_run"})
+	repReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/mcp/traces/%s/replay", traceID), bytes.NewReader(replayBody))
+	repReq.Header.Set("Authorization", "Bearer "+adminTok)
+	repRec := httptest.NewRecorder()
+	router.ServeHTTP(repRec, repReq)
+	if repRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from dry-run trace replay, got %d: %s", repRec.Code, repRec.Body.String())
 	}
 }
 
