@@ -612,7 +612,7 @@ func TestTutorialsAndHowTos_ExecutableSuite(t *testing.T) {
 			cmdStr := fmt.Sprint(req["command"])
 			toolStr := fmt.Sprint(req["tool_name"])
 			w.Header().Set("Content-Type", "application/json")
-			if strings.Contains(cmdStr, "ps") || strings.Contains(toolStr, "list-processes") {
+			if strings.Contains(cmdStr, "ps") || strings.Contains(cmdStr, "PID TTY TIME CMD") || strings.Contains(toolStr, "list-processes") {
 				_, _ = io.WriteString(w, `{"schema_version":"microllm.guard.v1","decision":"x_abstain","confidence":0.48,"abstain":true,"risk_score":0.62,"primary_threat":"process_enumeration","hijack_suspected":false,"reason":"Borderline host process inspection; escalate to HITL","latency_ms":1.2}`)
 				return
 			}
