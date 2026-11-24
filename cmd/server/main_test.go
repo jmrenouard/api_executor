@@ -889,3 +889,52 @@ database:
 	_ = runServerWithContext(ctx, cfgPath, nil)
 }
 
+func TestInitializeServerEnv_CustomJobsConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "jobs-server.yaml")
+	cfgContent := fmt.Sprintf(`
+server:
+  port: 19099
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+logging:
+  level: "info"
+  path: %q
+database:
+  path: "file::memory:?cache=shared"
+plugins:
+  enabled: false
+jobs:
+  workers_count: 6
+  queue_capacity: 42
+  max_log_bytes: 65536
+  prune_interval: "5m"
+  max_job_age: "48h"
+  max_retained_jobs: 123
+`, filepath.Join(tmpDir, "app.log"))
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv failed: %v", err)
+	}
+	defer cleanup()
+
+	stats := env.JobEngine.QueueStats()
+	if stats.WorkersTotal != 6 {
+		t.Errorf("expected JobEngine WorkersTotal == 6, got %d", stats.WorkersTotal)
+	}
+	if stats.Capacity != 42 {
+		t.Errorf("expected JobEngine Capacity == 42, got %d", stats.Capacity)
+	}
+	if env.Config.Jobs.EffectiveMaxLogBytes() != 65536 ||
+		env.Config.Jobs.EffectivePruneInterval() != 5*time.Minute ||
+		env.Config.Jobs.EffectiveMaxJobAge() != 48*time.Hour ||
+		env.Config.Jobs.EffectiveMaxRetainedJobs() != 123 {
+		t.Errorf("unexpected env.Config.Jobs effective values: %+v", env.Config.Jobs)
+	}
+}
+

@@ -209,7 +209,15 @@ func initializeServerEnv(configPath string) (*api.APIEnv, http.Handler, func(), 
 		}
 	}
 
-	jobEngine, err = jobs.NewEngine(jobs.DefaultEngineConfig(), jobStore, auditLogger, jobExecutor)
+	jobEngineCfg := jobs.EngineConfig{
+		WorkersCount:    config.Jobs.EffectiveWorkersCount(),
+		QueueCapacity:   config.Jobs.EffectiveQueueCapacity(),
+		MaxLogBytes:     config.Jobs.EffectiveMaxLogBytes(),
+		PruneInterval:   config.Jobs.EffectivePruneInterval(),
+		MaxJobAge:       config.Jobs.EffectiveMaxJobAge(),
+		MaxRetainedJobs: config.Jobs.EffectiveMaxRetainedJobs(),
+	}
+	jobEngine, err = jobs.NewEngine(jobEngineCfg, jobStore, auditLogger, jobExecutor)
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("failed to initialize async job engine: %w", err)
