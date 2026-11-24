@@ -59,32 +59,18 @@ L'exposition de centaines de plugins via MCP à des agents IA concurrents a mis 
 
 Au fur et à mesure qu'API Executor est passé d'un utilitaire d'administration modeste à une plateforme d'entreprise orchestrant 305+ plugins (24 plugins natifs en Go pur et 281 plugins déclaratifs en YAML), plusieurs tensions structurelles sont apparues :
 
-```
-+-----------------------------------------------------------------------+
-|                           Agent IA (LLM)                              |
-|                    (Claude / GPT-4 / Gemini / IDE)                     |
-+-----------------------------------------------------------------------+
-                                  |  JSON-RPC 2.0 sur HTTPS
-                                  v
-+-----------------------------------------------------------------------+
-|                    API Executor v2.0 (Serveur Go)                     |
-|                                                                       |
-|  [ Gestionnaire Auth ] ---> Indexation O(1) (Jetons & Comptes de Svc) |
-|         |                                                             |
-|  [ Passerelle MCP ]    ---> Patron Méta-Outil (`execute_plugin`)      |
-|         |                                                             |
-|  [ Moteur Plugins ]    ---> Cache instantané du catalogue pré-trié   |
-|         |                   Regexes de validation précompilées        |
-|         v                                                             |
-|  [ Exécuteur Core ]    ---> Buffer de flux borné (1 Mio MaxOutput)    |
-|         |                   Purge des tubes via cmd.WaitDelay         |
-|         v                                                             |
-|  [ Audit & Base SQL ]  ---> Descripteurs de fichiers ouverts (*os.File)|
-|                             Décorrélation du verrou mémoire et des I/O|
-+-----------------------------------------------------------------------+
-                                  |
-                                  v
-                    [ Sous-processus Linux / Nœuds OS ]
+```mermaid
+flowchart TD
+    Agent["Agent IA (LLM)<br/>(Claude / GPT-4 / Gemini / IDE)"] -->|"JSON-RPC 2.0 sur HTTPS"| Server
+    subgraph Server["API Executor v2.0 (Serveur Go)"]
+        Auth["Gestionnaire Auth : Indexation O(1) (Jetons & Comptes de Svc)"]
+        MCP["Passerelle MCP : Patron Méta-Outil (execute_plugin)"]
+        Plugin["Moteur Plugins : Cache Catalogue Pré-trié & Regexes Précompilées"]
+        Exec["Exécuteur Core : Buffer Borné (1 Mio MaxOutput) & Purge cmd.WaitDelay"]
+        Audit["Audit & Base SQL : Descripteurs Ouverts (*os.File) & Verrou Décorrélé des I/O"]
+        Auth --> MCP --> Plugin --> Exec --> Audit
+    end
+    Audit --> Nodes["Sous-processus Linux / Nœuds OS"]
 ```
 
 ### Le patron Méta-Outil face à la saturation du contexte
