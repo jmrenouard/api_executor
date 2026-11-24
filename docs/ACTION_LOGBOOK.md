@@ -13,6 +13,19 @@ In accordance with [`AGENTS.md`](../AGENTS.md) and [`.agents/rules/atomic-workfl
 
 ## 2. Completed Actions (`COMPLETED`)
 
+### `ACT-083` — Outbound OTLP/HTTP Background Metrics Pusher (`Issue #169`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#169` — `feat/issue-169-otlp-background-pusher`
+- **Request**: Implement the outbound OTLP/HTTP background metrics pusher (`OTLPPusher`) in `internal/api/metrics_otlp.go`, wire startup and graceful shutdown in `cmd/server/main.go`, preserve `GET /api/v1/metrics/otlp` `OTLPExportMetricsRequest` JSON compatibility, add unit and lifecycle tests, and record `RCA-057`.
+- **Changes**:
+  - Modified [`internal/api/metrics_otlp.go`](../internal/api/metrics_otlp.go): Added `OTLPPusher` and `OTLPPusherStats` (`NewOTLPPusher`, `Start`, `PushOnce`, `Close`, `Stats`) with strict `http`/`https` non-empty-host endpoint validation (returning `nil, nil` when disabled or empty), reusable `http.Client` with `EffectiveTimeout()`, TLS `MinVersion: tls.VersionTLS12` + `InsecureSkipVerify`, `CheckRedirect` blocking non-http(s) redirects, custom `Headers` + `Content-Type: application/json`, 4 KiB bounded response draining for keep-alive reuse, ticker loop on `EffectivePushInterval()`, and idempotent `Close()`.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go): Initialized and started `otlpPusher` in `initializeServerEnv` when `config.OTLPExport.Enabled && strings.TrimSpace(config.OTLPExport.Endpoint) != ""`, and stopped it in `cleanup()`.
+  - Modified [`internal/api/metrics_otlp_test.go`](../internal/api/metrics_otlp_test.go) and [`cmd/server/main_test.go`](../cmd/server/main_test.go): Added `TestNewOTLPPusher_NoOpAndValidation`, `TestOTLPPusher_PushOnce_SuccessAndHeaders`, `TestOTLPPusher_PushOnce_ErrorStatusRedirectAndTLS`, `TestOTLPPusher_BackgroundTickerAndCleanClose`, and `TestInitializeServerEnv_OTLPPusherLifecycleAndValidation`.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): Recorded `ACT-083` and `RCA-057`.
+- **Result**:
+  - `go vet ./...`, `go test -count=1 -p 1 -cover ./...` (`14` Go packages: `cmd/server` `85.9%`, `internal/api` `85.4%`), and `go test -count=1 ./tests/e2e/...` (`7.873s`) all passed 100%.
+
 ### `ACT-081` — Diátaxis Documentation Portal, ASD-STE100 Runbooks & Versioned MkDocs Publishing (`Issue #162`)
 
 - **Date**: 2026-11-23
