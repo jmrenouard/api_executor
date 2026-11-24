@@ -94,6 +94,7 @@ func buildFallbackSanitizedView(cfg *core.Config) *core.SanitizedConfigView {
 		MCP:        cfg.MCP,
 		Approval:   cfg.Approval.Sanitized(),
 		Gatekeeper: cfg.Gatekeeper.Sanitized(),
+		Jobs:       cfg.Jobs.Sanitized(),
 		OTLPExport: core.SanitizedOTLPExportConfig{
 			Enabled:            cfg.OTLPExport.Enabled,
 			Endpoint:           cfg.OTLPExport.Endpoint,

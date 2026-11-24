@@ -758,3 +758,79 @@ approval:
 		t.Fatalf("unexpected sanitized approval config: %+v", sanitized)
 	}
 }
+
+func TestJobsConfig_DefaultsYAMLLoadAndSanitized(t *testing.T) {
+	def := core.DefaultConfig()
+	if def.Jobs != core.DefaultJobsConfig() {
+		t.Fatalf("expected DefaultConfig().Jobs to match DefaultJobsConfig(), got %+v", def.Jobs)
+	}
+	if def.Jobs.EffectiveWorkersCount() != 4 ||
+		def.Jobs.EffectiveQueueCapacity() != 1000 ||
+		def.Jobs.EffectiveMaxLogBytes() != (2<<20) ||
+		def.Jobs.EffectivePruneInterval() != 10*time.Minute ||
+		def.Jobs.EffectiveMaxJobAge() != 168*time.Hour ||
+		def.Jobs.EffectiveMaxRetainedJobs() != 10000 {
+		t.Fatalf("unexpected DefaultJobsConfig effective values: %+v", def.Jobs.Sanitized())
+	}
+
+	// Zero and invalid values must safely fall back to defaults.
+	invalid := core.JobsConfig{
+		WorkersCount:    0,
+		QueueCapacity:   -5,
+		MaxLogBytes:     0,
+		PruneInterval:   "not-a-duration",
+		MaxJobAge:       "-10h",
+		MaxRetainedJobs: -1,
+	}
+	sanitizedInvalid := invalid.Sanitized()
+	if sanitizedInvalid.WorkersCount != 4 ||
+		sanitizedInvalid.QueueCapacity != 1000 ||
+		sanitizedInvalid.MaxLogBytes != (2<<20) ||
+		sanitizedInvalid.PruneInterval != "10m0s" ||
+		sanitizedInvalid.MaxJobAge != "168h0m0s" ||
+		sanitizedInvalid.MaxRetainedJobs != 10000 {
+		t.Fatalf("expected invalid JobsConfig to fall back to defaults, got %+v", sanitizedInvalid)
+	}
+
+	// Load custom jobs configuration from YAML.
+	cfgPath := filepath.Join(t.TempDir(), "jobs.yaml")
+	yamlBody := `
+server:
+  port: 8080
+  host: "127.0.0.1"
+jobs:
+  workers_count: 8
+  queue_capacity: 250
+  max_log_bytes: 1048576
+  prune_interval: "2m"
+  max_job_age: "24h"
+  max_retained_jobs: 500
+`
+	if err := os.WriteFile(cfgPath, []byte(yamlBody), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := core.LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.Jobs.EffectiveWorkersCount() != 8 ||
+		cfg.Jobs.EffectiveQueueCapacity() != 250 ||
+		cfg.Jobs.EffectiveMaxLogBytes() != 1048576 ||
+		cfg.Jobs.EffectivePruneInterval() != 2*time.Minute ||
+		cfg.Jobs.EffectiveMaxJobAge() != 24*time.Hour ||
+		cfg.Jobs.EffectiveMaxRetainedJobs() != 500 {
+		t.Fatalf("unexpected loaded JobsConfig effective values: %+v", cfg.Jobs)
+	}
+
+	mgr, err := core.NewMultiConfigManager(cfgPath, cfg)
+	if err != nil {
+		t.Fatalf("NewMultiConfigManager failed: %v", err)
+	}
+	view, err := mgr.SanitizedView("")
+	if err != nil {
+		t.Fatalf("SanitizedView failed: %v", err)
+	}
+	if view.Jobs.WorkersCount != 8 || view.Jobs.QueueCapacity != 250 || view.Jobs.PruneInterval != "2m0s" || view.Jobs.MaxJobAge != "24h0m0s" {
+		t.Fatalf("unexpected SanitizedConfigView.Jobs: %+v", view.Jobs)
+	}
+}

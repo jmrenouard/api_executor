@@ -84,4 +84,12 @@ sandbox:
   no_new_privileges: true
   drop_caps: true
 
+jobs:
+  workers_count: 4
+  queue_capacity: 1000
+  max_log_bytes: 2097152 # 2 MiB
+  prune_interval: "10m"
+  max_job_age: "168h" # 7 days
+  max_retained_jobs: 10000
+
 
