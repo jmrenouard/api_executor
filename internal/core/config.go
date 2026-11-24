@@ -37,6 +37,18 @@ const (
 	DefaultGatekeeperMinConfidence = 0.70
 	// DefaultGatekeeperEnvironment is the default execution environment label passed to MicroLLM.
 	DefaultGatekeeperEnvironment = "production"
+	// DefaultJobsWorkersCount is the default worker pool size for the asynchronous job engine.
+	DefaultJobsWorkersCount = 4
+	// DefaultJobsQueueCapacity is the default queue capacity for the asynchronous job engine.
+	DefaultJobsQueueCapacity = 1000
+	// DefaultJobsMaxLogBytes is the default per-job log buffer capacity (2 MiB).
+	DefaultJobsMaxLogBytes = 2 << 20
+	// DefaultJobsPruneInterval is the default maintenance interval for pruning expired jobs.
+	DefaultJobsPruneInterval = 10 * time.Minute
+	// DefaultJobsMaxJobAge is the default retention age for terminal async jobs (7 days).
+	DefaultJobsMaxJobAge = 168 * time.Hour
+	// DefaultJobsMaxRetainedJobs is the default maximum number of retained async jobs.
+	DefaultJobsMaxRetainedJobs = 10000
 )
 
 type Config struct {
@@ -55,6 +67,7 @@ type Config struct {
 	Audit       AuditConfig      `yaml:"audit,omitempty" json:"audit"`
 	Approval    ApprovalConfig   `yaml:"approval,omitempty" json:"approval,omitempty"`
 	Gatekeeper  GatekeeperConfig `yaml:"gatekeeper,omitempty" json:"gatekeeper,omitempty"`
+	Jobs        JobsConfig       `yaml:"jobs,omitempty" json:"jobs,omitempty"`
 	MultiConfig MultiConfig      `yaml:"multi_config,omitempty" json:"multi_config,omitempty"`
 	OTLPExport  OTLPExportConfig `yaml:"otlp_export,omitempty" json:"otlp_export,omitempty"`
 	Sandbox     SandboxConfig    `yaml:"sandbox" json:"sandbox"`
@@ -217,6 +230,101 @@ func (a ApprovalConfig) Sanitized() SanitizedApprovalConfig {
 		CriticalCommands:        append([]string(nil), a.CriticalCommands...),
 		CriticalPlugins:         append([]string(nil), a.CriticalPlugins...),
 		CriticalMCPTools:        append([]string(nil), a.CriticalMCPTools...),
+	}
+}
+
+// JobsConfig configures the asynchronous job engine worker pool, queue, log buffer, and retention policy.
+type JobsConfig struct {
+	WorkersCount    int    `yaml:"workers_count,omitempty" json:"workers_count,omitempty"`
+	QueueCapacity   int    `yaml:"queue_capacity,omitempty" json:"queue_capacity,omitempty"`
+	MaxLogBytes     int    `yaml:"max_log_bytes,omitempty" json:"max_log_bytes,omitempty"`
+	PruneInterval   string `yaml:"prune_interval,omitempty" json:"prune_interval,omitempty"`
+	MaxJobAge       string `yaml:"max_job_age,omitempty" json:"max_job_age,omitempty"`
+	MaxRetainedJobs int    `yaml:"max_retained_jobs,omitempty" json:"max_retained_jobs,omitempty"`
+}
+
+// DefaultJobsConfig returns sensible default settings for the asynchronous job engine.
+func DefaultJobsConfig() JobsConfig {
+	return JobsConfig{
+		WorkersCount:    DefaultJobsWorkersCount,
+		QueueCapacity:   DefaultJobsQueueCapacity,
+		MaxLogBytes:     DefaultJobsMaxLogBytes,
+		PruneInterval:   DefaultJobsPruneInterval.String(),
+		MaxJobAge:       DefaultJobsMaxJobAge.String(),
+		MaxRetainedJobs: DefaultJobsMaxRetainedJobs,
+	}
+}
+
+func parsePositiveDurationOrDefault(raw string, fallback time.Duration) time.Duration {
+	if strings.TrimSpace(raw) != "" {
+		if d, err := ParseTimeoutDuration(raw); err == nil && d > 0 {
+			return d
+		}
+	}
+	return fallback
+}
+
+// EffectiveWorkersCount returns the configured worker pool size, falling back to DefaultJobsWorkersCount (4).
+func (j JobsConfig) EffectiveWorkersCount() int {
+	if j.WorkersCount > 0 {
+		return j.WorkersCount
+	}
+	return DefaultJobsWorkersCount
+}
+
+// EffectiveQueueCapacity returns the configured job queue capacity, falling back to DefaultJobsQueueCapacity (1000).
+func (j JobsConfig) EffectiveQueueCapacity() int {
+	if j.QueueCapacity > 0 {
+		return j.QueueCapacity
+	}
+	return DefaultJobsQueueCapacity
+}
+
+// EffectiveMaxLogBytes returns the per-job log buffer cap in bytes, falling back to DefaultJobsMaxLogBytes (2 MiB).
+func (j JobsConfig) EffectiveMaxLogBytes() int {
+	if j.MaxLogBytes > 0 {
+		return j.MaxLogBytes
+	}
+	return DefaultJobsMaxLogBytes
+}
+
+// EffectivePruneInterval returns the configured pruning interval, falling back to DefaultJobsPruneInterval (10m).
+func (j JobsConfig) EffectivePruneInterval() time.Duration {
+	return parsePositiveDurationOrDefault(j.PruneInterval, DefaultJobsPruneInterval)
+}
+
+// EffectiveMaxJobAge returns the configured maximum retention age for completed jobs, falling back to DefaultJobsMaxJobAge (168h).
+func (j JobsConfig) EffectiveMaxJobAge() time.Duration {
+	return parsePositiveDurationOrDefault(j.MaxJobAge, DefaultJobsMaxJobAge)
+}
+
+// EffectiveMaxRetainedJobs returns the configured maximum number of retained jobs, falling back to DefaultJobsMaxRetainedJobs (10000).
+func (j JobsConfig) EffectiveMaxRetainedJobs() int {
+	if j.MaxRetainedJobs > 0 {
+		return j.MaxRetainedJobs
+	}
+	return DefaultJobsMaxRetainedJobs
+}
+
+// SanitizedJobsConfig represents the client-facing view of async job engine settings.
+type SanitizedJobsConfig struct {
+	WorkersCount    int    `json:"workers_count"`
+	QueueCapacity   int    `json:"queue_capacity"`
+	MaxLogBytes     int    `json:"max_log_bytes"`
+	PruneInterval   string `json:"prune_interval"`
+	MaxJobAge       string `json:"max_job_age"`
+	MaxRetainedJobs int    `json:"max_retained_jobs"`
+}
+
+// Sanitized returns the client-facing view of JobsConfig with effective defaults resolved.
+func (j JobsConfig) Sanitized() SanitizedJobsConfig {
+	return SanitizedJobsConfig{
+		WorkersCount:    j.EffectiveWorkersCount(),
+		QueueCapacity:   j.EffectiveQueueCapacity(),
+		MaxLogBytes:     j.EffectiveMaxLogBytes(),
+		PruneInterval:   j.EffectivePruneInterval().String(),
+		MaxJobAge:       j.EffectiveMaxJobAge().String(),
+		MaxRetainedJobs: j.EffectiveMaxRetainedJobs(),
 	}
 }
 
@@ -386,6 +494,7 @@ type SanitizedConfigView struct {
 	MCP             MCPConfig                 `json:"mcp"`
 	Approval        SanitizedApprovalConfig   `json:"approval,omitempty"`
 	Gatekeeper      SanitizedGatekeeperConfig `json:"gatekeeper,omitempty"`
+	Jobs            SanitizedJobsConfig       `json:"jobs,omitempty"`
 	OTLPExport      SanitizedOTLPExportConfig `json:"otlp_export,omitempty"`
 	Sandbox         SanitizedSandboxConfig    `json:"sandbox,omitempty"`
 }
@@ -655,6 +764,7 @@ func DefaultConfig() *Config {
 		},
 		Approval:   DefaultApprovalConfig(),
 		Gatekeeper: DefaultGatekeeperConfig(),
+		Jobs:       DefaultJobsConfig(),
 		MultiConfig: MultiConfig{
 			Enabled:        false,
 			Endpoint:       "/api/v1/config",
@@ -1184,6 +1294,7 @@ func (m *MultiConfigManager) SanitizedView(profileName string) (*SanitizedConfig
 		MCP:        cfg.MCP,
 		Approval:   cfg.Approval.Sanitized(),
 		Gatekeeper: cfg.Gatekeeper.Sanitized(),
+		Jobs:       cfg.Jobs.Sanitized(),
 		OTLPExport: SanitizedOTLPExportConfig{
 			Enabled:            cfg.OTLPExport.Enabled,
 			Endpoint:           cfg.OTLPExport.Endpoint,

@@ -828,6 +828,35 @@ This living governance register records all errors encountered, technical dead-e
 - **Result & Non-Regression Test**:
   Verified via `diataxis_check.py --strict --check-ste`, `ste_check.py --mode procedural`, `audit_helpers.py` + Playwright Chromium (`0` errors across `58` pages, `10` Mermaid diagrams, `0` failures), `pytest tests/ -v` (`25 passed`), and `go vet ./...` / `go test`.
 
+### `RCA-057` — Configured `otlp_export` Push Fields Previously Unwired in Server Runtime (`Issue #169`)
+- **Date**: `2026-11-24`
+- **Observed Symptom**:
+  Although `core.OTLPExportConfig` defined `Endpoint`, `PushInterval`, `PushIntervalSeconds`, `Headers`, `Timeout`, `TimeoutSeconds`, and `InsecureSkipVerify` (with `EffectivePushInterval()` and `EffectiveTimeout()` helpers), configuring `otlp_export.enabled: true` with a non-empty `endpoint` never pushed metrics to a collector; only the pull endpoint `GET /api/v1/metrics/otlp` (`OTLPMetricsHandler`) existed.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did configuring `otlp_export.endpoint` emit no outbound telemetry?* No background HTTP client or ticker existed to consume `OTLPExportConfig` push settings.
+  2. *Why was the pull handler alone insufficient?* Standard OTLP collectors and observability backends expect periodic OTLP/HTTP `POST` delivery (`ResourceMetrics` JSON) rather than scraping `/api/v1/metrics/otlp`.
+  3. *Root Cause*: Initial OTLP support (Issue `#134`) delivered schema translation and the pull handler without wiring an outbound `OTLPPusher` into `cmd/server/main.go`.
+- **Applied Change / Fix**:
+  Implemented `OTLPPusher` (`NewOTLPPusher`, `Start`, `PushOnce`, `Close`, `Stats`) in `internal/api/metrics_otlp.go` with strict `http`/`https` endpoint and redirect validation, reusable keep-alive `http.Client`, 4 KiB response body capping, custom header injection, and mutex-protected telemetry stats, and wired its lifecycle into `initializeServerEnv` and `cleanup()` in `cmd/server/main.go`.
+- **Result & Non-Regression Test**:
+  Verified by `TestNewOTLPPusher_NoOpAndValidation`, `TestOTLPPusher_PushOnce_SuccessAndHeaders`, `TestOTLPPusher_PushOnce_ErrorStatusRedirectAndTLS`, `TestOTLPPusher_BackgroundTickerAndCleanClose` (`internal/api/metrics_otlp_test.go`), and `TestInitializeServerEnv_OTLPPusherLifecycleAndValidation` (`cmd/server/main_test.go`).
+
+### `RCA-058` — `/health` Listed in `knownStaticPaths` Without a Mounted Handler and `Dockerfile` `HEALTHCHECK` Targeting `/metrics` (`Issue #170`)
+- **Date**: `2026-11-24`
+- **Observed Symptom**:
+  `/health` was registered in `knownStaticPaths` and `registeredVersionPaths` in `internal/api/router.go`, yet no HTTP handler was mounted on `mux` for `/health`, `/healthz`, or `/readyz`. Requests to `/health` fell through to the `/` static SPA file server (`404 Not Found`), and the root `Dockerfile` `HEALTHCHECK` probed `https://127.0.0.1:8080/metrics` instead of a dedicated liveness probe.
+- **Root Cause Analysis (5 Whys)**:
+  1. *Why did `GET /health` fall through to the static file server?* `NewRouter` had no `mux.Handle("/health", ...)` registration despite `/health` being listed in `knownStaticPaths` and `registeredVersionPaths`.
+  2. *Why was `/metrics` used in `Dockerfile` `HEALTHCHECK`?* At the time `Dockerfile` was authored, `/metrics` was the only unauthenticated `200 OK` operational endpoint mounted on `mux`.
+  3. *Why was that suboptimal?* Scraping full Prometheus metrics on every 30s container healthcheck adds unnecessary exposition overhead, and container orchestrators/Kubernetes require distinct lightweight liveness (`/health`, `/healthz`) and subsystem readiness (`/readyz`) endpoints.
+  4. *Root Cause*: Missing dedicated liveness and readiness handlers (`HealthHandler`, `ReadinessHandler`) in `internal/api`.
+- **Applied Change / Fix**:
+  1. Created `internal/api/health_handlers.go` implementing `HealthHandler` (`GET /health`, `GET /healthz`) and `ReadinessHandler` (`GET /readyz`) with active `database`, `tls`, and `jobs` checks, `405` + `Allow: GET` enforcement, and zero secret/path disclosure.
+  2. Mounted `/health`, `/healthz`, and `/readyz` in `internal/api/router.go` and registered `/healthz` and `/readyz` in `knownStaticPaths` and `registeredVersionPaths`.
+  3. Updated `Dockerfile` `HEALTHCHECK` URL to `https://127.0.0.1:8080/health`.
+- **Result & Non-Regression Test**:
+  Verified by `internal/api/health_handlers_test.go` and `internal/api/router_test.go`.
+
 ---
 
 ## 2. Technical Dead-Ends & Abandoned Leads (`IMP-XXX`)
@@ -940,7 +969,7 @@ This living governance register records all errors encountered, technical dead-e
 | `IDEA-005` | `P3` | `internal/mcp` | Streamable HTTP / SSE notification stream and stdio CLI bridge for local desktop MCP hosts. |
 | `IDEA-006` | `P3` | `web/static` | Virtualized catalog scrolling / infinite scroll for Web Console Tab 5 when plugin ecosystem scales beyond 1,000 plugins. |
 | `IDEA-007` | `P2` | `internal/jobs` | Distributed Redis / PostgreSQL queue backend and persistent S3/MinIO chunked log streaming for multi-node deployments. |
-| `IDEA-008` | `P2` | `internal/api` | WebSocket / Server-Sent Events (SSE) live push streaming endpoint (`/api/v1/jobs/{id}/stream`) for real-time output and status updates without client HTTP offset polling. |
+| `IDEA-008` | `P2` | `internal/api` | **(Implemented in `ACT-087` / Issue `#171`)** WebSocket / Server-Sent Events (SSE) live push streaming endpoint (`/api/v1/jobs/{id}/stream`) for real-time output and status updates without client HTTP offset polling. |
 | `IDEA-009` | `P3` | `internal/jobs` | Job Dependency DAG & Workflow Chaining: Allow defining multi-step workflow pipelines where downstream jobs execute only upon successful completion of prerequisite jobs (e.g., diagnostic run followed by automated remediation). |
 | `IDEA-010` | `P3` | `web/static` | Web Console Live Output Terminal via xterm.js: Upgrade Tab 9 log modal with ANSI color escape code rendering and interactive terminal controls. |
 | `IDEA-011` | `P3` | `packaging` | Native OS package manager distribution: Homebrew formula for macOS, Winget / Chocolatey manifests for Windows, and automated Debian (.deb) / RPM (.rpm) package generation via GoReleaser or nfpm. |

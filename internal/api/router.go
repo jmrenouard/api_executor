@@ -434,11 +434,18 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap exposes the wrapped http.ResponseWriter to http.ResponseController and Flusher resolution.
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
 // knownStaticPaths contains recognized static endpoint paths whose cardinality is strictly bounded.
 var knownStaticPaths = map[string]struct{}{
 	"/":                                    {},
 	"/index.html":                          {},
 	"/health":                              {},
+	"/healthz":                             {},
+	"/readyz":                              {},
 	"/metrics":                             {},
 	"/api/v1/metrics/otlp":                 {},
 	"/swagger":                             {},
@@ -545,6 +552,9 @@ func normalizeMetricPath(path string) string {
 		if len(parts) == 2 {
 			if parts[1] == "logs" {
 				return "/api/v1/jobs/:id/logs"
+			}
+			if parts[1] == "stream" {
+				return "/api/v1/jobs/:id/stream"
 			}
 			if parts[1] == "cancel" {
 				return "/api/v1/jobs/:id/cancel"
@@ -689,6 +699,11 @@ func NewRouter(env *APIEnv) http.Handler {
 	mux.Handle("/api/v1/approvals", http.HandlerFunc(env.ApprovalsHandler))
 	mux.Handle("/api/v1/approvals/", http.HandlerFunc(env.ApprovalSubroutesHandler))
 
+	// Health & Readiness Probes
+	mux.Handle("/health", http.HandlerFunc(env.HealthHandler))
+	mux.Handle("/healthz", http.HandlerFunc(env.HealthHandler))
+	mux.Handle("/readyz", http.HandlerFunc(env.ReadinessHandler))
+
 	// Metrics
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/api/v1/metrics/otlp", http.HandlerFunc(env.OTLPMetricsHandler))
@@ -707,6 +722,8 @@ func NewRouter(env *APIEnv) http.Handler {
 		"/":                                    {},
 		"/index.html":                          {},
 		"/health":                              {},
+		"/healthz":                             {},
+		"/readyz":                              {},
 		"/metrics":                             {},
 		"/api/v1/metrics/otlp":                 {},
 		"/api/v1/metrics/otlp/":                {},

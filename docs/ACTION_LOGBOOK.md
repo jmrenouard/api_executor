@@ -29,6 +29,66 @@ _None._
   - `node --check` on extracted `<script>` block: passed (`0` syntax errors).
   - `go vet ./...`, `go test -count=1 -p 1 -cover ./...`, and `go test -count=1 ./tests/e2e/...` (post-merge with `origin/main`): all `14` Go packages passed.
 
+### `ACT-087` — Server-Sent Events (SSE) Job Log & Status Stream (`Issue #171`, `IDEA-008`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#171` — `feat/issue-171-sse-job-log-stream`
+- **Request**: Implement `GET /api/v1/jobs/{id}/stream` (SSE live push streaming for job logs and status transitions with `Last-Event-ID` / `?offset=` resume, `WriteTimeout` deadline clearing, RBAC, and bounded Prometheus route normalization) and expose `stream_url` in `SubmitJobResponse`.
+- **Changes**:
+  - Created [`internal/api/job_stream.go`](../internal/api/job_stream.go): Implemented `StreamJobLogsHandler` enforcing `JobEngine != nil` (`503`), `jobs:read` RBAC + audit denial (`401`/`403`), `GetJob` (`404`), `?offset=` and `Last-Event-ID` resume, `http.Flusher` verification (`500`), per-connection `http.NewResponseController(w).SetWriteDeadline(time.Time{})` deadline clearing, SSE headers (`text/event-stream`, `no-cache`, `keep-alive`, `X-Accel-Buffering: no`), `100ms` poll + `15s` `: keepalive` heartbeat + `r.Context().Done()` cancellation, emitting `status`, `log`, and terminal `done` (`eof: true`) events.
+  - Modified [`internal/api/job_handlers.go`](../internal/api/job_handlers.go): Dispatched `case "stream":` (`GET` only, `405` + `Allow: GET` otherwise) in `JobSubroutesHandler` and added `StreamURL` (`stream_url`) to `SubmitJobResponse`.
+  - Modified [`internal/api/router.go`](../internal/api/router.go) and [`internal/api/security_middleware.go`](../internal/api/security_middleware.go): Normalized `/api/v1/jobs/:id/stream` in `normalizeMetricPath` and added `Unwrap() http.ResponseWriter` to `responseWriter` and `maxBytesResponseWriter` for `http.ResponseController` and `http.Flusher` propagation.
+  - Created [`internal/api/job_stream_test.go`](../internal/api/job_stream_test.go) and updated [`internal/api/router_test.go`](../internal/api/router_test.go): Verified live SSE `status`/`log`/`done` streaming, incremental running updates, `?offset=` and `Last-Event-ID` resume, `401`/`403`/`404`/`405`/`500`/`503` enforcement, client cancel without goroutine leaks, `WriteTimeout` clearing with keepalives, and Prometheus route normalization.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-087`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (marked `IDEA-008` implemented).
+- **Result**:
+  - Verified `go vet ./...`, `go test -count=1 -p 1 -cover ./...`, and `go test -count=1 ./tests/e2e/...` pass 100% across all 14 Go packages.
+
+### `ACT-086` — Configurable Async Job Engine via `config.yaml` (`Issue #168`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#168` — `feat/issue-168-configurable-job-engine`
+- **Request**: Make the asynchronous job engine (`workers_count`, `queue_capacity`, `max_log_bytes`, `prune_interval`, `max_job_age`, `max_retained_jobs`) configurable via `config.yaml`, expose sanitized job engine configuration in `GET /api/v1/config`, wire effective values in `cmd/server/main.go`, and cover with unit tests.
+- **Changes**:
+  - Modified [`internal/core/config.go`](../internal/core/config.go): Added `JobsConfig`, `DefaultJobsConfig()`, safe effective getters (`EffectiveWorkersCount` default `4`, `EffectiveQueueCapacity` default `1000`, `EffectiveMaxLogBytes` default `2<<20`, `EffectivePruneInterval` default `10m`, `EffectiveMaxJobAge` default `168h`, `EffectiveMaxRetainedJobs` default `10000`), `SanitizedJobsConfig`, `JobsConfig.Sanitized()`, `Config.Jobs`, and `SanitizedConfigView.Jobs` populated in `DefaultConfig()` and `MultiConfigManager.SanitizedView`.
+  - Modified [`internal/api/config_handlers.go`](../internal/api/config_handlers.go): Included `Jobs: cfg.Jobs.Sanitized()` in `buildFallbackSanitizedView`.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go): Replaced `jobs.DefaultEngineConfig()` with `jobs.EngineConfig` populated from `config.Jobs.Effective*()`.
+  - Modified [`config.yaml`](../config.yaml): Added default `jobs:` configuration block while preserving all version and rootless UID/GID `10001` sandbox markers.
+  - Modified [`internal/core/config_test.go`](../internal/core/config_test.go), [`internal/api/config_handlers_test.go`](../internal/api/config_handlers_test.go), and [`cmd/server/main_test.go`](../cmd/server/main_test.go): Added unit tests for YAML parsing, default fallbacks, invalid duration fallbacks, `GET /api/v1/config` multi-config and fallback views, and `initializeServerEnv` applying custom `jobs` limits.
+- **Result**:
+  - `go vet ./...`: passed (`exit 0`).
+  - `go test -count=1 -p 1 -cover ./...`: all `14` Go packages passed (`cmd/server` `86.0%`, `docs` `100.0%`, `internal/api` `85.6%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.7%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `85.5%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `9.445s`).
+  - `go test -count=1 ./tests/e2e/...`: passed (`10.800s`).
+
+### `ACT-085` — Dedicated Health & Readiness Probe Endpoints (`/health`, `/healthz`, `/readyz`) (`Issue #170`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#170` — `feat/issue-170-health-readiness-probes`
+- **Request**: Implement dedicated unauthenticated liveness (`/health`, `/healthz`) and subsystem readiness (`/readyz`) probe endpoints, mount them in `internal/api/router.go`, update `Dockerfile` `HEALTHCHECK` from `/metrics` to `/health`, add unit and router metric normalization tests, and record `RCA-058` in `docs/RCA_REGISTER.md`.
+- **Changes**:
+  - Created [`internal/api/health_handlers.go`](../internal/api/health_handlers.go): Implemented `HealthHandler` (`GET /health`, `GET /healthz`) returning `200 OK` JSON (`status`, `uptime_seconds`, `version`, `tls_enabled`) without exposing secrets or file paths, and `ReadinessHandler` (`GET /readyz`) checking active subsystems (`database`, `tls`, `jobs`) and returning `200 OK` (`ready`) or `503 Service Unavailable` (`not_ready`), both enforcing `405 Method Not Allowed` with `Allow: GET`.
+  - Modified [`internal/api/router.go`](../internal/api/router.go): Mounted `/health`, `/healthz`, and `/readyz` on `mux` and added `"/healthz"` and `"/readyz"` to `knownStaticPaths` and `registeredVersionPaths`.
+  - Modified [`Dockerfile`](../Dockerfile): Updated `HEALTHCHECK` URL from `https://127.0.0.1:8080/metrics` to `https://127.0.0.1:8080/health` while preserving `wget --no-check-certificate -qO-` and UID `10001` hardening.
+  - Created [`internal/api/health_handlers_test.go`](../internal/api/health_handlers_test.go) and updated [`internal/api/router_test.go`](../internal/api/router_test.go): Added coverage for liveness/readiness `200 OK`, `405` + `Allow: GET`, `503` degraded readiness (closed SQL DB, expired TLS cert, and full job queue), public access with `RequireAuth: true`, secret/path redaction, and `normalizeMetricPath`.
+  - Updated [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) (`ACT-085`) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md) (`RCA-058`).
+- **Result**:
+  - `go vet ./...`: passed (`exit 0`).
+  - `go test -count=1 -p 1 -cover ./...`: all 14 packages passed (`cmd/server` `85.0%`, `docs` `100.0%`, `internal/api` `85.7%`, `internal/approval` `60.4%`, `internal/audit` `94.2%`, `internal/auth` `92.0%`, `internal/core` `82.0%`, `internal/database` `94.6%`, `internal/gatekeeper` `77.0%`, `internal/jobs` `85.5%`, `internal/mcp` `80.1%`, `internal/plugins` `83.3%`, `internal/version` `90.6%`, `tests/e2e` `12.702s`).
+  - `go test -count=1 ./tests/e2e/...`: passed (`12.345s`).
+  - Pending `/ponytail-review` and PR merge.
+
+### `ACT-084` — Outbound OTLP/HTTP Background Metrics Pusher (`Issue #169`)
+
+- **Date**: 2026-11-24
+- **GitHub Issue / Branch**: `#169` — `feat/issue-169-otlp-background-pusher`
+- **Request**: Implement the outbound OTLP/HTTP background metrics pusher (`OTLPPusher`) in `internal/api/metrics_otlp.go`, wire startup and graceful shutdown in `cmd/server/main.go`, preserve `GET /api/v1/metrics/otlp` `OTLPExportMetricsRequest` JSON compatibility, add unit and lifecycle tests, and record `RCA-057`.
+- **Changes**:
+  - Modified [`internal/api/metrics_otlp.go`](../internal/api/metrics_otlp.go): Added `OTLPPusher` and `OTLPPusherStats` (`NewOTLPPusher`, `Start`, `PushOnce`, `Close`, `Stats`) with strict `http`/`https` non-empty-host endpoint validation (returning `nil, nil` when disabled or empty), reusable `http.Client` with `EffectiveTimeout()`, TLS `MinVersion: tls.VersionTLS12` + `InsecureSkipVerify`, `CheckRedirect` blocking non-http(s) redirects, custom `Headers` + `Content-Type: application/json`, 4 KiB bounded response draining for keep-alive reuse, ticker loop on `EffectivePushInterval()`, and idempotent `Close()`.
+  - Modified [`cmd/server/main.go`](../cmd/server/main.go): Initialized and started `otlpPusher` in `initializeServerEnv` when `config.OTLPExport.Enabled && strings.TrimSpace(config.OTLPExport.Endpoint) != ""`, and stopped it in `cleanup()`.
+  - Modified [`internal/api/metrics_otlp_test.go`](../internal/api/metrics_otlp_test.go) and [`cmd/server/main_test.go`](../cmd/server/main_test.go): Added `TestNewOTLPPusher_NoOpAndValidation`, `TestOTLPPusher_PushOnce_SuccessAndHeaders`, `TestOTLPPusher_PushOnce_ErrorStatusRedirectAndTLS`, `TestOTLPPusher_BackgroundTickerAndCleanClose`, and `TestInitializeServerEnv_OTLPPusherLifecycleAndValidation`.
+  - Modified [`docs/ACTION_LOGBOOK.md`](ACTION_LOGBOOK.md) and [`docs/RCA_REGISTER.md`](RCA_REGISTER.md): Recorded `ACT-084` and `RCA-057`.
+- **Result**:
+  - `go vet ./...`, `go test -count=1 -p 1 -cover ./...` (`14` Go packages: `cmd/server` `85.9%`, `internal/api` `85.4%`), and `go test -count=1 ./tests/e2e/...` (`7.232s`) all passed 100%.
+
 ### `ACT-083` — Executable Go E2E Verification Suite for Tutorials & How-To Runbooks (`Issue #166`)
 
 - **Date**: 2026-11-24

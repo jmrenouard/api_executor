@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -887,5 +888,130 @@ database:
 	defer cancel()
 
 	_ = runServerWithContext(ctx, cfgPath, nil)
+}
+
+func TestInitializeServerEnv_CustomJobsConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "jobs-server.yaml")
+	cfgContent := fmt.Sprintf(`
+server:
+  port: 19099
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+logging:
+  level: "info"
+  path: %q
+database:
+  path: "file::memory:?cache=shared"
+plugins:
+  enabled: false
+jobs:
+  workers_count: 6
+  queue_capacity: 42
+  max_log_bytes: 65536
+  prune_interval: "5m"
+  max_job_age: "48h"
+  max_retained_jobs: 123
+`, filepath.Join(tmpDir, "app.log"))
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	env, _, cleanup, err := initializeServerEnv(cfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv failed: %v", err)
+	}
+	defer cleanup()
+
+	stats := env.JobEngine.QueueStats()
+	if stats.WorkersTotal != 6 {
+		t.Errorf("expected JobEngine WorkersTotal == 6, got %d", stats.WorkersTotal)
+	}
+	if stats.Capacity != 42 {
+		t.Errorf("expected JobEngine Capacity == 42, got %d", stats.Capacity)
+	}
+	if env.Config.Jobs.EffectiveMaxLogBytes() != 65536 ||
+		env.Config.Jobs.EffectivePruneInterval() != 5*time.Minute ||
+		env.Config.Jobs.EffectiveMaxJobAge() != 48*time.Hour ||
+		env.Config.Jobs.EffectiveMaxRetainedJobs() != 123 {
+		t.Errorf("unexpected env.Config.Jobs effective values: %+v", env.Config.Jobs)
+	}
+}
+
+func TestInitializeServerEnv_OTLPPusherLifecycleAndValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Invalid OTLP endpoint scheme fails initialization cleanly
+	badCfgPath := filepath.Join(tmpDir, "bad-otlp.yaml")
+	badCfg := `
+server:
+  port: 19099
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+otlp_export:
+  enabled: true
+  endpoint: "file:///etc/passwd"
+`
+	if err := os.WriteFile(badCfgPath, []byte(badCfg), 0600); err != nil {
+		t.Fatalf("failed to write bad OTLP config: %v", err)
+	}
+	if _, _, _, err := initializeServerEnv(badCfgPath); err == nil {
+		t.Fatalf("expected initializeServerEnv to reject file:// OTLP endpoint")
+	}
+
+	// 2. Valid OTLP endpoint starts background pusher and cleanup stops it
+	var pushCount atomic.Int32
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pushCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer collector.Close()
+
+	goodCfgPath := filepath.Join(tmpDir, "good-otlp.yaml")
+	goodCfg := fmt.Sprintf(`
+server:
+  port: 19100
+  host: "127.0.0.1"
+  tls:
+    enabled: false
+database:
+  path: "file::memory:?cache=shared"
+otlp_export:
+  enabled: true
+  endpoint: %q
+  push_interval: "20ms"
+  timeout: "1s"
+`, collector.URL+"/v1/metrics")
+	if err := os.WriteFile(goodCfgPath, []byte(goodCfg), 0600); err != nil {
+		t.Fatalf("failed to write good OTLP config: %v", err)
+	}
+
+	_, _, cleanup, err := initializeServerEnv(goodCfgPath)
+	if err != nil {
+		t.Fatalf("initializeServerEnv with OTLP failed: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if pushCount.Load() >= 1 {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if pushCount.Load() < 1 {
+		cleanup()
+		t.Fatalf("expected OTLP background pusher to emit at least 1 push")
+	}
+
+	cleanup()
+	afterCleanup := pushCount.Load()
+	time.Sleep(80 * time.Millisecond)
+	if pushCount.Load() != afterCleanup {
+		t.Errorf("expected no OTLP pushes after cleanup(), got %d -> %d", afterCleanup, pushCount.Load())
+	}
 }
 
